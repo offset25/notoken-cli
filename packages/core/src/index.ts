@@ -80,9 +80,15 @@ export { checkForUpdate, checkForUpdateSync, runUpdate, formatUpdateBanner, type
 export {
   detectProviders, formatStatus, goOffline, goOnline, disableLLM, enableLLM,
   isOfflineMode, isLLMDisabled, recordOfflineCommand, getTokensSaved,
-  formatTokensSaved, formatTokensSavedBrief, saveOnExit,
+  formatTokensSaved, formatTokensSavedBrief, saveOnExit, getSessionId,
   type LLMProvider, type LLMState,
 } from "./utils/llmManager.js";
+
+// ── Session Summaries ──
+export {
+  getRecentSessions, getSessionsForFolder, formatSessionSummary, formatSessionList,
+  type SessionSummary,
+} from "./utils/sessionSummary.js";
 
 // ── Logging ──
 export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
