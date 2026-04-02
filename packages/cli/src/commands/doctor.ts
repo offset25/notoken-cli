@@ -25,8 +25,8 @@ import { resolve } from "node:path";
 import { homedir } from "node:os";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { detectLocalPlatform, getInstallCommand, type PlatformInfo } from "@notoken/core";
-import { CONFIG_DIR, USER_HOME, DATA_DIR, LOG_DIR, ensureUserDirs } from "@notoken/core";
+import { detectLocalPlatform, getInstallCommand, type PlatformInfo } from "notoken-core";
+import { CONFIG_DIR, USER_HOME, DATA_DIR, LOG_DIR, ensureUserDirs } from "notoken-core";
 
 const c = {
   reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",

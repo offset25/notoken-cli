@@ -1,5 +1,5 @@
 {
-  "name": "@notoken/core",
+  "name": "notoken-core",
   "version": "1.0.0",
   "description": "Shared engine for notoken — NLP parsing, execution, detection, analysis",
   "type": "module",

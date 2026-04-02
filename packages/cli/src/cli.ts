@@ -3,7 +3,7 @@ import {
   formatParsedCommand, formatVerbose, formatExplain,
   llmFallback, formatLLMFallback, isLLMConfigured, disambiguate,
   type DynamicIntent,
-} from "@notoken/core";
+} from "notoken-core";
 
 // askForConfirmation is CLI-specific, keep local
 import readline from "node:readline/promises";

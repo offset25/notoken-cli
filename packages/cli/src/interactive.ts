@@ -1,33 +1,33 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { parseIntent } from "@notoken/core";
-import { askForConfirmation } from "@notoken/core";
-import { isDangerous, validateIntent, getRiskLevel } from "@notoken/core";
-import { executeIntent } from "@notoken/core";
-import { taskRunner, type BackgroundTask } from "@notoken/core";
-import { agentSpawner, type AgentHandle } from "@notoken/core";
-import { createPlan, formatPlan } from "@notoken/core";
-import { formatVerbose, formatTaskNotification, formatJobsList } from "@notoken/core";
-import { loadHosts } from "@notoken/core";
-import { tokenize } from "@notoken/core";
-import { loadRules } from "@notoken/core";
-import { classifyMulti } from "@notoken/core";
-import { analyzeUncertainty, logUncertainty, getUncoveredSpans } from "@notoken/core";
+import { parseIntent } from "notoken-core";
+import { askForConfirmation } from "notoken-core";
+import { isDangerous, validateIntent, getRiskLevel } from "notoken-core";
+import { executeIntent } from "notoken-core";
+import { taskRunner, type BackgroundTask } from "notoken-core";
+import { agentSpawner, type AgentHandle } from "notoken-core";
+import { createPlan, formatPlan } from "notoken-core";
+import { formatVerbose, formatTaskNotification, formatJobsList } from "notoken-core";
+import { loadHosts } from "notoken-core";
+import { tokenize } from "notoken-core";
+import { loadRules } from "notoken-core";
+import { classifyMulti } from "notoken-core";
+import { analyzeUncertainty, logUncertainty, getUncoveredSpans } from "notoken-core";
 import {
   getOrCreateConversation, addUserTurn, addSystemTurn, saveConversation,
   listConversations, getRecentEntities,
   type Conversation,
-} from "@notoken/core";
+} from "notoken-core";
 import {
   resolveCoreferences, extractEntitiesFromFields,
-} from "@notoken/core";
+} from "notoken-core";
 import {
   redactSecrets, listSecrets, saveSecretsToFile, resolvePlaceholders, clearSecrets,
-} from "@notoken/core";
-import { getPlaybook, formatPlaybookList, runPlaybook } from "@notoken/core";
-import { detectLocalPlatform, formatPlatform } from "@notoken/core";
-import { listBackups, formatBackupList, rollback, cleanExpiredBackups } from "@notoken/core";
-import { llmFallback, formatLLMFallback, isLLMConfigured } from "@notoken/core";
+} from "notoken-core";
+import { getPlaybook, formatPlaybookList, runPlaybook } from "notoken-core";
+import { detectLocalPlatform, formatPlatform } from "notoken-core";
+import { listBackups, formatBackupList, rollback, cleanExpiredBackups } from "notoken-core";
+import { llmFallback, formatLLMFallback, isLLMConfigured } from "notoken-core";
 
 const c = {
   reset: "\x1b[0m",
@@ -68,7 +68,7 @@ export async function runInteractive(options: { autoLearn?: boolean } = {}): Pro
   // Show startup banner with platform info
   const platform = detectLocalPlatform();
   const wslTag = platform.isWSL ? ` ${c.yellow}(WSL)${c.reset}` : "";
-  const { getLLMBackend } = await import("@notoken/core");
+  const { getLLMBackend } = await import("notoken-core");
   const llmBackend = getLLMBackend();
   const llmTag = llmBackend ? ` ${c.green}LLM:${llmBackend}${c.reset}` : "";
 
@@ -183,7 +183,7 @@ export async function runInteractive(options: { autoLearn?: boolean } = {}): Pro
     // If coreference gave us a full resolved intent, use it directly
     let parsed;
     if (coref.resolvedIntent) {
-      const { disambiguate } = await import("@notoken/core");
+      const { disambiguate } = await import("notoken-core");
       parsed = disambiguate(coref.resolvedIntent);
     } else {
       // ── Check for multi-step plan ──
@@ -549,7 +549,7 @@ ${c.bold}Other:${c.reset}
     }
 
     case ":uncertainty": {
-      const { getUncertaintySummary } = await import("@notoken/core");
+      const { getUncertaintySummary } = await import("notoken-core");
       const summary = getUncertaintySummary();
       if (summary.length === 0) {
         console.log(`${c.dim}No uncertainty data.${c.reset}`);
@@ -694,7 +694,7 @@ function buildSshCommand(env: string, cmd: string): string {
 }
 
 async function runSshDirect(env: string, cmd: string): Promise<void> {
-  const { runRemoteCommand } = await import("@notoken/core");
+  const { runRemoteCommand } = await import("notoken-core");
   try {
     console.log(await runRemoteCommand(env, cmd));
   } catch (err) {
@@ -766,7 +766,7 @@ async function runAutoHeal(notifications: string[], foreground = false): Promise
         notifications.push(`${c.dim}Rules updated. Backups saved.${c.reset}`);
 
         // Reload config
-        const { loadIntents: reloadIntents, loadRules: reloadRules } = await import("@notoken/core");
+        const { loadIntents: reloadIntents, loadRules: reloadRules } = await import("notoken-core");
         reloadIntents(true);
         reloadRules(true);
       }

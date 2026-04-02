@@ -1,6 +1,6 @@
 {
   "name": "notoken",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Token-free terminal copilot — NLP-based server operations CLI",
   "type": "module",
   "license": "MIT",
@@ -20,8 +20,19 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist/", "service.js"],
-  "keywords": ["cli", "nlp", "devops", "server-operations", "sysadmin", "offline", "copilot"],
+  "files": [
+    "dist/",
+    "service.js"
+  ],
+  "keywords": [
+    "cli",
+    "nlp",
+    "devops",
+    "server-operations",
+    "sysadmin",
+    "offline",
+    "copilot"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
@@ -29,7 +40,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@notoken/core": "*"
+    "notoken-core": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
