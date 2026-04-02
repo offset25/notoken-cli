@@ -121,26 +121,46 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return null; // default — use current env
   }
 
+  // Resolve Node 22 binary path once — nvm sourcing doesn't survive subshells/nohup
+  let _node22Path: string | null = null;
+  async function getNode22(): Promise<string> {
+    if (_node22Path) return _node22Path;
+    const searchDirs = [`${process.env.HOME}/.nvm`, "/home/ino/.nvm", "/root/.nvm"];
+    for (const dir of searchDirs) {
+      const found = await runLocalCommand(`ls -1 ${dir}/versions/node/v22*/bin/node 2>/dev/null | tail -1`).catch(() => "");
+      if (found.trim()) { _node22Path = found.trim(); return _node22Path; }
+    }
+    // Fallback: try system node
+    _node22Path = (await runLocalCommand("which node").catch(() => "node")).trim();
+    return _node22Path;
+  }
+
   /** Run an openclaw command on the specified environment(s). */
-  async function runOcCmd(cmd: string, target: OcEnv | null, env: Awaited<ReturnType<typeof detectOcEnv>>): Promise<string> {
+  async function runOcCmd(cmd: string, target: OcEnv | null, env: Awaited<ReturnType<typeof detectOcEnv>>, timeout = 30_000): Promise<string> {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
 
     // Resolve target — default to current env
     const effective = target ?? (env.inWSL ? "wsl" : "wsl");
     setLastOcEnv(effective === "both" ? "wsl" : effective);
 
+    // Build openclaw command with Node 22 binary directly
+    const node22 = await getNode22();
+    const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+    // Replace "openclaw" at start of cmd with node22 + ocBin
+    const wslCmd = cmd.replace(/^openclaw\b/, `${node22} ${ocBin}`);
+
     if (effective === "both") {
       const results: string[] = [];
       if (env.wslInstalled) {
         results.push(`${cc.bold}${cc.cyan}[WSL]${cc.reset}`);
-        results.push(await runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
+        results.push(await runLocalCommand(`${wslCmd} 2>&1`, timeout).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
       } else {
         results.push(`${cc.bold}${cc.cyan}[WSL]${cc.reset} ${cc.dim}Not installed${cc.reset}`);
       }
       if (env.winInstalled) {
         results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset}`);
         const winCmd = cmd.replace(/'/g, '"');
-        results.push(await runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, 30_000).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
+        results.push(await runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, timeout).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
       } else {
         results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset} ${cc.dim}Not installed${cc.reset}`);
       }
@@ -152,16 +172,14 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       if (!env.winInstalled) return `${cc.yellow}⚠ OpenClaw not installed on Windows host.${cc.reset}\n${cc.dim}Install: open PowerShell and run: npm install -g openclaw${cc.reset}`;
       setLastOcEnv("windows");
       const winCmd = cmd.replace(/'/g, '"');
-      return runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, 30_000);
+      return runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, timeout);
     }
 
-    // WSL / native Linux
+    // WSL / native Linux — use Node 22 directly
     setLastOcEnv("wsl");
     try {
-      return await runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000);
+      return await runLocalCommand(`${wslCmd} 2>&1`, timeout);
     } catch (err: unknown) {
-      // openclaw may write to stderr (config overwrite warnings) causing exec to throw
-      // even though the command succeeded — return the output if available
       const e = err as { stdout?: string; stderr?: string; message?: string };
       if (e.stdout?.trim()) return e.stdout.trim();
       if (e.stderr?.trim()) return e.stderr.trim();
@@ -174,7 +192,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     "claude": "anthropic/claude-opus-4-6", "gpt-4o": "openai-codex/gpt-4o", "gpt-5": "openai-codex/gpt-5.4",
     "gpt": "openai-codex/gpt-4o", "chatgpt": "openai-codex/gpt-4o", "codex": "openai-codex/gpt-5.4",
     "openai": "openai-codex/gpt-4o", "gemini": "google/gemini-2.5-pro", "mistral": "mistral/mistral-large",
-    "llama": "ollama/llama2:13b", "llama2": "ollama/llama2:13b", "llama3": "ollama/llama3.2",
+    "llama": "ollama/llama2:13b", "llama2": "ollama/llama2:13b", "llama3": "ollama/llama3.2", "llama3.2": "ollama/llama3.2",
     "ollama": "ollama/llama2:13b", "codellama": "ollama/codellama", "phi": "ollama/phi3", "qwen": "ollama/qwen2.5",
     "deepseek": "ollama/deepseek-v3",
   };
@@ -237,8 +255,8 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const message = msgMatch?.[1]?.trim() || (fields.message as string) || intent.rawText;
     console.log(`\x1b[2mSending to OpenClaw: "${message}"\x1b[0m`);
     try {
-      const agentCmd = `timeout 60 openclaw agent --agent main --message ${JSON.stringify(message)} --json`;
-      const agentOut = await runOcCmd(agentCmd, ocTarget, ocEnv!);
+      const agentCmd = `openclaw agent --agent main --message ${JSON.stringify(message)} --json`;
+      const agentOut = await runOcCmd(agentCmd, ocTarget, ocEnv!, 90_000);
       const jsonStart = agentOut.indexOf("{");
       if (jsonStart >= 0) {
         const json = JSON.parse(agentOut.substring(jsonStart));
@@ -286,7 +304,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         const ctxWindow = modelInfo?.context ?? 0;
 
         // Check if model is installed
-        const installed = ollamaUp.includes(`"${ollamaModelName}"`);
+        const installed = ollamaUp.includes(`"${ollamaModelName}"`) || ollamaUp.includes(`"${ollamaModelName}:latest"`) || ollamaUp.includes(`"${ollamaModelName}:`);
 
         if (ctxWindow > 0 && ctxWindow < OPENCLAW_MIN_CTX) {
           // Model exists in our DB and context is too small
@@ -345,6 +363,66 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     }
     result = await withSpinner("Checking model...", () => runOcCmd("openclaw models status --plain", ocTarget, ocEnv!));
     return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet" or "switch openclaw to sonnet on windows"\x1b[0m`;
+  }
+
+  // OpenClaw service management (start/stop/restart)
+  if (intent.intent === "openclaw.start" || intent.intent === "openclaw.stop" || intent.intent === "openclaw.restart") {
+    const action = intent.intent.split(".")[1];
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    if (action === "stop" || action === "restart") {
+      // Kill existing gateway
+      await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
+      await runLocalCommand("bash -c 'sleep 1'");
+      if (action === "stop") {
+        const check = await runLocalCommand("pgrep -f openclaw-gateway 2>/dev/null").catch(() => "");
+        return check ? `${cc.yellow}⚠ Gateway still running (PID ${check.trim()})${cc.reset}` : `${cc.green}✓${cc.reset} OpenClaw gateway stopped.`;
+      }
+    }
+
+    if (action === "start" || action === "restart") {
+      // Find Node 22+ binary directly — nvm sourcing doesn't survive nohup
+      let node22 = "";
+      const nvmDirs = ["/home/ino/.nvm", `${process.env.HOME}/.nvm`, "/root/.nvm"];
+      for (const dir of nvmDirs) {
+        const found = await runLocalCommand(`ls -1 ${dir}/versions/node/v22*/bin/node 2>/dev/null | tail -1`).catch(() => "");
+        if (found.trim()) { node22 = found.trim(); break; }
+      }
+      if (!node22) {
+        // Fallback: try fnm or system node
+        node22 = await runLocalCommand("which node").catch(() => "node");
+      }
+
+      // Find openclaw entry point
+      const ocPath = await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw");
+
+      // Check if using Ollama model — set OLLAMA_API_KEY so openclaw registers the provider
+      const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'").catch(() => "{}");
+      const isOllamaModel = ocConfig.includes('"ollama/');
+      const ollamaEnv = isOllamaModel ? 'OLLAMA_API_KEY="ollama-local" OLLAMA_HOST="http://localhost:11434" ' : "";
+
+      const startCmd = `bash -c '${ollamaEnv}nohup ${node22} ${ocPath.trim()} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 & echo $!'`;
+      await runLocalCommand(startCmd).catch(() => "");
+
+      // Wait for health
+      let healthy = false;
+      for (let i = 0; i < 8; i++) {
+        await runLocalCommand("sleep 1");
+        const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+        if (health.includes('"ok"')) { healthy = true; break; }
+      }
+
+      if (healthy) {
+        // Show what model it's using
+        const configModel = await runLocalCommand("grep -o '\"primary\":\"[^\"]*\"' /root/.openclaw/openclaw.json 2>/dev/null").catch(() => "");
+        const modelName = configModel.match(/"primary":"([^"]+)"/)?.[1] ?? "unknown";
+        return `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`;
+      }
+      // Check logs for error
+      const logs = await runLocalCommand("cat /tmp/openclaw-start.log 2>/dev/null | tail -5").catch(() => "");
+      return `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n${cc.dim}${logs}${cc.reset}\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
+    }
+    return `${cc.yellow}Unknown action: ${action}${cc.reset}`;
   }
 
   // Notoken model — check or switch LLM backend
