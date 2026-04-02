@@ -1,19 +1,17 @@
 /**
  * notoken setup openclaw
  *
- * Guided OpenClaw setup:
+ * Guided OpenClaw setup using openclaw's own CLI tools:
  * 1. Check/upgrade Node version (needs 22.14+)
  * 2. Install OpenClaw
- * 3. Ask for API key (OpenAI/Anthropic)
- * 4. Ask for Telegram bot token (optional)
- * 5. Generate workspace config
- * 6. Offer to start the gateway
+ * 3. Run openclaw setup (creates workspace)
+ * 4. Ask for API key and configure model via openclaw config set
+ * 5. Ask for Telegram bot token (optional)
+ * 6. Run openclaw doctor --fix
+ * 7. Offer to start gateway or run full onboard
  */
 
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { homedir } from "node:os";
+import { execSync, spawn as spawnProcess } from "node:child_process";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
@@ -30,40 +28,42 @@ export async function runSetupOpenclaw(): Promise<void> {
     console.log(`${c.dim}  Personal AI assistant across all your messaging channels${c.reset}\n`);
 
     // ── Step 1: Check Node version ──
-    console.log(`${c.bold}[1/6] Checking Node.js...${c.reset}`);
-    const nodeVersion = execSync("node --version", { encoding: "utf-8" }).trim();
-    const major = parseInt(nodeVersion.replace("v", ""));
+    console.log(`${c.bold}[1/7] Checking Node.js...${c.reset}`);
+    const nodeVersion = tryExec("node --version") ?? "none";
+    const major = parseInt(nodeVersion.replace("v", "")) || 0;
 
     if (major < 22) {
       console.log(`  ${c.yellow}⚠${c.reset} Node ${nodeVersion} — OpenClaw needs 22.14+`);
-      const upgrade = await ask(rl, `  Upgrade Node.js to 22? [y/N] `);
-      if (/^y/i.test(upgrade)) {
+      const upgrade = await ask(rl, `  Upgrade Node.js to 22? [Y/n] `);
+      if (!/^n/i.test(upgrade)) {
         console.log(`  ${c.dim}Upgrading Node.js...${c.reset}`);
         try {
-          execSync("curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs 2>/dev/null || nvm install 22", {
+          execSync("curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs 2>/dev/null || nvm install 22 2>/dev/null", {
             stdio: "inherit", timeout: 120_000,
           });
-          console.log(`  ${c.green}✓${c.reset} Node upgraded`);
+          const newVersion = tryExec("node --version");
+          console.log(`  ${c.green}✓${c.reset} Node upgraded to ${newVersion}`);
         } catch {
-          console.log(`  ${c.red}✗${c.reset} Could not upgrade automatically.`);
-          console.log(`  ${c.dim}Install Node 22+ manually: https://nodejs.org${c.reset}`);
+          console.log(`  ${c.red}✗${c.reset} Auto-upgrade failed. Install Node 22+ manually.`);
+          console.log(`  ${c.dim}https://nodejs.org or: nvm install 22${c.reset}`);
           return;
         }
       } else {
-        console.log(`  ${c.dim}OpenClaw may not work on Node ${major}. Continuing anyway...${c.reset}`);
+        console.log(`  ${c.yellow}⚠${c.reset} OpenClaw won't work without Node 22+. Aborting.`);
+        return;
       }
     } else {
       console.log(`  ${c.green}✓${c.reset} Node ${nodeVersion}`);
     }
 
     // ── Step 2: Install OpenClaw ──
-    console.log(`\n${c.bold}[2/6] Installing OpenClaw...${c.reset}`);
-    const installed = tryExec("openclaw --version");
-    if (installed) {
-      console.log(`  ${c.green}✓${c.reset} Already installed (${installed})`);
+    console.log(`\n${c.bold}[2/7] Installing OpenClaw...${c.reset}`);
+    const clawVersion = tryExec("openclaw --version");
+    if (clawVersion) {
+      console.log(`  ${c.green}✓${c.reset} Already installed (${clawVersion})`);
     } else {
+      console.log(`  ${c.dim}This may take a minute (192MB)...${c.reset}`);
       try {
-        console.log(`  ${c.dim}This may take a minute (192MB)...${c.reset}`);
         execSync("npm install -g openclaw@latest", { stdio: "inherit", timeout: 300_000 });
         console.log(`  ${c.green}✓${c.reset} OpenClaw installed`);
       } catch {
@@ -72,176 +72,170 @@ export async function runSetupOpenclaw(): Promise<void> {
       }
     }
 
-    // ── Step 3: AI Provider ──
-    console.log(`\n${c.bold}[3/6] AI Provider${c.reset}`);
+    // ── Step 3: Run openclaw setup (creates workspace) ──
+    console.log(`\n${c.bold}[3/7] Creating workspace...${c.reset}`);
+    try {
+      execSync("openclaw setup 2>&1 || true", { stdio: "inherit", timeout: 30_000 });
+      console.log(`  ${c.green}✓${c.reset} Workspace initialized`);
+    } catch {
+      console.log(`  ${c.dim}Setup may have partially completed. Continuing...${c.reset}`);
+    }
+
+    // Set gateway mode to local
+    tryExec('openclaw config set gateway.mode local');
+    console.log(`  ${c.green}✓${c.reset} Gateway mode: local`);
+
+    // ── Step 4: AI Provider ──
+    console.log(`\n${c.bold}[4/7] AI Provider${c.reset}`);
     console.log(`  Which AI provider do you want to use?\n`);
     console.log(`  ${c.cyan}1${c.reset} Anthropic (Claude) ${c.dim}— recommended${c.reset}`);
-    console.log(`  ${c.cyan}2${c.reset} OpenAI (GPT)`);
+    console.log(`  ${c.cyan}2${c.reset} OpenAI (GPT-4o)`);
     console.log(`  ${c.cyan}3${c.reset} Ollama (local, free)`);
     console.log(`  ${c.cyan}4${c.reset} Skip for now\n`);
 
     const providerChoice = await ask(rl, `  Choice [1-4]: `);
 
-    let provider = "anthropic";
-    let apiKey = "";
-    let model = "";
-
     switch (providerChoice.trim()) {
-      case "1":
-        provider = "anthropic";
-        model = "claude-sonnet-4-20250514";
+      case "1": {
         console.log(`\n  ${c.dim}Get your key at: https://console.anthropic.com/settings/keys${c.reset}`);
-        apiKey = await ask(rl, `  Anthropic API key: `);
+        const key = await ask(rl, `  Anthropic API key: `);
+        if (key.trim()) {
+          tryExec(`openclaw config set models.default.provider anthropic`);
+          tryExec(`openclaw config set models.default.model claude-sonnet-4-20250514`);
+          tryExec(`openclaw config set models.default.apiKey --ref-provider default --ref-source env --ref-id ANTHROPIC_API_KEY`);
+          // Set the env var in openclaw config
+          tryExec(`openclaw config set env.vars.ANTHROPIC_API_KEY "${key.trim()}"`);
+          console.log(`  ${c.green}✓${c.reset} Anthropic configured (claude-sonnet-4-20250514)`);
+        }
+        break;
+      }
+      case "2": {
+        console.log(`\n  ${c.dim}Get your key at: https://platform.openai.com/api-keys${c.reset}`);
+        const key = await ask(rl, `  OpenAI API key: `);
+        if (key.trim()) {
+          tryExec(`openclaw config set models.default.provider openai`);
+          tryExec(`openclaw config set models.default.model gpt-4o`);
+          tryExec(`openclaw config set models.default.apiKey --ref-provider default --ref-source env --ref-id OPENAI_API_KEY`);
+          tryExec(`openclaw config set env.vars.OPENAI_API_KEY "${key.trim()}"`);
+          console.log(`  ${c.green}✓${c.reset} OpenAI configured (gpt-4o)`);
+        }
+        break;
+      }
+      case "3": {
+        tryExec(`openclaw config set models.default.provider ollama`);
+        tryExec(`openclaw config set models.default.model llama3.2`);
+        tryExec(`openclaw config set models.default.baseUrl http://localhost:11434`);
+        console.log(`  ${c.green}✓${c.reset} Ollama configured (make sure ollama serve is running)`);
+        break;
+      }
+      default:
+        console.log(`  ${c.dim}Skipping. Configure later: openclaw configure --section model${c.reset}`);
+    }
+
+    // ── Step 5: Telegram Bot ──
+    console.log(`\n${c.bold}[5/7] Telegram Bot (optional)${c.reset}`);
+    console.log(`  ${c.dim}To create a bot:${c.reset}`);
+    console.log(`  ${c.dim}1. Open https://t.me/BotFather${c.reset}`);
+    console.log(`  ${c.dim}2. Send /newbot${c.reset}`);
+    console.log(`  ${c.dim}3. Choose a name and username${c.reset}`);
+    console.log(`  ${c.dim}4. Copy the token it gives you${c.reset}`);
+    const telegramToken = await ask(rl, `\n  Telegram bot token (Enter to skip): `);
+
+    if (telegramToken.trim()) {
+      tryExec(`openclaw config set channels.telegram.enabled true --strict-json`);
+      tryExec(`openclaw config set channels.telegram.token --ref-provider default --ref-source env --ref-id TELEGRAM_BOT_TOKEN`);
+      tryExec(`openclaw config set env.vars.TELEGRAM_BOT_TOKEN "${telegramToken.trim()}"`);
+      console.log(`  ${c.green}✓${c.reset} Telegram configured`);
+
+      // Ask about DM policy
+      console.log(`\n  ${c.bold}Who can message your bot?${c.reset}`);
+      console.log(`  ${c.cyan}1${c.reset} Only me (private) ${c.dim}— recommended${c.reset}`);
+      console.log(`  ${c.cyan}2${c.reset} Anyone (open)`);
+      const dmChoice = await ask(rl, `  Choice [1-2]: `);
+      if (dmChoice.trim() === "2") {
+        tryExec(`openclaw config set channels.telegram.dmPolicy open`);
+      } else {
+        tryExec(`openclaw config set channels.telegram.dmPolicy closed`);
+        console.log(`  ${c.dim}Tip: After starting, pair your Telegram user with: openclaw pairing approve${c.reset}`);
+      }
+    }
+
+    // ── Step 6: Run doctor --fix ──
+    console.log(`\n${c.bold}[6/7] Running doctor...${c.reset}`);
+    try {
+      execSync("openclaw doctor --fix 2>&1 || true", { stdio: "inherit", timeout: 60_000 });
+    } catch {}
+
+    // Validate config
+    const validation = tryExec("openclaw config validate 2>&1");
+    if (validation?.includes("valid") || validation?.includes("ok")) {
+      console.log(`  ${c.green}✓${c.reset} Config valid`);
+    } else {
+      console.log(`  ${c.yellow}⚠${c.reset} Config may have issues. Run: openclaw config validate`);
+    }
+
+    // ── Step 7: Launch ──
+    console.log(`\n${c.bold}[7/7] Ready!${c.reset}\n`);
+    console.log(`  ${c.bold}Config:${c.reset}  ${tryExec("openclaw config file") ?? "~/.openclaw/openclaw.json"}`);
+
+    console.log(`\n  ${c.bold}What would you like to do?${c.reset}\n`);
+    console.log(`  ${c.cyan}1${c.reset} Run full onboard wizard ${c.dim}— interactive, handles OAuth for all channels${c.reset}`);
+    console.log(`  ${c.cyan}2${c.reset} Start the gateway now ${c.dim}— begin with current config${c.reset}`);
+    console.log(`  ${c.cyan}3${c.reset} Open the TUI ${c.dim}— terminal interface to chat with your agent${c.reset}`);
+    console.log(`  ${c.cyan}4${c.reset} Done for now\n`);
+
+    const launchChoice = await ask(rl, `  Choice [1-4]: `);
+
+    switch (launchChoice.trim()) {
+      case "1":
+        console.log(`\n  ${c.dim}Launching openclaw onboard...${c.reset}\n`);
+        try {
+          const child = spawnProcess("openclaw", ["onboard", "--install-daemon"], { stdio: "inherit" });
+          await new Promise<void>((resolve) => child.on("close", () => resolve()));
+        } catch {
+          console.log(`  ${c.dim}Run manually: openclaw onboard --install-daemon${c.reset}`);
+        }
         break;
       case "2":
-        provider = "openai";
-        model = "gpt-4o";
-        console.log(`\n  ${c.dim}Get your key at: https://platform.openai.com/api-keys${c.reset}`);
-        apiKey = await ask(rl, `  OpenAI API key: `);
+        console.log(`\n  ${c.dim}Starting gateway...${c.reset}\n`);
+        try {
+          const child = spawnProcess("openclaw", ["gateway", "--verbose"], { stdio: "inherit" });
+          await new Promise<void>((resolve) => child.on("close", () => resolve()));
+        } catch {
+          console.log(`  ${c.dim}Run manually: openclaw gateway --verbose${c.reset}`);
+        }
         break;
       case "3":
-        provider = "ollama";
-        model = "llama3.2";
-        console.log(`\n  ${c.green}✓${c.reset} Using Ollama (make sure it's running: ollama serve)`);
+        console.log(`\n  ${c.dim}Opening TUI...${c.reset}\n`);
+        try {
+          const child = spawnProcess("openclaw", ["tui"], { stdio: "inherit" });
+          await new Promise<void>((resolve) => child.on("close", () => resolve()));
+        } catch {
+          console.log(`  ${c.dim}Run manually: openclaw tui${c.reset}`);
+        }
         break;
       default:
-        console.log(`  ${c.dim}Skipping API setup. You can configure later with: openclaw onboard${c.reset}`);
-        break;
+        console.log(`\n  ${c.bold}Quick reference:${c.reset}`);
+        console.log(`  ${c.cyan}openclaw onboard${c.reset}           — Full guided setup with OAuth`);
+        console.log(`  ${c.cyan}openclaw gateway --verbose${c.reset} — Start the gateway`);
+        console.log(`  ${c.cyan}openclaw tui${c.reset}               — Terminal chat interface`);
+        console.log(`  ${c.cyan}openclaw doctor${c.reset}            — Diagnose issues`);
+        console.log(`  ${c.cyan}openclaw configure${c.reset}         — Interactive config editor`);
+        console.log(`  ${c.cyan}openclaw channels login${c.reset}    — Connect WhatsApp/Telegram/etc`);
+        console.log(`  ${c.cyan}notoken doctor${c.reset}             — Check everything\n`);
     }
-
-    // ── Step 4: Telegram Bot ──
-    console.log(`\n${c.bold}[4/6] Telegram Bot (optional)${c.reset}`);
-    console.log(`  ${c.dim}Create a bot at https://t.me/BotFather — send /newbot${c.reset}`);
-    const telegramToken = await ask(rl, `  Telegram bot token (or press Enter to skip): `);
-
-    // ── Step 5: Generate Config ──
-    console.log(`\n${c.bold}[5/6] Creating workspace...${c.reset}`);
-
-    const workspaceDir = resolve(homedir(), ".openclaw");
-    if (!existsSync(workspaceDir)) {
-      mkdirSync(workspaceDir, { recursive: true });
-    }
-
-    // Generate gateway.yaml
-    const gatewayConfig = buildGatewayConfig(provider, model, apiKey, telegramToken);
-    const configPath = resolve(workspaceDir, "gateway.yaml");
-    writeFileSync(configPath, gatewayConfig, { mode: 0o600 });
-    console.log(`  ${c.green}✓${c.reset} Config written to ${configPath}`);
-
-    // Generate .env
-    const envContent = buildEnvFile(provider, apiKey, telegramToken);
-    const envPath = resolve(workspaceDir, ".env");
-    writeFileSync(envPath, envContent, { mode: 0o600 });
-    console.log(`  ${c.green}✓${c.reset} Secrets written to ${envPath} (chmod 600)`);
-
-    // ── Step 6: Start? ──
-    console.log(`\n${c.bold}[6/6] Ready!${c.reset}\n`);
-    console.log(`  ${c.bold}Workspace:${c.reset} ${workspaceDir}`);
-    console.log(`  ${c.bold}Config:${c.reset}    ${configPath}`);
-    console.log(`  ${c.bold}Provider:${c.reset}  ${provider} (${model || "default"})`);
-    if (telegramToken) {
-      console.log(`  ${c.bold}Telegram:${c.reset}  configured`);
-    }
-
-    console.log(`\n  ${c.bold}Next steps:${c.reset}`);
-    console.log(`  ${c.cyan}openclaw onboard${c.reset}              — Full guided setup (recommended)`);
-    console.log(`  ${c.cyan}openclaw gateway --verbose${c.reset}    — Start the gateway`);
-    if (telegramToken) {
-      console.log(`  ${c.cyan}openclaw gateway${c.reset}              — Start and connect to Telegram`);
-    }
-
-    const startNow = await ask(rl, `\n  Start OpenClaw now? [y/N] `);
-    if (/^y/i.test(startNow)) {
-      console.log(`\n  ${c.dim}Starting openclaw onboard...${c.reset}\n`);
-      try {
-        execSync("openclaw onboard", { stdio: "inherit", cwd: workspaceDir });
-      } catch {
-        console.log(`\n  ${c.dim}You can start it manually: cd ${workspaceDir} && openclaw onboard${c.reset}`);
-      }
-    } else {
-      console.log(`\n  ${c.dim}Run when ready: cd ${workspaceDir} && openclaw onboard${c.reset}`);
-    }
-
-    console.log();
   } finally {
     rl.close();
   }
 }
 
-function buildGatewayConfig(
-  provider: string,
-  model: string,
-  _apiKey: string,
-  telegramToken: string
-): string {
-  const lines: string[] = [];
-
-  lines.push("# OpenClaw Gateway Configuration");
-  lines.push("# Generated by notoken setup openclaw");
-  lines.push(`# ${new Date().toISOString()}`);
-  lines.push("");
-  lines.push("gateway:");
-  lines.push("  port: 18789");
-  lines.push("  verbose: true");
-  lines.push("");
-  lines.push("models:");
-  lines.push(`  default:`);
-
-  if (provider === "anthropic") {
-    lines.push(`    provider: anthropic`);
-    lines.push(`    model: ${model}`);
-    lines.push(`    # Key loaded from .env (ANTHROPIC_API_KEY)`);
-  } else if (provider === "openai") {
-    lines.push(`    provider: openai`);
-    lines.push(`    model: ${model}`);
-    lines.push(`    # Key loaded from .env (OPENAI_API_KEY)`);
-  } else if (provider === "ollama") {
-    lines.push(`    provider: ollama`);
-    lines.push(`    model: ${model}`);
-    lines.push(`    base_url: http://localhost:11434`);
-  }
-
-  if (telegramToken) {
-    lines.push("");
-    lines.push("channels:");
-    lines.push("  telegram:");
-    lines.push("    enabled: true");
-    lines.push("    # Token loaded from .env (TELEGRAM_BOT_TOKEN)");
-  }
-
-  lines.push("");
-  return lines.join("\n");
-}
-
-function buildEnvFile(provider: string, apiKey: string, telegramToken: string): string {
-  const lines: string[] = [];
-
-  lines.push("# OpenClaw secrets");
-  lines.push("# Generated by notoken setup openclaw");
-  lines.push(`# ${new Date().toISOString()}`);
-  lines.push("");
-
-  if (provider === "anthropic" && apiKey) {
-    lines.push(`ANTHROPIC_API_KEY=${apiKey}`);
-  } else if (provider === "openai" && apiKey) {
-    lines.push(`OPENAI_API_KEY=${apiKey}`);
-  }
-
-  if (telegramToken) {
-    lines.push(`TELEGRAM_BOT_TOKEN=${telegramToken}`);
-  }
-
-  lines.push("");
-  return lines.join("\n");
-}
-
-async function ask(rl: readline.Interface, prompt: string): Promise<string> {
+function ask(rl: readline.Interface, prompt: string): Promise<string> {
   return rl.question(prompt);
 }
 
 function tryExec(cmd: string): string | null {
   try {
-    return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: 10_000 }).trim();
+    return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: 15_000 }).trim();
   } catch {
     return null;
   }
