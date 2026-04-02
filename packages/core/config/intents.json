@@ -1022,6 +1022,62 @@
       ]
     },
     {
+      "name": "files.find_media",
+      "description": "Find media files — videos, images, music, documents",
+      "synonyms": [
+        "find media", "find my media", "media files", "where are my media files",
+        "find movies", "find my movies", "where are my movies",
+        "find videos", "find my videos", "where are my videos",
+        "find images", "find my images", "find my photos", "where are my photos", "find photos", "find pictures",
+        "find music", "find my music", "where is my music", "find audio",
+        "find documents", "find my documents", "where are my documents",
+        "find pdfs", "find my pdfs"
+      ],
+      "fields": {
+        "type": { "type": "string", "required": false, "default": "all" },
+        "path": { "type": "string", "required": false, "default": "." },
+        "environment": { "type": "environment", "required": false, "default": "local" }
+      },
+      "command": "echo '=== Media Files ===' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.wmv' -o -iname '*.flv' -o -iname '*.webm' -o -iname '*.mp3' -o -iname '*.flac' -o -iname '*.wav' -o -iname '*.aac' -o -iname '*.ogg' -o -iname '*.m4a' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' -o -iname '*.svg' -o -iname '*.tiff' -o -iname '*.pdf' -o -iname '*.doc' -o -iname '*.docx' -o -iname '*.ppt' -o -iname '*.pptx' -o -iname '*.xls' -o -iname '*.xlsx' \\) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | sort && echo '' && echo '=== Summary ===' && echo 'Videos:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.webm' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Images:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.webp' -o -iname '*.svg' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Audio:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.wav' -o -iname '*.aac' -o -iname '*.ogg' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Documents:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.pdf' -o -iname '*.doc' -o -iname '*.docx' -o -iname '*.ppt' -o -iname '*.pptx' -o -iname '*.xls' -o -iname '*.xlsx' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "where are my media files",
+        "find my movies",
+        "find my photos",
+        "where are my videos",
+        "find images in /home",
+        "find my documents"
+      ]
+    },
+    {
+      "name": "files.send",
+      "description": "Archive a folder and send it to a remote server",
+      "synonyms": [
+        "send to remote", "send to server", "zip and send", "tar and send",
+        "zip up and send", "archive and send", "send folder", "send project",
+        "zip up my project and send", "zip up my project folder and send",
+        "send files to", "transfer to", "upload to", "push to server",
+        "copy folder to remote", "send directory"
+      ],
+      "fields": {
+        "source": { "type": "string", "required": true },
+        "destination": { "type": "string", "required": false, "default": "/root" },
+        "environment": { "type": "environment", "required": false, "default": "dev" }
+      },
+      "command": "ARCHIVE=$(basename {{source}})-$(date +%Y%m%d-%H%M%S).tar.gz && tar -czf /tmp/$ARCHIVE -C $(dirname {{source}}) $(basename {{source}}) && echo \"Created /tmp/$ARCHIVE ($(du -sh /tmp/$ARCHIVE | cut -f1))\" && scp /tmp/$ARCHIVE {{environment}}:{{destination}}/$ARCHIVE && echo \"Sent to {{environment}}:{{destination}}/$ARCHIVE\" && rm /tmp/$ARCHIVE",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "zip up my project folder and send it to prod /root",
+        "send /srv/myapp to staging /backup",
+        "archive and send this folder to dev",
+        "tar and send /var/www to prod /backup"
+      ]
+    },
+    {
       "name": "files.grep",
       "description": "Search file contents for a pattern",
       "synonyms": [
@@ -2047,7 +2103,13 @@
         "create archive",
         "compress",
         "tar up",
-        "make archive"
+        "make archive",
+        "archive folder",
+        "archive directory",
+        "compress folder",
+        "compress directory",
+        "tar this folder",
+        "tar my project"
       ],
       "fields": {
         "source": {
@@ -2130,7 +2192,14 @@
         "zip",
         "create zip",
         "zip up",
-        "make zip"
+        "make zip",
+        "zip folder",
+        "zip directory",
+        "zip up folder",
+        "zip up my project",
+        "zip up my project folder",
+        "zip this folder",
+        "zip my files"
       ],
       "fields": {
         "source": {
