@@ -126,7 +126,26 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";
-    if (genResult.imagePath) result += `\n\nFile: ${genResult.imagePath}`;
+    if (genResult.imagePath) {
+      result += `\n\nFile: ${genResult.imagePath}`;
+      // Auto-open the image if running locally
+      if (isLocal) {
+        try {
+          const { execSync: run } = await import("node:child_process");
+          const os = (await import("node:os")).platform();
+          const isWSL = !!(() => { try { return run("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return null; } })();
+          if (isWSL) {
+            run(`cmd.exe /c start "" "${genResult.imagePath.replace(/\//g, "\\\\")}" 2>/dev/null`, { stdio: "ignore" });
+          } else if (os === "darwin") {
+            run(`open "${genResult.imagePath}"`, { stdio: "ignore" });
+          } else if (os === "win32") {
+            run(`start "" "${genResult.imagePath}"`, { stdio: "ignore", shell: "cmd.exe" });
+          } else {
+            run(`xdg-open "${genResult.imagePath}" 2>/dev/null`, { stdio: "ignore" });
+          }
+        } catch {}
+      }
+    }
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: genResult.success });
     return result;
   }

@@ -314,11 +314,11 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
     console.error(`${c.dim}Generating image (this may take 10-30 seconds)...${c.reset}`);
 
     const { execSync: exec } = await import("node:child_process");
-    // Retry up to 2 times — Pollinations sometimes returns 502 on first try
+    // Retry up to 3 times — Pollinations sometimes returns 502 on first try
     let success = false;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        exec(`curl -sL --max-time 90 "${url}" -o "${imagePath}"`, { timeout: 100000 });
+        exec(`curl -sL --max-time 120 "${url}" -o "${imagePath}"`, { timeout: 130000 });
         const s = (await import("node:fs")).statSync(imagePath);
         if (s.size > 1000) { success = true; break; }
       } catch {}
