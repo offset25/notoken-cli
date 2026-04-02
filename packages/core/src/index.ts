@@ -97,6 +97,9 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Concept Router ──
+export { routeByConcepts, type ConceptRouterResult } from "./nlp/conceptRouter.js";
+
 // ── Wikidata Knowledge Base ──
 export {
   searchWikidata, lookupUnknownNouns, formatWikiEntity, formatWikiSuggestions,

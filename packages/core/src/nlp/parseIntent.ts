@@ -4,21 +4,34 @@ import { parseByLLM } from "./llmParser.js";
 import { disambiguate } from "./disambiguate.js";
 import { logFailure } from "../utils/logger.js";
 import { lookupUnknownNouns } from "./wikidata.js";
+import { routeByConcepts } from "./conceptRouter.js";
 
 export async function parseIntent(rawText: string): Promise<ParsedCommand> {
-  // Stage 1: deterministic rule parser
+  // Stage 1: deterministic rule parser (synonym matching + spell correction)
   const ruleResult = parseByRules(rawText);
   if (ruleResult && ruleResult.confidence >= 0.7) {
     return disambiguate(ruleResult);
   }
 
-  // Stage 2: LLM fallback
+  // Stage 2: concept router — understands topics/domains, not just phrases
+  // Handles: "is this offline or cloud", "check my crontabs", etc.
+  const conceptResult = routeByConcepts(rawText);
+  if (conceptResult && conceptResult.confidence >= 0.6) {
+    return disambiguate({
+      intent: conceptResult.intent,
+      rawText,
+      confidence: conceptResult.confidence,
+      fields: {},
+    });
+  }
+
+  // Stage 3: LLM fallback
   const llmResult = await parseByLLM(rawText);
   if (llmResult && llmResult.confidence >= 0.5) {
     return disambiguate(llmResult);
   }
 
-  // Stage 3: if rule parser had a low-confidence result, use it anyway
+  // Stage 4: if rule parser had a low-confidence result, use it anyway
   if (ruleResult) {
     return disambiguate(ruleResult);
   }
