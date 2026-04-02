@@ -10,7 +10,7 @@ describe("parse → disambiguate pipeline", () => {
   });
 
   it("flags unknown input for self-healing", async () => {
-    const result = await parseIntent("xyzzy foobar baz");
+    const result = await parseIntent("xyzzy plonk quux wibble");
     expect(result.intent.intent).toBe("unknown");
     expect(result.needsClarification).toBe(true);
   });
