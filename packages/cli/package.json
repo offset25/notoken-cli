@@ -1,7 +1,7 @@
 {
   "name": "notoken",
-  "version": "1.6.2",
-  "description": "Token-free terminal copilot — NLP-based server operations CLI",
+  "version": "1.6.3",
+  "description": "Token-free terminal assistant — NLP-based server operations CLI",
   "type": "module",
   "license": "MIT",
   "author": "Dino Bartolome",
@@ -31,7 +31,7 @@
     "server-operations",
     "sysadmin",
     "offline",
-    "copilot"
+    "assistant"
   ],
   "scripts": {
     "build": "tsc",

@@ -1,6 +1,6 @@
 # notoken
 
-**A token-free terminal copilot that installs, repairs, maintains, and operates your system — even when cloud LLMs are unavailable.**
+**A token-free terminal assistant that installs, repairs, maintains, and operates your system — even when cloud LLMs are unavailable.**
 
 When the fancy AI is unavailable, this still gets useful work done.
 

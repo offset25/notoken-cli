@@ -116,7 +116,7 @@ async function main() {
 
 function printHelp(): void {
   console.log(`
-NoToken — Token-Free Terminal Copilot
+NoToken — Token-Free Terminal Assistant
 
 Usage:
   notoken                              Start interactive mode (default)
