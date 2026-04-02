@@ -101,4 +101,136 @@ describe("concept router", () => {
     expect(r!.confidence).toBeGreaterThanOrEqual(0.5);
     expect(r!.confidence).toBeLessThanOrEqual(1.0);
   });
+
+  // ── Complex multi-part statements ──
+
+  it("handles 'why is my server so slow and what is using all the cpu'", () => {
+    const r = routeByConcepts("why is my server so slow and what is using all the cpu");
+    expect(r).not.toBeNull();
+    expect(["server.uptime", "hardware.info", "server.check_memory"]).toContain(r!.intent);
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles 'is docker running and are any containers using too much memory'", () => {
+    const r = routeByConcepts("is docker running and are any containers using too much memory");
+    expect(r).not.toBeNull();
+    expect(r!.concepts).toContain("docker");
+    expect(r!.concepts).toContain("memory");
+  });
+
+  it("handles 'i need to check if the firewall is blocking port 443 and also check dns for my domain'", () => {
+    const r = routeByConcepts("i need to check if the firewall is blocking port 443 and also check dns for my domain");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(2);
+    // Should match firewall or dns or network
+    expect(r!.intent.includes("firewall") || r!.intent.includes("dns") || r!.intent.includes("network")).toBe(true);
+  });
+
+  it("handles 'can you tell me how much disk space is left and also show me what processes are eating memory'", () => {
+    const r = routeByConcepts("can you tell me how much disk space is left and also show me what processes are eating memory");
+    expect(r).not.toBeNull();
+    expect(["server.check_disk", "server.check_memory"]).toContain(r!.intent);
+  });
+
+  it("handles 'what projects are in my home directory and do any of them have docker compose files'", () => {
+    const r = routeByConcepts("what projects are in my home directory and do any of them have docker compose files");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("handles 'i want to generate some images but first tell me if its running locally or in the cloud'", () => {
+    const r = routeByConcepts("i want to generate some images but first tell me if its running locally or in the cloud");
+    expect(r).not.toBeNull();
+    expect(r!.intent).toContain("ai.");
+  });
+
+  it("handles 'set up a cron job to check disk space every hour and send me an alert if it goes above 90 percent'", () => {
+    const r = routeByConcepts("set up a cron job to check disk space every hour and send me an alert if it goes above 90 percent");
+    expect(r).not.toBeNull();
+    expect(r!.concepts).toContain("cron");
+  });
+
+  it("handles 'is nginx running, what port is it on, and can you show me the recent error logs'", () => {
+    const r = routeByConcepts("is nginx running what port is it on and can you show me the recent error logs");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles 'my website is down can you check if the dns is resolving and if the server is reachable'", () => {
+    const r = routeByConcepts("my website is down can you check if the dns is resolving and if the server is reachable");
+    expect(r).not.toBeNull();
+    expect(r!.concepts).toContain("dns");
+    // May route to dns, network, or browser domain depending on weights
+    expect(r!.intent.includes("dns") || r!.intent.includes("network") || r!.intent.includes("browser")).toBe(true);
+  });
+
+  it("handles 'show me all the media files like videos photos and music on this machine'", () => {
+    const r = routeByConcepts("show me all the media files like videos photos and music on this machine");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("handles 'what version of python and node do i have and are they up to date'", () => {
+    const r = routeByConcepts("what version of python and node do i have and are they up to date");
+    // "python" and "node" aren't in the concept map — may return null or low confidence
+    // This is expected — concept router only knows mapped concepts
+    if (r) {
+      expect(r.isQuestion).toBe(true);
+    }
+  });
+
+  it("handles 'can you check the bandwidth usage and see if anyone is doing something weird on the network'", () => {
+    const r = routeByConcepts("can you check the bandwidth usage and see if anyone is doing something weird on the network");
+    expect(r).not.toBeNull();
+    expect(r!.intent.includes("network") || r!.intent.includes("bandwidth")).toBe(true);
+  });
+
+  it("handles 'i think somebody is trying to hack into my server can you check the firewall and show recent connections'", () => {
+    const r = routeByConcepts("i think somebody is trying to hack into my server can you check the firewall and show recent connections");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(1);
+    expect(r!.intent.includes("firewall") || r!.intent.includes("network") || r!.intent.includes("connection")).toBe(true);
+  });
+
+  it("handles 'whats the hostname of this machine and what timezone are we in'", () => {
+    const r = routeByConcepts("whats the hostname of this machine and what timezone are we in");
+    expect(r).not.toBeNull();
+    expect(["system.hostname", "system.timezone"]).toContain(r!.intent);
+  });
+
+  it("handles 'make me a picture of a golden retriever puppy playing in autumn leaves and open it when done'", () => {
+    const r = routeByConcepts("make me a picture of a golden retriever puppy playing in autumn leaves and open it when done");
+    expect(r).not.toBeNull();
+    expect(r!.intent).toContain("ai.");
+  });
+
+  it("handles 'find all the zip files and tar archives on this system they are taking up too much space'", () => {
+    const r = routeByConcepts("find all the zip files and tar archives on this system they are taking up too much space");
+    expect(r).not.toBeNull();
+    expect(r!.concepts.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── Edge cases ──
+
+  it("handles single word 'memory'", () => {
+    const r = routeByConcepts("memory");
+    expect(r).not.toBeNull();
+    expect(r!.intent).toBe("server.check_memory");
+  });
+
+  it("handles single word 'docker'", () => {
+    const r = routeByConcepts("docker");
+    expect(r).not.toBeNull();
+    expect(r!.intent).toContain("docker");
+  });
+
+  it("handles empty string", () => {
+    const r = routeByConcepts("");
+    expect(r).toBeNull();
+  });
+
+  it("handles just stop words", () => {
+    const r = routeByConcepts("the a an is are was were");
+    expect(r).toBeNull();
+  });
 });
