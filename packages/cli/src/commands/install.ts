@@ -46,11 +46,16 @@ const TOOLS: Record<string, ToolInstaller> = {
     description: "OpenClaw CLI tool",
   },
   docker: {
-    name: "Docker Engine",
+    name: "Docker",
     check: "docker --version",
-    install: "curl -fsSL https://get.docker.com | sh",
-    postInstall: "sudo usermod -aG docker $USER && docker --version",
-    description: "Container runtime",
+    install: "", // handled dynamically in installTool
+    description: "Container runtime — auto-detects Linux/WSL/macOS/Windows",
+  },
+  wsl: {
+    name: "WSL (Windows Subsystem for Linux)",
+    check: "wsl --version",
+    install: "", // handled dynamically
+    description: "Linux environment on Windows — required for many dev tools",
   },
   node: {
     name: "Node.js (via nvm)",
@@ -254,6 +259,18 @@ async function installTool(tool: ToolInstaller, key: string): Promise<void> {
   console.log(`${c.bold}Installing ${tool.name}...${c.reset}`);
   console.log(`${c.dim}${tool.description}${c.reset}\n`);
 
+  // Cross-platform Docker install
+  if (key === "docker") {
+    await installDocker();
+    return;
+  }
+
+  // WSL install
+  if (key === "wsl") {
+    await installWSL();
+    return;
+  }
+
   // For certbot, use platform-specific install
   let installCmd = tool.install;
   if (key === "certbot" && !installCmd) {
@@ -318,6 +335,153 @@ function getVersion(checkCmd: string): string | null {
     return execSync(checkCmd, { encoding: "utf-8", stdio: "pipe", timeout: 10_000 }).trim().split("\n")[0];
   } catch {
     return null;
+  }
+}
+
+// ── Cross-platform Docker Install ──
+
+async function installDocker(): Promise<void> {
+  const os = process.platform;
+  const isWSL = !!tryExec("grep -qi microsoft /proc/version && echo wsl");
+
+  if (os === "linux" && !isWSL) {
+    // Native Linux — use get.docker.com
+    console.log(`${c.cyan}Linux detected${c.reset} — installing Docker Engine via official script\n`);
+    try {
+      execSync("curl -fsSL https://get.docker.com | sh", { stdio: "inherit", timeout: 300_000 });
+      execSync("sudo usermod -aG docker $USER", { stdio: "pipe" }).toString();
+      console.log(`\n${c.green}✓${c.reset} Docker installed. ${c.dim}Log out and back in for group permissions.${c.reset}`);
+    } catch (err) {
+      console.error(`${c.red}✗${c.reset} Failed: ${err instanceof Error ? err.message : err}`);
+    }
+    return;
+  }
+
+  if (os === "linux" && isWSL) {
+    // WSL — check if Docker Desktop is on Windows side first
+    const winDocker = tryExec("docker.exe --version 2>/dev/null");
+    if (winDocker) {
+      console.log(`${c.green}✓${c.reset} Docker Desktop detected on Windows: ${winDocker}`);
+      console.log(`\n${c.bold}Enable WSL integration:${c.reset}`);
+      console.log(`  1. Open Docker Desktop → Settings → Resources → WSL Integration`);
+      console.log(`  2. Enable integration for your WSL distro`);
+      console.log(`  3. Restart terminal\n`);
+      // Try enabling the WSL integration directly
+      console.log(`${c.dim}Alternatively, install Docker Engine inside WSL:${c.reset}`);
+      console.log(`  ${c.cyan}curl -fsSL https://get.docker.com | sh${c.reset}`);
+      return;
+    }
+
+    // No Docker Desktop — install inside WSL
+    console.log(`${c.cyan}WSL detected${c.reset} — installing Docker Engine inside WSL\n`);
+    console.log(`${c.dim}Note: Docker Desktop on Windows is recommended for best experience.${c.reset}`);
+    console.log(`${c.dim}Download: https://docs.docker.com/desktop/install/windows-install/${c.reset}\n`);
+
+    try {
+      execSync("curl -fsSL https://get.docker.com | sh", { stdio: "inherit", timeout: 300_000 });
+      // Start Docker daemon in WSL
+      try {
+        execSync("sudo service docker start 2>/dev/null || sudo dockerd &", { stdio: "pipe", timeout: 10_000 });
+      } catch {}
+      console.log(`\n${c.green}✓${c.reset} Docker installed in WSL.`);
+      console.log(`${c.dim}Start daemon: sudo service docker start${c.reset}`);
+    } catch (err) {
+      console.error(`${c.red}✗${c.reset} Failed: ${err instanceof Error ? err.message : err}`);
+    }
+    return;
+  }
+
+  if (os === "darwin") {
+    // macOS — try brew first, then suggest Docker Desktop
+    console.log(`${c.cyan}macOS detected${c.reset}\n`);
+    const hasBrew = !!tryExec("brew --version");
+
+    if (hasBrew) {
+      console.log(`Installing via Homebrew...`);
+      try {
+        execSync("brew install --cask docker", { stdio: "inherit", timeout: 300_000 });
+        console.log(`\n${c.green}✓${c.reset} Docker Desktop installed. Launch it from Applications.`);
+      } catch {
+        console.log(`\n${c.yellow}Homebrew install failed.${c.reset} Install manually:`);
+        console.log(`  ${c.cyan}https://docs.docker.com/desktop/install/mac-install/${c.reset}`);
+      }
+    } else {
+      console.log(`${c.bold}Install Docker Desktop for Mac:${c.reset}`);
+      console.log(`  ${c.cyan}https://docs.docker.com/desktop/install/mac-install/${c.reset}`);
+      console.log(`\nOr install Homebrew first, then: ${c.cyan}brew install --cask docker${c.reset}`);
+    }
+    return;
+  }
+
+  if (os === "win32") {
+    // Native Windows (not WSL)
+    console.log(`${c.cyan}Windows detected${c.reset}\n`);
+    console.log(`${c.bold}Option 1: Docker Desktop (recommended)${c.reset}`);
+    console.log(`  Download: ${c.cyan}https://docs.docker.com/desktop/install/windows-install/${c.reset}\n`);
+    console.log(`${c.bold}Option 2: Install via winget${c.reset}`);
+    console.log(`  ${c.cyan}winget install Docker.DockerDesktop${c.reset}\n`);
+    console.log(`${c.bold}Option 3: Install via chocolatey${c.reset}`);
+    console.log(`  ${c.cyan}choco install docker-desktop${c.reset}\n`);
+
+    // Try winget
+    if (tryExec("winget --version")) {
+      console.log(`${c.dim}winget detected — attempting install...${c.reset}`);
+      try {
+        execSync("winget install Docker.DockerDesktop --accept-source-agreements --accept-package-agreements", { stdio: "inherit", timeout: 300_000 });
+        console.log(`\n${c.green}✓${c.reset} Docker Desktop installed. Restart your computer to complete setup.`);
+      } catch {
+        console.log(`${c.yellow}winget install failed.${c.reset} Download manually from the link above.`);
+      }
+    }
+    return;
+  }
+
+  console.log(`${c.yellow}Unsupported platform: ${os}${c.reset}`);
+  console.log(`Visit: ${c.cyan}https://docs.docker.com/engine/install/${c.reset}`);
+}
+
+// ── WSL Install ──
+
+async function installWSL(): Promise<void> {
+  const os = process.platform;
+
+  if (os !== "win32") {
+    if (tryExec("grep -qi microsoft /proc/version && echo wsl")) {
+      console.log(`${c.green}✓${c.reset} You're already running inside WSL!`);
+    } else {
+      console.log(`${c.dim}WSL is a Windows feature. You're on ${os} — you don't need WSL.${c.reset}`);
+    }
+    return;
+  }
+
+  console.log(`${c.bold}Installing WSL (Windows Subsystem for Linux)${c.reset}\n`);
+
+  // Check if WSL is already installed
+  if (tryExec("wsl --version")) {
+    console.log(`${c.green}✓${c.reset} WSL is already installed.`);
+    const distros = tryExec("wsl --list --verbose");
+    if (distros) console.log(`\n${c.dim}${distros}${c.reset}`);
+    return;
+  }
+
+  console.log(`${c.bold}Option 1: Automatic install (admin required)${c.reset}`);
+  console.log(`  ${c.cyan}wsl --install${c.reset}\n`);
+  console.log(`This installs WSL2 + Ubuntu. Requires restart.\n`);
+
+  console.log(`${c.bold}Option 2: Step by step${c.reset}`);
+  console.log(`  1. ${c.cyan}wsl --install -d Ubuntu${c.reset}`);
+  console.log(`  2. Restart your computer`);
+  console.log(`  3. Open Ubuntu from Start menu`);
+  console.log(`  4. Create username and password`);
+  console.log(`  5. Run: ${c.cyan}notoken doctor${c.reset} inside Ubuntu\n`);
+
+  // Try automatic install
+  try {
+    console.log(`${c.dim}Attempting automatic install...${c.reset}`);
+    execSync("wsl --install", { stdio: "inherit", timeout: 300_000 });
+    console.log(`\n${c.green}✓${c.reset} WSL installed. ${c.bold}Restart your computer${c.reset} to complete setup.`);
+  } catch {
+    console.log(`${c.yellow}Automatic install failed.${c.reset} Run as Administrator: ${c.cyan}wsl --install${c.reset}`);
   }
 }
 
