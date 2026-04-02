@@ -18,7 +18,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { USER_HOME } from "./paths.js";
@@ -471,16 +471,31 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
 async function autoStartEngine(engine: ImageEngineStatus): Promise<boolean> {
   try {
     if (engine.engine === "auto1111" && engine.path) {
-      console.error(`${c.dim}Starting Stable Diffusion...${c.reset}`);
-      // Launch in background — detached so it survives this process
+      // Check if model exists — if not, startup will take much longer
+      const modelsDir = resolve(engine.path, "models", "Stable-diffusion");
+      let hasModel = false;
+      try {
+        const files = readdirSync(modelsDir);
+        hasModel = files.some(f => f.endsWith(".safetensors") || f.endsWith(".ckpt"));
+      } catch {}
+
+      const timeout = hasModel ? 180 : 600; // 3 min with model, 10 min without
+      console.error(`${c.dim}Starting Stable Diffusion...${hasModel ? "" : " (first launch — downloading model, this takes several minutes)"}${c.reset}`);
+
       const { spawn } = await import("node:child_process");
-      const child = spawn("bash", [resolve(engine.path, "webui.sh"), "--api", "--listen"], {
+      const venvPython = resolve(engine.path, "venv", "bin", "python");
+      const launchCmd = existsSync(venvPython)
+        ? { cmd: venvPython, args: ["launch.py", "--api", "--listen", "--skip-torch-cuda-test"] }
+        : { cmd: "bash", args: [resolve(engine.path, "webui.sh"), "--api", "--listen"] };
+
+      const child = spawn(launchCmd.cmd, launchCmd.args, {
         cwd: engine.path,
         detached: true,
         stdio: "ignore",
+        env: { ...process.env, COMMANDLINE_ARGS: "--api --listen --skip-torch-cuda-test" },
       });
       child.unref();
-      return waitForReady("http://localhost:7860/sdapi/v1/sd-models", 120);
+      return waitForReady("http://localhost:7860/sdapi/v1/sd-models", timeout);
     }
 
     if (engine.engine === "comfyui" && engine.path) {
@@ -580,10 +595,11 @@ async function runWithProgress(cmd: string, args: string[], cwd: string): Promis
       const lines = data.toString().split("\n").filter(l => l.trim());
       for (const line of lines) {
         lastLine = line;
-        // Show download progress and install lines
+        // Show download progress, install lines, and curl progress
         if (line.includes("Downloading") || line.includes("Installing") ||
             line.includes("Collecting") || line.includes("Successfully") ||
-            line.includes("━") || line.includes("error") || line.includes("ERROR")) {
+            line.includes("━") || line.includes("error") || line.includes("ERROR") ||
+            line.includes("%") || line.includes("curl")) {
           process.stderr.write(`  ${c.dim}${line.trim()}${c.reset}\n`);
         }
       }
@@ -1007,13 +1023,64 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
       }
     }
 
+    // Also install the engine's own requirements
+    if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
+      console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
+      await runWithProgress(venvPip, ["install", "-r", resolve(dir, "requirements_versions.txt")], dir);
+    }
+
     console.log(`${c.green}✓${c.reset} Dependencies installed.`);
   } catch (err) {
     return { success: false, message: `Dependency install failed: ${err instanceof Error ? err.message : err}\n\n${c.dim}Try: notoken install stability-matrix (standalone, no Python needed)${c.reset}` };
   }
 
-  // Step 6: Verify
-  console.log(`${c.cyan}Step 6/${c.reset} ${c.green}Installation complete${c.reset}`);
+  // Step 6: Download the base AI model
+  {
+    const modelsDir = resolve(dir, "models", "Stable-diffusion");
+    mkdirSync(modelsDir, { recursive: true });
+
+    // Check if any model already exists
+    const hasModel = (() => {
+      try {
+        const files = readdirSync(modelsDir);
+        return files.some(f => f.endsWith(".safetensors") || f.endsWith(".ckpt"));
+      } catch { return false; }
+    })();
+
+    if (hasModel) {
+      console.log(`${c.cyan}Step 6/${c.reset} ${c.green}Model already downloaded${c.reset}`);
+    } else {
+      // Download SD 1.5 base model (~4.3GB) — most compatible, works on CPU
+      const modelUrl = "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors";
+      const modelPath = resolve(modelsDir, "v1-5-pruned-emaonly.safetensors");
+
+      console.log(`${c.cyan}Step 6/${c.reset} Downloading AI model (Stable Diffusion 1.5, ~4.3GB)...`);
+      console.log(`${c.dim}  This is the largest download — may take 5-15 minutes depending on connection.${c.reset}`);
+      console.log(`${c.dim}  Saving to: ${modelsDir}${c.reset}`);
+
+      try {
+        await runWithProgress("curl", [
+          "-L", "--progress-bar", "-o", modelPath, modelUrl,
+        ], dir);
+
+        // Verify file size (should be ~4GB)
+        const { statSync: fstat } = await import("node:fs");
+        const size = fstat(modelPath).size;
+        if (size > 1_000_000_000) {
+          console.log(`${c.green}✓${c.reset} Model downloaded (${(size / 1_073_741_824).toFixed(1)}GB)`);
+        } else {
+          console.log(`${c.yellow}⚠${c.reset} Model file seems small (${(size / 1_048_576).toFixed(0)}MB) — may need re-download`);
+        }
+      } catch (err) {
+        console.log(`${c.yellow}⚠${c.reset} Model download failed: ${err instanceof Error ? err.message : err}`);
+        console.log(`${c.dim}  You can download it manually later. The engine will prompt you on first launch.${c.reset}`);
+        console.log(`${c.dim}  Or run: curl -L -o "${modelPath}" "${modelUrl}"${c.reset}`);
+      }
+    }
+  }
+
+  // Step 7: Verify
+  console.log(`${c.cyan}Step 7/${c.reset} ${c.green}Installation complete${c.reset}`);
   const plan = getInstallPlan(engine);
 
   // Store pending action so user can say "try it"
