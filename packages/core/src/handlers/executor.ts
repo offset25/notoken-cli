@@ -131,12 +131,15 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         const objectTokens = objects.map(d => d.dependent);
         const modifiers = deps.filter(d => d.relation === "modifier").map(d => d.dependent);
         const promptTokens = [...objectTokens, ...modifiers].sort((a, b) => a.index - b.index);
-        const PRONOUNS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she"]);
-        prompt = promptTokens.map(t => t.text).filter(w => !PRONOUNS.has(w.toLowerCase())).join(" ");
+        const SKIP_WORDS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she",
+          "picture", "image", "photo", "drawing", "painting", "art", "artwork",
+          "generate", "create", "make", "draw", "paint", "imagine", "please"]);
+        prompt = promptTokens.map(t => t.text).filter(w => !SKIP_WORDS.has(w.toLowerCase())).join(" ");
       } else {
         // Fallback: take all nouns and adjectives as the prompt
-        const PRONOUNS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she"]);
-        const nouns = tokens.filter(t => ["NOUN", "ADJ", "PATH"].includes(t.tag) && !PRONOUNS.has(t.text.toLowerCase()));
+        const SKIP_WORDS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she",
+          "picture", "image", "photo", "drawing", "painting", "art", "artwork"]);
+        const nouns = tokens.filter(t => ["NOUN", "ADJ", "PATH"].includes(t.tag) && !SKIP_WORDS.has(t.text.toLowerCase()));
         prompt = nouns.map(t => t.text).join(" ");
       }
     } catch {
@@ -167,7 +170,8 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
           const isWSL = !!(() => { try { return run("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return null; } })();
           if (isWSL) {
             const winPath = run(`wslpath -w "${genResult.imagePath}" 2>/dev/null`, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 3000 }).trim();
-            run(`cmd.exe /c start "" "${winPath}" 2>/dev/null`, { stdio: "ignore" });
+            // Use PowerShell — cmd.exe often not in PATH for root in WSL
+            run(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}'" 2>/dev/null`, { stdio: "ignore" });
           } else if (os === "darwin") {
             run(`open "${genResult.imagePath}"`, { stdio: "ignore" });
           } else if (os === "win32") {
