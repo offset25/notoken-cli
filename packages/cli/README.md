@@ -102,6 +102,17 @@ NOTOKEN_LLM_API_KEY=...          # API key
 NOTOKEN_HOME=~/.notoken          # Data directory (default: ~/.notoken)
 ```
 
+## Support & Consulting
+
+Need help with setup, custom workflows, or team onboarding?
+
+- **Environment setup** — full dev/server machine configuration
+- **Custom automation** — tailored playbooks and intent packs for your stack
+- **Team onboarding** — standardized environments and training
+- **Troubleshooting** — broken environment recovery, performance investigation
+
+**Contact:** [dino@notoken.sh](mailto:dino@notoken.sh) | [notoken.sh/consulting](https://notoken.sh/consulting)
+
 ## Links
 
 - **Website:** [notoken.sh](https://notoken.sh)
