@@ -28,6 +28,15 @@ import { getPlaybook, formatPlaybookList, runPlaybook } from "notoken-core";
 import { detectLocalPlatform, formatPlatform } from "notoken-core";
 import { listBackups, formatBackupList, rollback, cleanExpiredBackups } from "notoken-core";
 import { llmFallback, formatLLMFallback, isLLMConfigured } from "notoken-core";
+import {
+  formatStatus, goOffline, goOnline, disableLLM, enableLLM,
+} from "notoken-core";
+import {
+  getRecentSessions, formatSessionList,
+} from "notoken-core";
+import {
+  createFullBackup, restoreFromBackup, listFullBackups, formatBackupsList,
+} from "notoken-core";
 
 const c = {
   reset: "\x1b[0m",
@@ -484,7 +493,22 @@ ${c.bold}Secrets:${c.reset}
 ${c.bold}Adaptive Rules:${c.reset}
   ${c.cyan}:adapt${c.reset}              Toggle adaptive rules (${adaptRules ? "ON" : "OFF"})
   ${c.cyan}:improve${c.reset}            Run rule improvement via Claude now
-  ${c.cyan}:update${c.reset}             Check for updates and install
+
+${c.bold}LLM & Status:${c.reset}
+  ${c.cyan}:status${c.reset}              Show LLM status (connected, offline, tokens saved)
+  ${c.cyan}:offline${c.reset}             Disconnect all LLMs — deterministic only
+  ${c.cyan}:online${c.reset}              Reconnect LLMs
+  ${c.cyan}:disable <llm>${c.reset}       Disable a specific LLM (claude, ollama, api)
+  ${c.cyan}:enable <llm>${c.reset}        Re-enable a specific LLM
+
+${c.bold}Sessions:${c.reset}
+  ${c.cyan}:sessions${c.reset}            Show recent sessions with stats
+  ${c.cyan}:backup${c.reset}              Backup ~/.notoken/ to a timestamped archive
+  ${c.cyan}:restore <file>${c.reset}      Restore from a backup archive
+  ${c.cyan}:backups-full${c.reset}        List full backups
+
+${c.bold}Updates:${c.reset}
+  ${c.cyan}:update${c.reset}              Check for updates and install
 
 ${c.bold}Other:${c.reset}
   ${c.cyan}:clear${c.reset}               Clear completed tasks
@@ -717,6 +741,92 @@ ${c.bold}Other:${c.reset}
       console.log(`${c.bold}SSH hosts:${c.reset}`);
       for (const [env, info] of Object.entries(hosts)) {
         console.log(`  ${c.cyan}${env}${c.reset}: ${info.host} — ${info.description}`);
+      }
+      break;
+    }
+
+    // ── LLM Status & Controls ──
+
+    case ":status":
+      console.log(formatStatus());
+      break;
+
+    case ":offline":
+      console.log(goOffline());
+      break;
+
+    case ":online":
+      console.log(goOnline());
+      break;
+
+    case ":disable": {
+      const llmName = parts[1];
+      if (!llmName) {
+        console.log("Usage: :disable <llm>  (claude, ollama, api)");
+        break;
+      }
+      console.log(disableLLM(llmName));
+      break;
+    }
+
+    case ":enable": {
+      const llmName = parts[1];
+      if (!llmName) {
+        console.log("Usage: :enable <llm>  (claude, ollama, api)");
+        break;
+      }
+      console.log(enableLLM(llmName));
+      break;
+    }
+
+    // ── Sessions ──
+
+    case ":sessions": {
+      const sessions = getRecentSessions(15);
+      if (sessions.length === 0) {
+        console.log(`${c.dim}No sessions recorded yet.${c.reset}`);
+      } else {
+        console.log(formatSessionList(sessions));
+      }
+      break;
+    }
+
+    case ":backup": {
+      console.log(`${c.dim}Creating full backup of ~/.notoken/...${c.reset}`);
+      try {
+        const backupPath = createFullBackup();
+        console.log(`${c.green}✓${c.reset} Backup created: ${backupPath}`);
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Backup failed: ${err instanceof Error ? err.message : err}`);
+      }
+      break;
+    }
+
+    case ":restore": {
+      const backupFile = parts[1];
+      if (!backupFile) {
+        console.log("Usage: :restore <file>");
+        const existing = listFullBackups();
+        if (existing.length > 0) {
+          console.log(`\n${formatBackupsList(existing)}`);
+        }
+        break;
+      }
+      try {
+        restoreFromBackup(backupFile);
+        console.log(`${c.green}✓${c.reset} Restored from: ${backupFile}`);
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Restore failed: ${err instanceof Error ? err.message : err}`);
+      }
+      break;
+    }
+
+    case ":backups-full": {
+      const fullBackups = listFullBackups();
+      if (fullBackups.length === 0) {
+        console.log(`${c.dim}No full backups found. Use :backup to create one.${c.reset}`);
+      } else {
+        console.log(formatBackupsList(fullBackups));
       }
       break;
     }
