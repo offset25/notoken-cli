@@ -90,6 +90,13 @@ export {
   type SessionSummary,
 } from "./utils/sessionSummary.js";
 
+// ── Session Backup & Prefs ──
+export {
+  isSessionOpen, toggleSession, hideSession, unhideSession, getHiddenSessions, getLastViewedSession,
+  createFullBackup, restoreFromBackup, listFullBackups, formatBackupsList,
+  type BackupInfo,
+} from "./utils/sessionBackup.js";
+
 // ── Logging ──
 export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
 export { logUncertainty, loadUncertaintyLog, getUncertaintySummary } from "./nlp/uncertainty.js";
