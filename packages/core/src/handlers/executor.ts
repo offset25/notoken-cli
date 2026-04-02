@@ -12,6 +12,7 @@ import { detectLocalPlatform, getPackageForCommand, getInstallCommand } from "..
 import { withSpinner } from "../utils/spinner.js";
 import { analyzeOutput } from "../utils/analysis.js";
 import { smartRead, smartSearch } from "../utils/smartFile.js";
+import { pluginRegistry } from "../plugins/registry.js";
 
 /**
  * Generic command executor.
@@ -23,6 +24,16 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   const def = getIntentDef(intent.intent);
   if (!def) {
     throw new Error(`No intent definition found for: ${intent.intent}`);
+  }
+
+  // Plugin beforeExecute hooks — can cancel execution
+  const proceed = await pluginRegistry.runBeforeExecute({
+    intent: intent.intent,
+    fields: intent.fields,
+    rawText: intent.rawText,
+  });
+  if (proceed === false) {
+    return "[cancelled by plugin]";
   }
 
   // Fuzzy resolve file paths if needed
@@ -141,6 +152,9 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   if (analysis) {
     result += "\n" + analysis;
   }
+
+  // Plugin afterExecute hooks
+  await pluginRegistry.runAfterExecute({ intent: intent.intent, fields }, result);
 
   return result;
 }

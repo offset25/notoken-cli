@@ -81,6 +81,10 @@ export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
 export { logUncertainty, loadUncertaintyLog, getUncertaintySummary } from "./nlp/uncertainty.js";
 export { recordHistory, loadHistory, getRecentHistory, searchHistory } from "./context/history.js";
 
+// ── Plugins ──
+export { pluginRegistry } from "./plugins/index.js";
+export type { NotokenPlugin, PluginIntent, PluginPlaybook, PluginHooks, LoadedPlugin } from "./plugins/index.js";
+
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";
 export type { RulePatch, RulePatchChange, FailureLog, RulesConfig } from "./types/rules.js";
