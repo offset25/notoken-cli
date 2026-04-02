@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import { withSpinner } from "notoken-core";
 import { detectLocalPlatform, getInstallCommand } from "notoken-core";
 
-const c = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+const c = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
 
 interface ToolInstaller {
   name: string;
@@ -81,6 +81,7 @@ const TOOLS: Record<string, ToolInstaller> = {
 
 export async function runInstall(args: string[]): Promise<void> {
   const toolName = args[0];
+  const flags = new Set(args.filter(a => a.startsWith("--")));
 
   if (!toolName) {
     console.log(`${c.bold}notoken install${c.reset} <tool>\n`);
@@ -88,9 +89,27 @@ export async function runInstall(args: string[]): Promise<void> {
     for (const [key, tool] of Object.entries(TOOLS)) {
       const installed = isInstalled(tool.check);
       const icon = installed ? `${c.green}✓${c.reset}` : `${c.dim}○${c.reset}`;
-      console.log(`  ${icon} ${c.cyan}${key.padEnd(12)}${c.reset} ${tool.description}`);
+      console.log(`  ${icon} ${c.cyan}${key.padEnd(20)}${c.reset} ${tool.description}`);
     }
+    console.log(`\n  ${c.bold}AI Image Generation:${c.reset}`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"stable-diffusion".padEnd(20)}${c.reset} AUTOMATIC1111 Web UI (most popular)`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"comfyui".padEnd(20)}${c.reset} ComfyUI (node-based workflows)`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"fooocus".padEnd(20)}${c.reset} Fooocus (simplest, Midjourney-like)`);
     console.log(`\n  ${c.dim}Any other name installs as a system package (apt/dnf/yum).${c.reset}`);
+    return;
+  }
+
+  // Handle AI image generation installs
+  if (["stable-diffusion", "sd", "stablediffusion", "auto1111", "automatic1111"].includes(toolName)) {
+    await installImageGen(flags.has("--docker") ? "docker" : "auto1111");
+    return;
+  }
+  if (["comfyui", "comfy"].includes(toolName)) {
+    await installImageGen("comfyui");
+    return;
+  }
+  if (["fooocus"].includes(toolName)) {
+    await installImageGen("fooocus");
     return;
   }
 
@@ -100,6 +119,53 @@ export async function runInstall(args: string[]): Promise<void> {
     await installTool(tool, toolName);
   } else {
     await installSystemPackage(toolName);
+  }
+}
+
+async function installImageGen(engine: "auto1111" | "comfyui" | "fooocus" | "docker"): Promise<void> {
+  const { detectGpu, getInstallPlan, installImageEngine, detectImageEngines, formatImageEngineStatus } = await import("notoken-core");
+
+  // Show current status
+  const engines = detectImageEngines();
+  const existing = engines.find(e => e.installed && e.engine !== "docker");
+  if (existing?.installed) {
+    console.log(`${c.green}✓${c.reset} ${existing.engine} is already installed at ${existing.path}`);
+    if (!existing.running) {
+      console.log(`${c.yellow}→${c.reset} Start it with: ${c.cyan}notoken start stable-diffusion${c.reset}`);
+    }
+    return;
+  }
+
+  // Show GPU info
+  const gpu = detectGpu();
+  console.log(`\n${c.bold}${c.magenta}  AI Image Generation Setup${c.reset}\n`);
+
+  if (gpu.hasNvidia) {
+    console.log(`  ${c.green}✓ GPU:${c.reset} ${gpu.gpuName}${gpu.vram ? ` (${gpu.vram})` : ""}`);
+    if (gpu.cudaVersion) console.log(`  ${c.green}✓ CUDA:${c.reset} ${gpu.cudaVersion}`);
+  } else if (gpu.hasAmd) {
+    console.log(`  ${c.green}✓ GPU:${c.reset} AMD (ROCm)`);
+  } else {
+    console.log(`  ${c.yellow}⚠ No GPU detected${c.reset} — will use CPU mode (slower but works)`);
+  }
+
+  // Show install plan
+  const plan = getInstallPlan(engine);
+  console.log(`\n  ${c.bold}Engine:${c.reset}     ${plan.engine}`);
+  console.log(`  ${c.bold}Requires:${c.reset}   ${plan.requirements.join(", ")}`);
+  console.log(`  ${c.bold}Disk:${c.reset}       ${plan.diskSpace}`);
+  console.log(`  ${c.bold}Time:${c.reset}       ${plan.estimatedTime}`);
+  console.log(`\n  ${c.bold}Steps:${c.reset}`);
+  for (const step of plan.steps) {
+    console.log(`    ${c.dim}$ ${step}${c.reset}`);
+  }
+
+  console.log(`\n${c.bold}Installing ${plan.engine}...${c.reset}\n`);
+  const result = await installImageEngine(engine);
+  console.log(result.message);
+
+  if (result.success) {
+    console.log(`\n${c.dim}Now you can say: "generate a picture of a cat"${c.reset}`);
   }
 }
 

@@ -14,6 +14,7 @@ import { analyzeOutput } from "../utils/analysis.js";
 import { smartRead, smartSearch } from "../utils/smartFile.js";
 import { pluginRegistry } from "../plugins/registry.js";
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
+import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 
 /**
  * Generic command executor.
@@ -91,6 +92,26 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
       return result;
     }
+  }
+
+  // Image generation — natural language to image
+  if (intent.intent === "ai.generate_image") {
+    const prompt = (fields.prompt as string) ?? intent.rawText.replace(/^(generate|create|make|draw|paint)\s+(a\s+)?(picture|image|photo|drawing|painting)\s+(of\s+)?/i, "").trim();
+    command = `[image-gen] ${prompt}`;
+    const genResult = await generateImage(prompt);
+    result = genResult.message ?? genResult.error ?? "Unknown error";
+    if (genResult.imagePath) result += `\n\nFile: ${genResult.imagePath}`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: genResult.success });
+    return result;
+  }
+
+  // Image engine status
+  if (intent.intent === "ai.image_status") {
+    command = "[image-status]";
+    const engines = detectImageEngines();
+    result = formatImageEngineStatus(engines);
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
   }
 
   // Project scanning — rich local output instead of raw find command

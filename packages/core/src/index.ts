@@ -97,6 +97,13 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Image Generation ──
+export {
+  detectGpu, detectImageEngines, getBestImageEngine, generateImage,
+  getInstallPlan, installImageEngine, formatImageEngineStatus,
+  type ImageEngine, type ImageEngineStatus, type GpuInfo, type GenerateResult,
+} from "./utils/imageGen.js";
+
 // ── Project Scanner ──
 export {
   scanProjects, summarizeDirectory, formatProjectList, formatDirSummary,
