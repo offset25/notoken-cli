@@ -273,7 +273,8 @@ function tryExec(cmd: string): string | null {
 }
 
 function commandExists(cmd: string): boolean {
-  return tryExec(`command -v ${cmd}`) !== null;
+  const checkCmd = process.platform === "win32" ? `where ${cmd}` : `command -v ${cmd}`;
+  return tryExec(checkCmd) !== null;
 }
 
 function extractField(content: string, key: string): string | null {

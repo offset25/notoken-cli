@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { resolveEntity, verbalizeResolution, learnEntity, listEntities } from "../../../packages/core/src/utils/entityResolver.js";
+import { describe, it, expect, beforeAll } from "vitest";
+import { resolveEntity, verbalizeResolution, learnEntity, listEntities, loadEntities } from "../../../packages/core/src/utils/entityResolver.js";
+
+// Force load entities from known path before tests
+beforeAll(() => {
+  // loadEntities will try multiple paths including cwd + packages/core/config
+  loadEntities(true);
+});
 
 describe("resolveEntity", () => {
   it("resolves exact server name", () => {

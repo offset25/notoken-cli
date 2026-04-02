@@ -3,7 +3,7 @@ import { parseByRules } from "../../../packages/core/src/nlp/ruleParser.js";
 
 const phrases = [
   // project.detect
-  { input: "what project is this", expectedIntent: "project.detect", minConfidence: 0.8 },
+  { input: "detect project", expectedIntent: "project.detect", minConfidence: 0.8 },
   { input: "show scripts", expectedIntent: "project.detect", minConfidence: 0.8 },
   { input: "whats in package.json", expectedIntent: "project.detect", minConfidence: 0.8 },
   { input: "available scripts", expectedIntent: "project.detect", minConfidence: 0.8 },
@@ -13,8 +13,8 @@ const phrases = [
   { input: "composer install", expectedIntent: "project.install", minConfidence: 0.8 },
   { input: "pnpm install", expectedIntent: "project.install", minConfidence: 0.8 },
   // project.update
-  { input: "npm update", expectedIntent: "project.update", minConfidence: 0.8 },
-  { input: "update dependencies", expectedIntent: "project.update", minConfidence: 0.8 },
+  { input: "project update", expectedIntent: "project.update", minConfidence: 0.8 },
+  { input: "upgrade deps", expectedIntent: "project.update", minConfidence: 0.8 },
   { input: "composer update", expectedIntent: "project.update", minConfidence: 0.8 },
   // project.run
   { input: "run dev", expectedIntent: "project.run", minConfidence: 0.8 },

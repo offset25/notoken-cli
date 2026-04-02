@@ -119,6 +119,13 @@ export {
   type LearnedVocabulary,
 } from "./nlp/vocabularyBuilder.js";
 
+// ── Shell Compatibility ──
+export {
+  commandExists, tryExec as shellTryExec, getTempDir, timestamp, fileSize,
+  lineCount, shellExec, crossPlatformCmd, silenceStderr, isWin,
+  getPlatformSummary, isAdmin, getSystemInstallCmd,
+} from "./utils/shellCompat.js";
+
 // ── Install Tracker ──
 export {
   trackInstall, getInstallHistory, getInstalledByType, getInstalledItem,

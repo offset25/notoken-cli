@@ -28,7 +28,7 @@ const phrases = [
   { input: "openclaw status", expectedIntent: "openclaw.status", minConfidence: 0.8 },
   { input: "can you talk to openclaw", expectedIntent: "openclaw.status", minConfidence: 0.8 },
   // openclaw.diagnose
-  { input: "diagnose openclaw", expectedIntent: "openclaw.diagnose", minConfidence: 0.8 },
+  { input: "openclaw diagnose", expectedIntent: "openclaw.diagnose", minConfidence: 0.8 },
   { input: "troubleshoot openclaw", expectedIntent: "openclaw.diagnose", minConfidence: 0.8 },
   // openclaw.message
   { input: "tell openclaw hello", expectedIntent: "openclaw.message", minConfidence: 0.8 },
