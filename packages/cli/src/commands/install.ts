@@ -428,7 +428,11 @@ async function installDocker(): Promise<void> {
       console.log(`${c.dim}winget detected — attempting install...${c.reset}`);
       try {
         execSync("winget install Docker.DockerDesktop --accept-source-agreements --accept-package-agreements", { stdio: "inherit", timeout: 300_000 });
-        console.log(`\n${c.green}✓${c.reset} Docker Desktop installed. Restart your computer to complete setup.`);
+        console.log(`\n${c.green}✓${c.reset} Docker Desktop downloaded and installed.`);
+        console.log(`\n${c.yellow}⚠ RESTART REQUIRED${c.reset}`);
+        console.log(`  Docker Desktop requires a system restart to complete setup.`);
+        console.log(`  Save your work and restart when ready.`);
+        console.log(`  After restart, Docker Desktop will start automatically.`);
       } catch {
         console.log(`${c.yellow}winget install failed.${c.reset} Download manually from the link above.`);
       }
@@ -478,10 +482,15 @@ async function installWSL(): Promise<void> {
   // Try automatic install
   try {
     console.log(`${c.dim}Attempting automatic install...${c.reset}`);
-    execSync("wsl --install", { stdio: "inherit", timeout: 300_000 });
-    console.log(`\n${c.green}✓${c.reset} WSL installed. ${c.bold}Restart your computer${c.reset} to complete setup.`);
+    execSync("wsl --install --no-launch", { stdio: "inherit", timeout: 300_000 });
+    console.log(`\n${c.green}✓${c.reset} WSL installed successfully.`);
+    console.log(`\n${c.yellow}⚠ RESTART REQUIRED${c.reset}`);
+    console.log(`  WSL requires a system restart to complete setup.`);
+    console.log(`  Save your work and restart when ready.`);
+    console.log(`  After restart, open Ubuntu from the Start menu to finish setup.`);
   } catch {
-    console.log(`${c.yellow}Automatic install failed.${c.reset} Run as Administrator: ${c.cyan}wsl --install${c.reset}`);
+    console.log(`${c.yellow}Automatic install requires Administrator.${c.reset}`);
+    console.log(`Open PowerShell as Admin and run: ${c.cyan}wsl --install${c.reset}`);
   }
 }
 
