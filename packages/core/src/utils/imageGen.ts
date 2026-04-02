@@ -22,6 +22,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 
 import { resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { USER_HOME } from "./paths.js";
+import { trackInstall } from "./installTracker.js";
 
 const c = {
   reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",
@@ -1028,6 +1029,14 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
       const envFlag = gpu.cpuOnly ? "-e COMMANDLINE_ARGS='--use-cpu all --skip-torch-cuda-test --no-half'" : "";
       console.log(`${c.cyan}Step 3/${c.reset} Starting container...`);
       execSync(`docker run -d ${gpuFlag} -p 7860:7860 --name sd-webui ${envFlag} ghcr.io/ai-dock/stable-diffusion-webui:latest`, { stdio: "inherit", timeout: 30000 });
+      trackInstall({
+        name: "stable-diffusion-docker",
+        type: "docker-image",
+        method: "docker-pull",
+        path: tryExec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'") ?? "/var/lib/docker",
+        uninstallCmd: "docker stop sd-webui && docker rm sd-webui && docker rmi ghcr.io/ai-dock/stable-diffusion-webui:latest",
+        notes: "Container: sd-webui at localhost:7860",
+      });
       return { success: true, message: `${c.green}✓${c.reset} Stable Diffusion running in Docker at ${c.bold}http://localhost:7860${c.reset}` };
     } catch (err) {
       return { success: false, message: `Docker install failed: ${err instanceof Error ? err.message : err}` };
@@ -1255,8 +1264,8 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
       ], dir);
 
       if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
-        console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
-        await runWithProgress(venvPip, ["install", "-r", resolve(dir, "requirements_versions.txt")], dir);
+        console.log(`${c.dim}  Installing Stable Diffusion requirements (using pre-built wheels)...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", resolve(dir, "requirements_versions.txt")], dir);
       } else if (engine === "comfyui" || engine === "fooocus") {
         const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
         if (existsSync(resolve(dir, reqFile))) {
@@ -1326,9 +1335,30 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     }
   }
 
-  // Step 7: Verify
+  // Step 7: Track install + verify
   console.log(`${c.cyan}Step 7/${c.reset} ${c.green}Installation complete${c.reset}`);
   const plan = getInstallPlan(engine);
+
+  // Track what we installed
+  const du = tryExec(`du -sh "${dir}" 2>/dev/null`);
+  const installSize = du?.split("\t")[0] ?? "unknown";
+  trackInstall({
+    name: `stable-diffusion-${engine}`,
+    type: "engine",
+    method: "git-clone",
+    path: dir,
+    size: installSize,
+    uninstallCmd: `rm -rf "${dir}"`,
+    dependencies: ["torch", "torchvision", "numpy", "pillow"],
+    notes: `Installed via notoken on ${new Date().toLocaleDateString()}`,
+  });
+
+  // Check if model was downloaded
+  const modelsCheck = resolve(dir, "models", "Stable-diffusion");
+  let hasModelNow = false;
+  try {
+    hasModelNow = readdirSync(modelsCheck).some(f => f.endsWith(".safetensors") || f.endsWith(".ckpt"));
+  } catch {}
 
   // Store pending action so user can say "try it"
   const { suggestAction } = await import("../conversation/pendingActions.js");
@@ -1338,13 +1368,16 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     type: "intent",
   });
 
+  const modelNote = hasModelNow
+    ? `${c.green}✓${c.reset} Model downloaded — ready to generate.`
+    : `${c.yellow}Note:${c.reset} First launch will download the AI model (~4GB). Takes 5-10 minutes.`;
+
   return {
     success: true,
     message: [
-      `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}`,
+      `${c.green}✓${c.reset} ${plan.engine} installed at ${dir} (${installSize})`,
       ``,
-      `${c.yellow}Note:${c.reset} First launch will download the AI model (~4GB). This takes 5-10 minutes.`,
-      `After that, startup takes about 30-60 seconds.`,
+      modelNote,
       ``,
       `${c.bold}Say "try it" or "generate a picture of a cat" to test.${c.reset}`,
     ].join("\n"),

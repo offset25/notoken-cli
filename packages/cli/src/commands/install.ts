@@ -642,6 +642,35 @@ export async function runUninstall(args: string[]): Promise<void> {
     return;
   }
 
+  // SD / image gen uninstall
+  if (["stable-diffusion", "sd", "auto1111", "comfyui", "fooocus"].includes(toolName)) {
+    const { detectImageEngines, getInstalledItem, untrackInstall } = await import("notoken-core");
+    const engines = detectImageEngines();
+    const installed = engines.filter(e => e.installed && e.path);
+
+    if (installed.length === 0) {
+      console.log(`${c.dim}No local image generators found to uninstall.${c.reset}`);
+    } else {
+      for (const eng of installed) {
+        console.log(`${c.bold}Removing ${eng.engine}${c.reset} at ${eng.path}`);
+        try {
+          execSync(`rm -rf "${eng.path}"`, { stdio: "inherit", timeout: 60000 });
+          console.log(`${c.green}✓${c.reset} ${eng.engine} removed.`);
+          try { untrackInstall(`stable-diffusion-${eng.engine}`); } catch {}
+        } catch (err) {
+          console.log(`${c.red}✗${c.reset} ${err instanceof Error ? err.message : err}`);
+        }
+      }
+    }
+    // Docker container
+    try {
+      execSync("docker stop sd-webui 2>/dev/null && docker rm sd-webui 2>/dev/null", { stdio: "pipe" });
+      console.log(`${c.green}✓${c.reset} Docker container sd-webui removed.`);
+      try { untrackInstall("stable-diffusion-docker"); } catch {}
+    } catch {}
+    return;
+  }
+
   // Matrix special uninstall
   if (toolName === "matrix") {
     await uninstallMatrix();
