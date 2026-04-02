@@ -77,7 +77,7 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   const cachedUpdate = checkForUpdateSync();
   const updateTag = cachedUpdate?.updateAvailable ? ` ${c.yellow}⬆ ${cachedUpdate.latest}${c.reset}` : "";
 
-  console.log(`${c.bold}${c.cyan}notoken${c.reset}${updateTag}`);
+  console.log(`${c.bold}${c.cyan}NoToken${c.reset}${updateTag}`);
   console.log(`${c.dim}${platform.distro}${wslTag} | ${platform.shell} | ${platform.packageManager} | ${platform.arch}${llmTag}${c.reset}`);
   console.log(`${c.dim}Conversation: ${conv.id} (${conv.turns.length} prior turns)${c.reset}`);
   console.log(`${c.dim}Append & for background. Ctrl+C twice to quit. :help for commands.${c.reset}`);

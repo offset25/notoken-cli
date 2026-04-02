@@ -116,7 +116,7 @@ async function main() {
 
 function printHelp(): void {
   console.log(`
-notoken — NLP-based server operations CLI
+NoToken — Token-Free Terminal Copilot
 
 Usage:
   notoken                              Start interactive mode (default)
