@@ -97,6 +97,12 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Project Scanner ──
+export {
+  scanProjects, summarizeDirectory, formatProjectList, formatDirSummary,
+  type ProjectInfo, type DirSummary,
+} from "./utils/projectScanner.js";
+
 // ── Browser ──
 export {
   detectBrowserEngines, getBestEngine, installBrowserEngine, browse, formatBrowserStatus,

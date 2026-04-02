@@ -13,6 +13,7 @@ import { withSpinner } from "../utils/spinner.js";
 import { analyzeOutput } from "../utils/analysis.js";
 import { smartRead, smartSearch } from "../utils/smartFile.js";
 import { pluginRegistry } from "../plugins/registry.js";
+import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
 
 /**
  * Generic command executor.
@@ -90,6 +91,28 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
       return result;
     }
+  }
+
+  // Project scanning — rich local output instead of raw find command
+  if (intent.intent === "project.scan") {
+    let scanPath = (fields.path as string) ?? ".";
+    if (["here", "this", "this folder", "this directory", "."].includes(scanPath)) scanPath = process.cwd();
+    command = `[project-scan] ${scanPath}`;
+    const projects = scanProjects(scanPath);
+    result = formatProjectList(projects, scanPath);
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
+  }
+
+  // Directory listing — rich summary
+  if (intent.intent === "dir.list" || intent.intent === "dir.summary") {
+    let dirPath = (fields.path as string) ?? ".";
+    if (!dirPath || ["here", "this", "this folder", "this directory", "."].includes(dirPath)) dirPath = process.cwd();
+    command = `[dir-summary] ${dirPath}`;
+    const summary = summarizeDirectory(dirPath);
+    result = formatDirSummary(summary);
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
   }
 
   // Route git intents through simple-git for better output

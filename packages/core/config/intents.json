@@ -3923,20 +3923,43 @@
 
     {
       "name": "project.scan",
-      "description": "Scan for software projects in a directory",
-      "synonyms": ["scan projects", "what projects", "find projects", "check what projects", "scan for projects", "check projects", "project scan"],
+      "description": "Scan for software projects in a directory — detects type, version, deps, scripts",
+      "synonyms": ["scan projects", "what projects", "find projects", "check what projects", "scan for projects", "check projects", "project scan", "what projects do i have", "list projects", "show projects", "my projects", "projects here", "what repos", "what apps"],
       "fields": {
         "path": { "type": "string", "required": false, "default": "." }
       },
-      "command": "echo '=== Scanning for projects ===' && find {{path}} -maxdepth 3 \\( -name 'package.json' -o -name 'Cargo.toml' -o -name 'go.mod' -o -name 'requirements.txt' -o -name 'pyproject.toml' -o -name 'Gemfile' -o -name 'pom.xml' -o -name 'build.gradle' -o -name 'composer.json' -o -name '*.sln' -o -name '*.csproj' -o -name 'Dockerfile' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \\) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' -not -path '*/target/*' 2>/dev/null | sort",
+      "command": "notoken:project-scan:{{path}}",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
       "examples": [
         "scan for projects",
         "what projects are on here",
+        "what projects do i have here",
         "check what projects are in this folder",
-        "find projects"
+        "find projects",
+        "list my projects",
+        "show me my projects"
+      ]
+    },
+    {
+      "name": "dir.list",
+      "description": "Show directory contents with file types, sizes, and project detection",
+      "synonyms": ["where are my files", "what files", "what is here", "whats here", "whats in this folder", "whats in this directory", "show files", "list files", "show directory", "directory listing", "folder contents", "what do i have here", "show me whats here", "where is everything", "show this folder", "list directory", "list this folder", "what is in this folder", "what is in this directory", "show me this folder", "what have i got here", "what have i got"],
+      "fields": {
+        "path": { "type": "string", "required": false, "default": "." }
+      },
+      "command": "notoken:dir-list:{{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "where are my files",
+        "what files do i have here",
+        "what's in this folder",
+        "show me what's here",
+        "list files",
+        "what do i have in this directory"
       ]
     },
     {
