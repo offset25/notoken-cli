@@ -128,6 +128,7 @@ Usage:
   notoken setup <env>                  Set up environment (dev, server, docker, node)
   notoken logs <service>               Tail service logs (nginx, docker, system, etc.)
   notoken check                        Check integration health (OpenClaw, Matrix, Ollama)
+  notoken update                       Check for updates and install
   notoken heal                         Improve rules (LLM API mode)
   notoken heal:claude                  Improve rules via Claude
 
@@ -136,18 +137,34 @@ Options:
   --dry-run    Parse but don't execute
   --json       Output as JSON
   --verbose    Show detailed restatement
+  --explain    Show full decision chain (why, alternatives, risks)
   --yes, -y    Skip confirmations
   --help       Show this help
+
+Interactive commands:
+  :status            Show LLM status (connected/offline)
+  :offline           Disconnect all LLMs
+  :online            Reconnect LLMs
+  :sessions          Show recent sessions
+  :adapt             Toggle adaptive rules
+  :improve           Run rule improvement now
+  :update            Check for updates
+  :backup            Backup ~/.notoken/
+  :help              Full command list
 
 Examples:
   notoken                                        # interactive REPL
   notoken install claude                          # install Claude CLI
   notoken doctor                                  # check system health
   notoken fix npm                                 # fix npm issues
+  notoken fix nvm                                 # fix nvm loading issues
   notoken setup dev                               # set up dev environment
+  notoken setup openclaw                          # guided OpenClaw + Matrix setup
   notoken logs nginx                              # tail nginx logs
+  notoken update                                  # check for updates
   notoken "restart nginx on prod" --dry-run       # NLP one-shot
-  NOTOKEN_LLM_CLI=claude notoken --adapt        # interactive + adapt
+  notoken "check disk on local" --explain         # show why + alternatives
+  NOTOKEN_LLM_CLI=claude notoken --adapt          # interactive + adaptive rules
 `);
 }
 
