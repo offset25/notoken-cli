@@ -1157,26 +1157,43 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     console.log(`${c.cyan}Step 3/${c.reset} ${c.green}venv available${c.reset}`);
   }
 
-  // Step 3b: Build tools (needed for scikit-image, scipy, etc.)
+  // Step 3b: Build tools (needed for scikit-image, tokenizers, scipy, etc.)
   {
-    const hasBuildTools = !!tryExec("gcc --version 2>/dev/null") && !!tryExec("cmake --version 2>/dev/null");
-    if (!hasBuildTools) {
-      console.log(`${c.cyan}Step 3b/${c.reset} Installing build tools (needed for AI dependencies)...`);
+    const hasGcc = !!tryExec("gcc --version 2>/dev/null");
+    const hasCmake = !!tryExec("cmake --version 2>/dev/null");
+    const hasRust = !!tryExec("cargo --version 2>/dev/null") || !!tryExec(". $HOME/.cargo/env 2>/dev/null && cargo --version");
+
+    if (!hasGcc || !hasCmake || !hasRust) {
+      console.log(`${c.cyan}Step 3b/${c.reset} Installing build tools...`);
+      const missing: string[] = [];
+      if (!hasGcc) missing.push("gcc/build-essential");
+      if (!hasCmake) missing.push("cmake");
+      if (!hasRust) missing.push("rust/cargo");
+      console.log(`${c.dim}  Missing: ${missing.join(", ")}${c.reset}`);
+
       try {
-        if (tryExec("apt-get --version")) {
-          execSync("apt-get install -y -qq build-essential cmake pkg-config libffi-dev libjpeg-dev libpng-dev 2>/dev/null", { stdio: "inherit", timeout: 120000 });
-        } else if (tryExec("dnf --version")) {
-          execSync("dnf install -y gcc gcc-c++ cmake pkg-config libffi-devel libjpeg-devel libpng-devel 2>/dev/null", { stdio: "inherit", timeout: 120000 });
-        } else if (tryExec("brew --version")) {
-          execSync("brew install cmake pkg-config 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+        // C/C++ build tools
+        if (!hasGcc || !hasCmake) {
+          if (tryExec("apt-get --version")) {
+            execSync("apt-get install -y -qq build-essential cmake pkg-config libffi-dev libjpeg-dev libpng-dev 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+          } else if (tryExec("dnf --version")) {
+            execSync("dnf install -y gcc gcc-c++ cmake pkg-config libffi-devel libjpeg-devel libpng-devel 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+          } else if (tryExec("brew --version")) {
+            execSync("brew install cmake pkg-config 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+          }
         }
-        // Also install meson + ninja which scikit-image needs
+        // Rust (needed for tokenizers, safetensors)
+        if (!hasRust) {
+          console.log(`${c.dim}  Installing Rust (needed for tokenizers)...${c.reset}`);
+          execSync("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+        }
+        // Python build tools
         tryExec(`${pythonCmd} -m pip install --user meson-python meson ninja Cython 2>/dev/null`);
       } catch {
         console.log(`${c.yellow}⚠${c.reset} Some build tools could not be installed — pip may fall back to pre-built wheels`);
       }
     } else {
-      console.log(`${c.cyan}Step 3b/${c.reset} ${c.green}Build tools available${c.reset}`);
+      console.log(`${c.cyan}Step 3b/${c.reset} ${c.green}Build tools available${c.reset} (gcc, cmake, rust)`);
     }
   }
 
@@ -1275,7 +1292,26 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         const fixedReqPath = resolve(dir, "requirements_notoken.txt");
         writeFileSync(fixedReqPath, fixedReq);
         console.log(`${c.dim}  Relaxed version pins for wheel compatibility${c.reset}`);
-        await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
+        try {
+          await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
+        } catch (pipErr) {
+          const msg = pipErr instanceof Error ? pipErr.message : String(pipErr);
+          // If tokenizers/safetensors failed, install Rust and retry
+          if (msg.includes("tokenizers") || msg.includes("cargo") || msg.includes("rustc")) {
+            console.log(`${c.yellow}⚠${c.reset} Build failed — installing Rust compiler and retrying...`);
+            try {
+              execSync("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+              // Retry with Rust available
+              await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
+            } catch {
+              // Install tokenizers from pre-built wheel as last resort
+              console.log(`${c.dim}  Trying pre-built tokenizers...${c.reset}`);
+              await runWithProgress(venvPip, ["install", "--prefer-binary", "tokenizers>=0.14", "transformers>=4.30"], dir);
+            }
+          } else {
+            throw pipErr; // Re-throw non-Rust errors
+          }
+        }
       } else if (engine === "comfyui" || engine === "fooocus") {
         const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
         if (existsSync(resolve(dir, reqFile))) {
