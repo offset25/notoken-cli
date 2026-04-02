@@ -1,6 +1,6 @@
 {
   "name": "notoken",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Token-free terminal copilot — NLP-based server operations CLI",
   "type": "module",
   "license": "MIT",
