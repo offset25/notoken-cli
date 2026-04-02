@@ -288,8 +288,13 @@ export function detectGpu(): GpuInfo {
   const nvidia = tryExec("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null");
   const cuda = tryExec("nvcc --version 2>/dev/null");
   const amd = tryExec("rocm-smi --showproductname 2>/dev/null");
-  // WSL check
-  const wslNvidia = !nvidia ? tryExec("nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null") : null;
+  // WSL check — try Windows-side nvidia-smi via multiple paths
+  let wslNvidia: string | null = null;
+  if (!nvidia) {
+    wslNvidia = tryExec("nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null")
+      ?? tryExec("/mnt/c/Windows/System32/nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null")
+      ?? tryExec("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits\" 2>/dev/null");
+  }
 
   const gpuLine = nvidia ?? wslNvidia;
   let gpuName: string | undefined;
