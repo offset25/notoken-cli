@@ -161,22 +161,27 @@ function getSDDir(): string { return resolve(getInstallBase(), "stable-diffusion
 function getComfyDir(): string { return resolve(getInstallBase(), "ComfyUI"); }
 function getFooocusDir(): string { return resolve(getInstallBase(), "Fooocus"); }
 
-// Keep backward compat for detection — check all known locations
-const KNOWN_SD_DIRS = [
-  () => resolve(getInstallBase(), "stable-diffusion-webui"),
-  () => resolve(homedir(), "stable-diffusion-webui"),
-  () => resolve(homedir(), "notoken", "ai", "stable-diffusion-webui"),
-];
-const KNOWN_COMFY_DIRS = [
-  () => resolve(getInstallBase(), "ComfyUI"),
-  () => resolve(homedir(), "ComfyUI"),
-  () => resolve(homedir(), "notoken", "ai", "ComfyUI"),
-];
-const KNOWN_FOOOCUS_DIRS = [
-  () => resolve(getInstallBase(), "Fooocus"),
-  () => resolve(homedir(), "Fooocus"),
-  () => resolve(homedir(), "notoken", "ai", "Fooocus"),
-];
+// Scan all possible install locations — includes all mounted drives
+function getAllKnownDirs(engineName: string): string[] {
+  const dirs: string[] = [];
+  // Current install base
+  dirs.push(resolve(getInstallBase(), engineName));
+  // Home directory
+  dirs.push(resolve(homedir(), engineName));
+  dirs.push(resolve(homedir(), "notoken", "ai", engineName));
+  // All mounted Windows drives (WSL)
+  for (const letter of ["c", "d", "e", "f", "g", "h", "i"]) {
+    dirs.push(resolve(`/mnt/${letter}`, "notoken", "ai", engineName));
+    dirs.push(resolve(`/mnt/${letter}`, "apps", engineName));
+  }
+  // Windows paths
+  for (const letter of ["C", "D", "E", "F", "G"]) {
+    dirs.push(resolve(`${letter}:\\notoken\\ai`, engineName));
+  }
+  // Linux common
+  dirs.push(resolve("/opt/notoken/ai", engineName));
+  return dirs;
+}
 const STABILITY_MATRIX_DIR = resolve(homedir(), "StabilityMatrix");
 const EASY_DIFFUSION_DIR = resolve(homedir(), "easy-diffusion");
 const OUTPUT_DIR = resolve(USER_HOME, "generated-images");
@@ -292,8 +297,8 @@ export function detectGpu(): GpuInfo {
 export function detectImageEngines(): ImageEngineStatus[] {
   const engines: ImageEngineStatus[] = [];
 
-  // AUTOMATIC1111 — check all known locations
-  const SD_DIR = KNOWN_SD_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "webui.py"))) ?? getSDDir();
+  // AUTOMATIC1111 — scan all known locations
+  const SD_DIR = getAllKnownDirs("stable-diffusion-webui").find(d => existsSync(d) && existsSync(resolve(d, "webui.py"))) ?? getSDDir();
   const a1Installed = existsSync(SD_DIR) && existsSync(resolve(SD_DIR, "webui.py"));
   const a1Running = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
   engines.push({
@@ -305,7 +310,7 @@ export function detectImageEngines(): ImageEngineStatus[] {
   });
 
   // ComfyUI
-  const COMFY_DIR = KNOWN_COMFY_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "main.py"))) ?? getComfyDir();
+  const COMFY_DIR = getAllKnownDirs("ComfyUI").find(d => existsSync(d) && existsSync(resolve(d, "main.py"))) ?? getComfyDir();
   const comfyInstalled = existsSync(COMFY_DIR) && existsSync(resolve(COMFY_DIR, "main.py"));
   const comfyRunning = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
   engines.push({
@@ -317,7 +322,7 @@ export function detectImageEngines(): ImageEngineStatus[] {
   });
 
   // Fooocus
-  const FOOOCUS_DIR = KNOWN_FOOOCUS_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "entry_with_update.py"))) ?? getFooocusDir();
+  const FOOOCUS_DIR = getAllKnownDirs("Fooocus").find(d => existsSync(d) && existsSync(resolve(d, "entry_with_update.py"))) ?? getFooocusDir();
   const fooocusInstalled = existsSync(FOOOCUS_DIR) && existsSync(resolve(FOOOCUS_DIR, "entry_with_update.py"));
   engines.push({
     engine: "fooocus",
