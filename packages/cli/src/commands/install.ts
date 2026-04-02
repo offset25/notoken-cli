@@ -11,6 +11,8 @@
  */
 
 import { execSync } from "node:child_process";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
 import { withSpinner } from "notoken-core";
 import { detectLocalPlatform, getInstallCommand } from "notoken-core";
 
@@ -89,6 +91,8 @@ const ALL_INSTALL_NAMES = [
   ...Object.keys(TOOLS),
   "stable-diffusion", "sd", "stablediffusion", "auto1111", "automatic1111",
   "comfyui", "comfy", "fooocus", "focus",
+  "stability-matrix", "stabilitymatrix", "lykos",
+  "easy-diffusion", "easydiffusion",
 ];
 
 // Extra aliases that map to canonical names
@@ -150,10 +154,12 @@ export async function runInstall(args: string[]): Promise<void> {
       const icon = installed ? `${c.green}✓${c.reset}` : `${c.dim}○${c.reset}`;
       console.log(`  ${icon} ${c.cyan}${key.padEnd(20)}${c.reset} ${tool.description}`);
     }
-    console.log(`\n  ${c.bold}AI Image Generation:${c.reset}`);
-    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"stable-diffusion".padEnd(20)}${c.reset} AUTOMATIC1111 Web UI (most popular)`);
-    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"comfyui".padEnd(20)}${c.reset} ComfyUI (node-based workflows)`);
-    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"fooocus".padEnd(20)}${c.reset} Fooocus (simplest, Midjourney-like)`);
+    console.log(`\n  ${c.bold}AI Image Generation (easiest first):${c.reset}`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"stability-matrix".padEnd(20)}${c.reset} All-in-one launcher — no technical setup needed`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"easy-diffusion".padEnd(20)}${c.reset} One-click installer — simple UI`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"fooocus".padEnd(20)}${c.reset} Simplest, Midjourney-like experience`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"stable-diffusion".padEnd(20)}${c.reset} AUTOMATIC1111 (advanced, requires Python)`);
+    console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"comfyui".padEnd(20)}${c.reset} ComfyUI node-based (advanced, requires Python)`);
     console.log(`\n  ${c.dim}Any other name installs as a system package (apt/dnf/yum).${c.reset}`);
     return;
   }
@@ -182,6 +188,14 @@ export async function runInstall(args: string[]): Promise<void> {
   }
   if (["fooocus"].includes(toolName)) {
     await installImageGen("fooocus");
+    return;
+  }
+  if (["stability-matrix", "stabilitymatrix", "lykos"].includes(toolName)) {
+    await installStandaloneSD("stability-matrix");
+    return;
+  }
+  if (["easy-diffusion", "easydiffusion"].includes(toolName)) {
+    await installStandaloneSD("easy-diffusion");
     return;
   }
 
@@ -246,6 +260,86 @@ async function installImageGen(engine: "auto1111" | "comfyui" | "fooocus" | "doc
   if (result.success) {
     console.log(`\n${c.dim}Now you can say: "generate a picture of a cat"${c.reset}`);
   }
+}
+
+async function installStandaloneSD(engine: "stability-matrix" | "easy-diffusion"): Promise<void> {
+  const os = process.platform;
+  const isWSL = !!tryExec("grep -qi microsoft /proc/version && echo wsl");
+
+  console.log(`\n${c.bold}${c.magenta}  AI Image Generation — Local & Offline${c.reset}\n`);
+
+  if (engine === "stability-matrix") {
+    console.log(`  ${c.bold}Stability Matrix${c.reset} — All-in-one AI art launcher`);
+    console.log(`  ${c.dim}Manages AUTOMATIC1111, ComfyUI, Fooocus, models, everything.${c.reset}`);
+    console.log(`  ${c.dim}No Python or Docker needed. Just download and run.${c.reset}\n`);
+
+    if (os === "win32" || isWSL) {
+      const url = "https://github.com/LykosAI/StabilityMatrix/releases/latest/download/StabilityMatrix-win-x64.zip";
+      const dest = isWSL ? "/mnt/c/Users" : resolve(homedir(), "Downloads");
+      console.log(`  ${c.bold}Windows:${c.reset}`);
+      console.log(`  ${c.cyan}1.${c.reset} Download: ${c.cyan}${url}${c.reset}`);
+      console.log(`  ${c.cyan}2.${c.reset} Extract the zip and run StabilityMatrix.exe`);
+      console.log(`  ${c.cyan}3.${c.reset} It will download models and set up everything\n`);
+
+      if (isWSL) {
+        console.log(`${c.dim}Opening download in Windows browser...${c.reset}`);
+        try {
+          execSync(`cmd.exe /c start "" "${url}" 2>/dev/null`, { stdio: "ignore" });
+          console.log(`${c.green}✓${c.reset} Download started in your browser.`);
+        } catch {
+          console.log(`${c.dim}Open this URL manually: ${url}${c.reset}`);
+        }
+      } else if (tryExec("winget --version")) {
+        console.log(`${c.dim}Or install via winget:${c.reset}`);
+        console.log(`  ${c.cyan}winget install LykosAI.StabilityMatrix${c.reset}`);
+      }
+    } else if (os === "darwin") {
+      console.log(`  ${c.bold}macOS:${c.reset}`);
+      console.log(`  Download from: ${c.cyan}https://lykos.ai${c.reset}`);
+      console.log(`  Or: ${c.cyan}brew install --cask stability-matrix${c.reset}`);
+    } else {
+      console.log(`  ${c.bold}Linux:${c.reset}`);
+      const url = "https://github.com/LykosAI/StabilityMatrix/releases/latest/download/StabilityMatrix-linux-x64.zip";
+      console.log(`  Download: ${c.cyan}${url}${c.reset}`);
+      console.log(`  Extract and run: ${c.cyan}./StabilityMatrix${c.reset}`);
+    }
+  }
+
+  if (engine === "easy-diffusion") {
+    console.log(`  ${c.bold}Easy Diffusion${c.reset} — One-click Stable Diffusion installer`);
+    console.log(`  ${c.dim}Bundles Python, models, and a simple web UI.${c.reset}`);
+    console.log(`  ${c.dim}No technical knowledge needed.${c.reset}\n`);
+
+    if (os === "win32" || isWSL) {
+      const url = "https://github.com/easydiffusion/easydiffusion/releases/latest/download/Easy-Diffusion-Windows.exe";
+      console.log(`  ${c.bold}Windows:${c.reset}`);
+      console.log(`  ${c.cyan}1.${c.reset} Download: ${c.cyan}${url}${c.reset}`);
+      console.log(`  ${c.cyan}2.${c.reset} Run the installer — it handles everything`);
+      console.log(`  ${c.cyan}3.${c.reset} Opens at http://localhost:9000\n`);
+
+      if (isWSL) {
+        console.log(`${c.dim}Opening download in Windows browser...${c.reset}`);
+        try {
+          execSync(`cmd.exe /c start "" "${url}" 2>/dev/null`, { stdio: "ignore" });
+          console.log(`${c.green}✓${c.reset} Download started in your browser.`);
+        } catch {
+          console.log(`${c.dim}Open this URL manually: ${url}${c.reset}`);
+        }
+      }
+    } else if (os === "darwin") {
+      const url = "https://github.com/easydiffusion/easydiffusion/releases/latest/download/Easy-Diffusion-Mac.dmg";
+      console.log(`  ${c.bold}macOS:${c.reset}`);
+      console.log(`  Download: ${c.cyan}${url}${c.reset}`);
+    } else {
+      const url = "https://github.com/easydiffusion/easydiffusion/releases/latest/download/Easy-Diffusion-Linux.zip";
+      console.log(`  ${c.bold}Linux:${c.reset}`);
+      console.log(`  Download: ${c.cyan}${url}${c.reset}`);
+      console.log(`  Extract and run: ${c.cyan}./start.sh${c.reset}`);
+    }
+  }
+
+  console.log(`\n${c.dim}After installing, say "generate a picture of a cat" — it works offline.${c.reset}`);
+  console.log(`${c.dim}Say "what are we using to generate images" to check status.${c.reset}`);
 }
 
 async function installTool(tool: ToolInstaller, key: string): Promise<void> {

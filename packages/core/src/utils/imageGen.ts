@@ -32,11 +32,13 @@ const c = {
 const SD_DIR = resolve(homedir(), "stable-diffusion-webui");
 const COMFY_DIR = resolve(homedir(), "ComfyUI");
 const FOOOCUS_DIR = resolve(homedir(), "Fooocus");
+const STABILITY_MATRIX_DIR = resolve(homedir(), "StabilityMatrix");
+const EASY_DIFFUSION_DIR = resolve(homedir(), "easy-diffusion");
 const OUTPUT_DIR = resolve(USER_HOME, "generated-images");
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-export type ImageEngine = "auto1111" | "comfyui" | "fooocus" | "docker" | "none";
+export type ImageEngine = "auto1111" | "comfyui" | "fooocus" | "docker" | "stability-matrix" | "easy-diffusion" | "none";
 
 export interface ImageEngineStatus {
   engine: ImageEngine;
@@ -136,6 +138,36 @@ export function detectImageEngines(): ImageEngineStatus[] {
     path: fooocusInstalled ? FOOOCUS_DIR : undefined,
   });
 
+  // Stability Matrix (standalone launcher — Windows/Linux/Mac)
+  const smDir = [
+    STABILITY_MATRIX_DIR,
+    resolve(homedir(), "AppData", "Local", "StabilityMatrix"),
+    resolve(homedir(), ".local", "share", "StabilityMatrix"),
+  ].find(d => existsSync(d));
+  // Stability Matrix launches auto1111/comfy on standard ports
+  engines.push({
+    engine: "stability-matrix",
+    installed: !!smDir,
+    running: a1Running || comfyRunning, // it launches standard engines
+    path: smDir,
+    url: a1Running ? "http://localhost:7860" : comfyRunning ? "http://localhost:8188" : undefined,
+  });
+
+  // Easy Diffusion (standalone — Windows/Linux/Mac)
+  const edDir = [
+    EASY_DIFFUSION_DIR,
+    resolve(homedir(), "EasyDiffusion"),
+    resolve(homedir(), "easy_diffusion"),
+  ].find(d => existsSync(d));
+  const edRunning = !!tryExec("curl -sf --max-time 2 http://localhost:9000/ping 2>/dev/null");
+  engines.push({
+    engine: "easy-diffusion",
+    installed: !!edDir,
+    running: edRunning,
+    path: edDir,
+    url: edRunning ? "http://localhost:9000" : undefined,
+  });
+
   // Docker
   const dockerSd = tryExec("docker ps --format '{{.Image}}' 2>/dev/null | grep -i 'stable-diffusion\\|automatic1111\\|comfyui'");
   engines.push({
@@ -207,6 +239,16 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
 
   if (engine.engine === "comfyui") {
     return generateViaAuto1111(prompt, engine.url ?? "http://localhost:8188");
+  }
+
+  if (engine.engine === "easy-diffusion") {
+    return generateViaEasyDiffusion(prompt, engine.url ?? "http://localhost:9000");
+  }
+
+  // stability-matrix launches auto1111 or comfyui on standard ports
+  if (engine.engine === "stability-matrix") {
+    if (engine.url?.includes("7860")) return generateViaAuto1111(prompt, engine.url);
+    if (engine.url?.includes("8188")) return generateViaAuto1111(prompt, engine.url);
   }
 
   return { success: false, prompt, message: formatNoEngineMessage(prompt) };
@@ -347,6 +389,42 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
     };
   } catch (err) {
     return { success: false, prompt, error: `Cloud generation failed: ${err instanceof Error ? err.message : err}` };
+  }
+}
+
+// ─── Easy Diffusion API ────────────────────────────────────────────────────
+
+async function generateViaEasyDiffusion(prompt: string, baseUrl: string): Promise<GenerateResult> {
+  try {
+    mkdirSync(OUTPUT_DIR, { recursive: true });
+    const timestamp = Date.now();
+    const safeName = prompt.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
+    const imagePath = resolve(OUTPUT_DIR, `${safeName}_${timestamp}.png`);
+
+    const payload = JSON.stringify({
+      prompt,
+      negative_prompt: "blurry, bad quality, distorted",
+      width: 512, height: 512,
+      num_inference_steps: 20,
+      guidance_scale: 7,
+    });
+
+    const result = tryExec(`curl -sf --max-time 120 -X POST "${baseUrl}/image" -H "Content-Type: application/json" -d '${payload.replace(/'/g, "'\\''")}'`, 130000);
+    if (!result) return { success: false, prompt, error: "Easy Diffusion generation timed out" };
+
+    const data = JSON.parse(result);
+    if (!data.output?.[0]?.data) return { success: false, prompt, error: "No image returned" };
+
+    const imgData = data.output[0].data.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(imgData, "base64");
+    writeFileSync(imagePath, buffer);
+
+    return {
+      success: true, engine: "easy-diffusion", prompt, imagePath,
+      message: `${c.green}✓${c.reset} Image generated (Easy Diffusion)!\n  ${c.bold}Prompt:${c.reset} ${prompt}\n  ${c.bold}Saved:${c.reset} ${imagePath}\n  ${c.bold}Size:${c.reset} ${(buffer.length / 1024).toFixed(0)} KB`,
+    };
+  } catch (err) {
+    return { success: false, prompt, error: `Easy Diffusion failed: ${err instanceof Error ? err.message : err}` };
   }
 }
 
@@ -538,27 +616,36 @@ function formatNoEngineMessage(prompt: string): string {
   lines.push("");
 
   // Local install
-  lines.push(`${c.bold}${c.green}Local Install (free, private, unlimited):${c.reset}`);
+  lines.push(`${c.bold}${c.green}Local Install (free, private, unlimited, works offline):${c.reset}`);
 
   if (gpu.hasNvidia) {
     lines.push(`  ${c.green}✓ GPU detected: ${gpu.gpuName}${gpu.vram ? ` (${gpu.vram})` : ""}${c.reset}`);
     if (gpu.cudaVersion) lines.push(`  ${c.green}✓ CUDA: ${gpu.cudaVersion}${c.reset}`);
-    lines.push("");
   } else {
     lines.push(`  ${c.yellow}⚠ No GPU detected — will use CPU (slower but works)${c.reset}`);
-    lines.push("");
   }
-
-  lines.push(`  ${c.bold}1. AUTOMATIC1111${c.reset} — Most popular, full API, many extensions`);
-  lines.push(`     ${c.dim}Install: notoken install stable-diffusion${c.reset}`);
-  lines.push(`  ${c.bold}2. ComfyUI${c.reset} — Node-based workflow, more control, lighter`);
-  lines.push(`     ${c.dim}Install: notoken install comfyui${c.reset}`);
-  lines.push(`  ${c.bold}3. Fooocus${c.reset} — Simplest, one-click, Midjourney-like experience`);
-  lines.push(`     ${c.dim}Install: notoken install fooocus${c.reset}`);
-  lines.push(`  ${c.bold}4. Docker${c.reset} — Containerized, no dependency headaches`);
-  lines.push(`     ${c.dim}Install: notoken install stable-diffusion --docker${c.reset}`);
   lines.push("");
-  lines.push(`${c.dim}After installing, just say "generate a picture of a cat" and it works.${c.reset}`);
+
+  // Beginner-friendly options first
+  lines.push(`  ${c.bold}${c.cyan}Easiest (no technical setup):${c.reset}`);
+  lines.push(`  ${c.bold}1. Stability Matrix${c.reset} — All-in-one launcher, manages everything`);
+  lines.push(`     ${c.dim}Download: https://lykos.ai — Windows/Mac/Linux${c.reset}`);
+  lines.push(`     ${c.dim}Or: notoken install stability-matrix${c.reset}`);
+  lines.push(`  ${c.bold}2. Easy Diffusion${c.reset} — One-click installer, simple UI`);
+  lines.push(`     ${c.dim}Download: https://easydiffusion.github.io — Windows/Mac/Linux${c.reset}`);
+  lines.push(`     ${c.dim}Or: notoken install easy-diffusion${c.reset}`);
+  lines.push(`  ${c.bold}3. Fooocus${c.reset} — Simplest, Midjourney-like experience`);
+  lines.push(`     ${c.dim}Download: https://github.com/lllyasviel/Fooocus — Windows one-click package${c.reset}`);
+  lines.push(`     ${c.dim}Or: notoken install fooocus${c.reset}`);
+  lines.push("");
+
+  // Advanced options
+  lines.push(`  ${c.bold}${c.dim}Advanced (requires Python/Docker):${c.reset}`);
+  lines.push(`  ${c.dim}4. AUTOMATIC1111 — Most popular, full API: notoken install stable-diffusion${c.reset}`);
+  lines.push(`  ${c.dim}5. ComfyUI — Node-based workflows: notoken install comfyui${c.reset}`);
+  lines.push(`  ${c.dim}6. Docker — Containerized: notoken install stable-diffusion --docker${c.reset}`);
+  lines.push("");
+  lines.push(`${c.dim}After installing, say "generate a picture of a cat" — works offline, private, unlimited.${c.reset}`);
 
   return lines.join("\n");
 }
