@@ -138,7 +138,8 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
           const os = (await import("node:os")).platform();
           const isWSL = !!(() => { try { return run("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return null; } })();
           if (isWSL) {
-            run(`cmd.exe /c start "" "${genResult.imagePath.replace(/\//g, "\\\\")}" 2>/dev/null`, { stdio: "ignore" });
+            const winPath = run(`wslpath -w "${genResult.imagePath}" 2>/dev/null`, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 3000 }).trim();
+            run(`cmd.exe /c start "" "${winPath}" 2>/dev/null`, { stdio: "ignore" });
           } else if (os === "darwin") {
             run(`open "${genResult.imagePath}"`, { stdio: "ignore" });
           } else if (os === "win32") {
