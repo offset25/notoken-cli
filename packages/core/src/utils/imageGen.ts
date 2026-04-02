@@ -35,6 +35,46 @@ const FOOOCUS_DIR = resolve(homedir(), "Fooocus");
 const STABILITY_MATRIX_DIR = resolve(homedir(), "StabilityMatrix");
 const EASY_DIFFUSION_DIR = resolve(homedir(), "easy-diffusion");
 const OUTPUT_DIR = resolve(USER_HOME, "generated-images");
+const USAGE_FILE = resolve(USER_HOME, "image-gen-usage.json");
+
+// ─── Usage Tracking ────────────────────────────────────────────────────────
+
+interface UsageStats {
+  cloudGenerations: number;
+  localGenerations: number;
+  totalGenerations: number;
+  lastGenerated: string;
+  apiKey?: { provider: string; configured: boolean };
+}
+
+function loadUsage(): UsageStats {
+  try {
+    if (existsSync(USAGE_FILE)) return JSON.parse(readFileSync(USAGE_FILE, "utf-8"));
+  } catch {}
+  return { cloudGenerations: 0, localGenerations: 0, totalGenerations: 0, lastGenerated: "" };
+}
+
+function saveUsage(stats: UsageStats): void {
+  try {
+    mkdirSync(USER_HOME, { recursive: true });
+    writeFileSync(USAGE_FILE, JSON.stringify(stats, null, 2));
+  } catch {}
+}
+
+function recordGeneration(isLocal: boolean): UsageStats {
+  const stats = loadUsage();
+  if (isLocal) stats.localGenerations++; else stats.cloudGenerations++;
+  stats.totalGenerations++;
+  stats.lastGenerated = new Date().toISOString();
+  // Check for API keys
+  if (process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN) {
+    stats.apiKey = { provider: "huggingface", configured: true };
+  } else if (process.env.STABILITY_API_KEY) {
+    stats.apiKey = { provider: "stability-ai", configured: true };
+  }
+  saveUsage(stats);
+  return stats;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -201,22 +241,35 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
   const engine = getBestImageEngine();
 
   if (!engine || (!engine.running && !engine.installed)) {
-    // No local engine — try Hugging Face API as zero-install fallback
-    const hfResult = await generateViaCloud(prompt);
-    if (hfResult.success) return hfResult;
+    // No local engine — try cloud API (zero-install, free)
+    console.error(`${c.cyan}Step 1/${c.reset} Checking for local image generators...`);
+    console.error(`${c.dim}  No local engine found (AUTOMATIC1111, ComfyUI, Easy Diffusion, etc.)${c.reset}`);
+    console.error(`${c.cyan}Step 2/${c.reset} Using cloud API — free, no setup required`);
+    console.error(`${c.dim}  Sending prompt to Pollinations.ai (Stable Diffusion)...${c.reset}`);
 
-    // If cloud also failed, show the full options message
+    const cloudResult = await generateViaCloud(prompt);
+    if (cloudResult.success) {
+      console.error(`${c.cyan}Step 3/${c.reset} ${c.green}Image received — saving to disk${c.reset}`);
+      return cloudResult;
+    }
+
+    console.error(`${c.yellow}Step 3/${c.reset} Cloud API unavailable — showing alternatives`);
     return {
       success: false,
       prompt,
-      message: (hfResult.error ? `${c.yellow}Cloud API:${c.reset} ${hfResult.error}\n\n` : "") + formatNoEngineMessage(prompt),
+      message: (cloudResult.error ? `${c.yellow}Cloud API:${c.reset} ${cloudResult.error}\n\n` : "") + formatNoEngineMessage(prompt),
     };
   }
 
   // If installed but not running — auto-start it, wait, then generate
   if (engine.installed && !engine.running) {
+    console.error(`${c.cyan}Step 1/${c.reset} Found ${c.bold}${engine.engine}${c.reset} installed at ${engine.path}`);
+    console.error(`${c.cyan}Step 2/${c.reset} Engine is not running — starting it automatically...`);
     const started = await autoStartEngine(engine);
     if (!started) {
+      console.error(`${c.yellow}Step 3/${c.reset} Could not auto-start — trying cloud API as fallback`);
+      const cloudFallback = await generateViaCloud(prompt);
+      if (cloudFallback.success) return cloudFallback;
       return {
         success: false,
         engine: engine.engine,
@@ -224,31 +277,37 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
         message: formatStartMessage(engine),
       };
     }
+    console.error(`${c.cyan}Step 3/${c.reset} ${c.green}Engine started — generating image...${c.reset}`);
     // Re-detect to get the URL
     const refreshed = detectImageEngines().find(e => e.engine === engine.engine);
     if (refreshed?.running) {
       engine.running = true;
       engine.url = refreshed.url;
     }
+  } else {
+    console.error(`${c.cyan}Step 1/${c.reset} Using ${c.bold}${engine.engine}${c.reset} at ${engine.url}`);
+    console.error(`${c.cyan}Step 2/${c.reset} Sending prompt to local engine...`);
   }
 
   // Engine is running — generate via API
+  let genResult: GenerateResult | null = null;
+
   if (engine.engine === "auto1111" || (engine.engine === "docker" && engine.url?.includes("7860"))) {
-    return generateViaAuto1111(prompt, engine.url ?? "http://localhost:7860");
+    genResult = await generateViaAuto1111(prompt, engine.url ?? "http://localhost:7860");
+  } else if (engine.engine === "comfyui") {
+    genResult = await generateViaAuto1111(prompt, engine.url ?? "http://localhost:8188");
+  } else if (engine.engine === "easy-diffusion") {
+    genResult = await generateViaEasyDiffusion(prompt, engine.url ?? "http://localhost:9000");
+  } else if (engine.engine === "stability-matrix") {
+    if (engine.url?.includes("7860")) genResult = await generateViaAuto1111(prompt, engine.url);
+    else if (engine.url?.includes("8188")) genResult = await generateViaAuto1111(prompt, engine.url);
   }
 
-  if (engine.engine === "comfyui") {
-    return generateViaAuto1111(prompt, engine.url ?? "http://localhost:8188");
-  }
-
-  if (engine.engine === "easy-diffusion") {
-    return generateViaEasyDiffusion(prompt, engine.url ?? "http://localhost:9000");
-  }
-
-  // stability-matrix launches auto1111 or comfyui on standard ports
-  if (engine.engine === "stability-matrix") {
-    if (engine.url?.includes("7860")) return generateViaAuto1111(prompt, engine.url);
-    if (engine.url?.includes("8188")) return generateViaAuto1111(prompt, engine.url);
+  if (genResult) {
+    if (genResult.success) {
+      console.error(`${c.cyan}Step 3/${c.reset} ${c.green}Image saved successfully${c.reset}`);
+    }
+    return genResult;
   }
 
   return { success: false, prompt, message: formatNoEngineMessage(prompt) };
@@ -353,7 +412,8 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
     const encodedPrompt = encodeURIComponent(prompt);
     const url = `https://image.pollinations.ai/prompt/${encodedPrompt}`;
 
-    console.error(`${c.dim}Generating image (this may take 10-30 seconds)...${c.reset}`);
+    console.error(`${c.dim}  Prompt: "${prompt}"${c.reset}`);
+    console.error(`${c.dim}  Waiting for image (10-30 seconds)...${c.reset}`);
 
     const { execSync: exec } = await import("node:child_process");
     // Retry up to 3 times — Pollinations sometimes returns 502 on first try
@@ -364,9 +424,9 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
         const s = (await import("node:fs")).statSync(imagePath);
         if (s.size > 1000) { success = true; break; }
       } catch {}
-      if (attempt === 0) console.error(`${c.dim}  Retrying...${c.reset}`);
+      if (attempt < 2) console.error(`${c.dim}  Server busy — retrying (attempt ${attempt + 2}/3)...${c.reset}`);
     }
-    if (!success) return { success: false, prompt, error: "Image generation timed out or failed" };
+    if (!success) return { success: false, prompt, error: "Image generation timed out after 3 attempts. The cloud service may be busy — try again in a moment." };
 
     if (!existsSync(imagePath)) {
       return { success: false, prompt, error: "Image generation failed — no file returned" };
@@ -380,12 +440,19 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
       return { success: false, prompt, error: "Image generation returned an empty or error response" };
     }
 
+    const stats = recordGeneration(false);
+    const usageLine = `  ${c.dim}Cloud images generated: ${stats.cloudGenerations} | Total: ${stats.totalGenerations}${c.reset}`;
+    const apiLine = stats.apiKey?.configured
+      ? `  ${c.green}✓ API key configured (${stats.apiKey.provider})${c.reset}`
+      : `  ${c.dim}Tip: For faster generation, set an API key:${c.reset}\n  ${c.dim}  HuggingFace (free): https://huggingface.co/settings/tokens → export HF_TOKEN=hf_...${c.reset}\n  ${c.dim}  Stability AI: https://platform.stability.ai/account/keys → export STABILITY_API_KEY=sk-...${c.reset}`;
+    const localLine = `  ${c.dim}For offline/private: notoken install stability-matrix${c.reset}`;
+
     return {
       success: true,
       engine: "auto1111",
       prompt,
       imagePath,
-      message: `${c.green}✓${c.reset} Image generated!\n  ${c.bold}Prompt:${c.reset} ${prompt}\n  ${c.bold}Saved:${c.reset} ${imagePath}\n  ${c.bold}Size:${c.reset} ${(size / 1024).toFixed(0)} KB\n\n  ${c.dim}Generated via cloud API (free). For local generation: notoken install stable-diffusion${c.reset}`,
+      message: `${c.green}✓${c.reset} Image generated!\n  ${c.bold}Prompt:${c.reset} ${prompt}\n  ${c.bold}Saved:${c.reset} ${imagePath}\n  ${c.bold}Size:${c.reset} ${(size / 1024).toFixed(0)} KB\n\n${usageLine}\n${apiLine}\n${localLine}`,
     };
   } catch (err) {
     return { success: false, prompt, error: `Cloud generation failed: ${err instanceof Error ? err.message : err}` };
