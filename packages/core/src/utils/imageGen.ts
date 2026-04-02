@@ -153,12 +153,13 @@ export function getBestImageEngine(): ImageEngineStatus | null {
   // Prefer running engine first
   const running = engines.find(e => e.running);
   if (running) return running;
-  // Then installed
+  // Then an SD engine that's actually installed (not just Docker being available)
   const installed = engines.find(e => e.installed && e.engine !== "docker");
   if (installed) return installed;
-  // Docker available
-  const docker = engines.find(e => e.engine === "docker" && e.installed);
+  // Docker only if it has the SD image already pulled
+  const docker = engines.find(e => e.engine === "docker" && e.running);
   if (docker) return docker;
+  // Don't return Docker just because Docker daemon exists — that's not an SD install
   return null;
 }
 
@@ -168,10 +169,15 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
   const engine = getBestImageEngine();
 
   if (!engine || (!engine.running && !engine.installed)) {
+    // No local engine — try Hugging Face API as zero-install fallback
+    const hfResult = await generateViaCloud(prompt);
+    if (hfResult.success) return hfResult;
+
+    // If cloud also failed, show the full options message
     return {
       success: false,
       prompt,
-      message: formatNoEngineMessage(prompt),
+      message: (hfResult.error ? `${c.yellow}Cloud API:${c.reset} ${hfResult.error}\n\n` : "") + formatNoEngineMessage(prompt),
     };
   }
 
@@ -290,6 +296,58 @@ async function waitForReady(url: string, timeoutSeconds: number): Promise<boolea
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ─── Cloud API (free, no install, no auth) ─────────────────────────────────
+
+async function generateViaCloud(prompt: string): Promise<GenerateResult> {
+  try {
+    mkdirSync(OUTPUT_DIR, { recursive: true });
+    const timestamp = Date.now();
+    const safeName = prompt.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
+    const imagePath = resolve(OUTPUT_DIR, `${safeName}_${timestamp}.png`);
+
+    // Pollinations.ai — free, no auth, Stable Diffusion
+    const encodedPrompt = encodeURIComponent(prompt);
+    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true`;
+
+    console.error(`${c.dim}Generating image (this may take 10-30 seconds)...${c.reset}`);
+
+    const { execSync: exec } = await import("node:child_process");
+    // Retry up to 2 times — Pollinations sometimes returns 502 on first try
+    let success = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        exec(`curl -sL --max-time 90 "${url}" -o "${imagePath}"`, { timeout: 100000 });
+        const s = (await import("node:fs")).statSync(imagePath);
+        if (s.size > 1000) { success = true; break; }
+      } catch {}
+      if (attempt === 0) console.error(`${c.dim}  Retrying...${c.reset}`);
+    }
+    if (!success) return { success: false, prompt, error: "Image generation timed out or failed" };
+
+    if (!existsSync(imagePath)) {
+      return { success: false, prompt, error: "Image generation failed — no file returned" };
+    }
+
+    const { statSync: stat } = await import("node:fs");
+    const size = stat(imagePath).size;
+
+    if (size < 1000) {
+      // Too small — probably an error response
+      return { success: false, prompt, error: "Image generation returned an empty or error response" };
+    }
+
+    return {
+      success: true,
+      engine: "auto1111",
+      prompt,
+      imagePath,
+      message: `${c.green}✓${c.reset} Image generated!\n  ${c.bold}Prompt:${c.reset} ${prompt}\n  ${c.bold}Saved:${c.reset} ${imagePath}\n  ${c.bold}Size:${c.reset} ${(size / 1024).toFixed(0)} KB\n\n  ${c.dim}Generated via cloud API (free). For local generation: notoken install stable-diffusion${c.reset}`,
+    };
+  } catch (err) {
+    return { success: false, prompt, error: `Cloud generation failed: ${err instanceof Error ? err.message : err}` };
+  }
 }
 
 // ─── API Generation ────────────────────────────────────────────────────────

@@ -118,7 +118,11 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    const prompt = (fields.prompt as string) ?? intent.rawText.replace(/^(generate|create|make|draw|paint)\s+(a\s+)?(picture|image|photo|drawing|painting)\s+(of\s+)?/i, "").trim();
+    // Extract full prompt from raw text, not the truncated field
+    const prompt = intent.rawText
+      .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
+      .trim()
+      || ((fields.prompt as string) ?? "image");
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";
