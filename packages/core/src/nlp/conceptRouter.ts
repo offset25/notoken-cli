@@ -35,6 +35,8 @@ const CONCEPT_DOMAINS: Record<string, string[]> = {
   "stable diffusion": ["ai.image_status", "ai.install_sd"],
   "offline":      ["ai.image_status"],
   "cloud":        ["ai.image_status"],
+  "local":        ["ai.image_status"],
+  "private":      ["ai.image_status"],
 
   // Server / system
   "crontab":      ["cron.list"],

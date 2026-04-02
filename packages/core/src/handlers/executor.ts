@@ -119,22 +119,38 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
   // Install SD with optional user-specified path
   if (intent.intent === "ai.install_sd") {
+    const { resolveUserPath } = await import("../utils/imageGen.js");
+    // Extract drive/path from rawText: "on D drive", "on /mnt/f"
     const rawLower = intent.rawText.toLowerCase();
-    const pathMatch = rawLower.match(/\bon\s+([a-z]\s*drive|\/\S+)/i);
+    const pathMatch = rawLower.match(/\b(?:on|in|at|to)\s+([a-z]\s*drive|\/\S+)/i);
     if (pathMatch) {
-      const { resolveUserPath } = await import("../utils/imageGen.js");
       const resolved = resolveUserPath(pathMatch[1]);
       if (resolved) {
         process.env.NOTOKEN_INSTALL_DIR = resolved;
-        console.error(`\x1b[36mUsing custom install location:\x1b[0m ${resolved}`);
+        console.error(`\x1b[36mInstall location:\x1b[0m ${resolved}`);
       }
     }
-    // Determine which engine to install
-    const engineField = (fields.engine as string) ?? "auto1111";
+
+    // The field parser may have extracted a drive letter as the "engine" field
+    // e.g. "install stable diffusion on D drive" → engine: "d"
+    const engineField = (fields.engine as string) ?? "";
     let engine: "auto1111" | "comfyui" | "fooocus" | "docker" = "auto1111";
-    if (engineField.includes("comfy")) engine = "comfyui";
-    else if (engineField.includes("fooocus") || engineField.includes("focus")) engine = "fooocus";
-    else if (engineField.includes("docker")) engine = "docker";
+
+    if (/^[a-z]$/i.test(engineField)) {
+      // Single letter = drive letter, not an engine name
+      const resolved = resolveUserPath(`${engineField} drive`);
+      if (resolved) {
+        process.env.NOTOKEN_INSTALL_DIR = resolved;
+        console.error(`\x1b[36mInstall location:\x1b[0m ${resolved}`);
+      }
+      // Default to auto1111
+    } else if (engineField.includes("comfy")) {
+      engine = "comfyui";
+    } else if (engineField.includes("fooocus") || engineField.includes("focus")) {
+      engine = "fooocus";
+    } else if (engineField.includes("docker")) {
+      engine = "docker";
+    }
 
     command = `[install-sd] ${engine}`;
     const { installImageEngine } = await import("../utils/imageGen.js");
@@ -221,10 +237,22 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const hasLocal = engines.some(e => e.installed && e.engine !== "docker" && e.running);
 
     // Detect if user is asking to GO offline, not just checking status
-    const wantsOffline = /\b(can we|can i|how do i|how can i|let'?s|i want to|set up|enable|switch to|go)\b.*\b(offline|local|locally|private)\b/i.test(intent.rawText);
+    const wantsOffline = /\b(can we|can i|how do i|how can i|let'?s|lets|i want to|set up|enable|switch to|go|do it|run it|run this)\b.*\b(offline|local|locally|private)\b/i.test(intent.rawText)
+      || /\b(offline|local|locally|private)\b.*\b(install|set up|put|place)\b/i.test(intent.rawText);
+
+    // Extract drive/path from the same sentence: "on D drive", "on /mnt/f"
+    const driveMatch = intent.rawText.match(/\b(?:on|in|at|to)\s+([a-z]\s*drive|\/\S+)/i);
+    if (driveMatch) {
+      const { resolveUserPath } = await import("../utils/imageGen.js");
+      const resolved = resolveUserPath(driveMatch[1]);
+      if (resolved) {
+        process.env.NOTOKEN_INSTALL_DIR = resolved;
+        console.error(`\x1b[36mInstall location:\x1b[0m ${resolved} (from "${driveMatch[1]}")`);
+      }
+    }
 
     if (wantsOffline && !hasLocal) {
-      // User wants offline — offer to install
+      // User wants offline — install automatically
       const { installImageEngine, detectGpu, getInstallPlan } = await import("../utils/imageGen.js");
       const gpu = detectGpu();
 

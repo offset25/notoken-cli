@@ -46,11 +46,31 @@ export async function parseIntent(rawText: string): Promise<ParsedCommand & { pl
   // "check disk and show me containers and list crontabs"
   const multiPlan = parseMultiIntent(rawText);
   if (!multiPlan.isSingleIntent && multiPlan.steps.length >= 2) {
-    // Return the first step as the primary intent, attach the full plan
+    // Check if one step is just a location modifier (not a real separate command)
+    // "do it offline and put files on D drive" → single intent with drive modifier
+    const locationStep = multiPlan.steps.find(s =>
+      /\b(put|place|install|store)\b.*\b(on|in|at)\s+[a-z]\s*drive\b/i.test(s.rawText)
+      || /\b(on|in|at)\s+\/\S+/i.test(s.rawText)
+    );
+    const actionStep = multiPlan.steps.find(s => s !== locationStep);
+
+    if (locationStep && actionStep && multiPlan.steps.length === 2) {
+      // Merge: use the action step's intent but the full original text
+      // so the executor can extract the drive from "on D drive"
+      const result = disambiguate({
+        intent: actionStep.intent,
+        rawText, // full original text
+        confidence: actionStep.confidence,
+        fields: {},
+      });
+      return result; // single intent, no plan
+    }
+
+    // Real multi-intent plan
     const firstStep = multiPlan.steps[0];
     const result = disambiguate({
       intent: firstStep.intent,
-      rawText,
+      rawText, // full original text
       confidence: firstStep.confidence,
       fields: {},
     });
