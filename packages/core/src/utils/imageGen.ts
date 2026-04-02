@@ -1291,27 +1291,11 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
           ;
         const fixedReqPath = resolve(dir, "requirements_notoken.txt");
         writeFileSync(fixedReqPath, fixedReq);
+        // Pre-install packages that are hard to build from source
+        console.log(`${c.dim}  Pre-installing packages with pre-built wheels...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "--only-binary=:all:", "tokenizers>=0.14", "transformers>=4.30", "safetensors>=0.3"], dir);
         console.log(`${c.dim}  Relaxed version pins for wheel compatibility${c.reset}`);
-        try {
-          await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
-        } catch (pipErr) {
-          const msg = pipErr instanceof Error ? pipErr.message : String(pipErr);
-          // If tokenizers/safetensors failed, install Rust and retry
-          if (msg.includes("tokenizers") || msg.includes("cargo") || msg.includes("rustc")) {
-            console.log(`${c.yellow}⚠${c.reset} Build failed — installing Rust compiler and retrying...`);
-            try {
-              execSync("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>/dev/null", { stdio: "inherit", timeout: 120000 });
-              // Retry with Rust available
-              await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
-            } catch {
-              // Install tokenizers from pre-built wheel as last resort
-              console.log(`${c.dim}  Trying pre-built tokenizers...${c.reset}`);
-              await runWithProgress(venvPip, ["install", "--prefer-binary", "tokenizers>=0.14", "transformers>=4.30"], dir);
-            }
-          } else {
-            throw pipErr; // Re-throw non-Rust errors
-          }
-        }
+        await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
       } else if (engine === "comfyui" || engine === "fooocus") {
         const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
         if (existsSync(resolve(dir, reqFile))) {
