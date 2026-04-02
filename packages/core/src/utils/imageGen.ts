@@ -1026,6 +1026,29 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     console.log(`${c.cyan}Step 3/${c.reset} ${c.green}venv available${c.reset}`);
   }
 
+  // Step 3b: Build tools (needed for scikit-image, scipy, etc.)
+  {
+    const hasBuildTools = !!tryExec("gcc --version 2>/dev/null") && !!tryExec("cmake --version 2>/dev/null");
+    if (!hasBuildTools) {
+      console.log(`${c.cyan}Step 3b/${c.reset} Installing build tools (needed for AI dependencies)...`);
+      try {
+        if (tryExec("apt-get --version")) {
+          execSync("apt-get install -y -qq build-essential cmake pkg-config libffi-dev libjpeg-dev libpng-dev 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+        } else if (tryExec("dnf --version")) {
+          execSync("dnf install -y gcc gcc-c++ cmake pkg-config libffi-devel libjpeg-devel libpng-devel 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+        } else if (tryExec("brew --version")) {
+          execSync("brew install cmake pkg-config 2>/dev/null", { stdio: "inherit", timeout: 120000 });
+        }
+        // Also install meson + ninja which scikit-image needs
+        tryExec(`${pythonCmd} -m pip install --user meson-python meson ninja Cython 2>/dev/null`);
+      } catch {
+        console.log(`${c.yellow}⚠${c.reset} Some build tools could not be installed — pip may fall back to pre-built wheels`);
+      }
+    } else {
+      console.log(`${c.cyan}Step 3b/${c.reset} ${c.green}Build tools available${c.reset}`);
+    }
+  }
+
   // Step 4: Clone and setup
   const dirs: Record<string, string> = { auto1111: getSDDir(), comfyui: getComfyDir(), fooocus: getFooocusDir() };
   const dir = dirs[engine];
@@ -1120,7 +1143,17 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
 
     console.log(`${c.green}✓${c.reset} Dependencies installed.`);
   } catch (err) {
-    return { success: false, message: `Dependency install failed: ${err instanceof Error ? err.message : err}\n\n${c.dim}Try: notoken install stability-matrix (standalone, no Python needed)${c.reset}` };
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.log(`${c.yellow}⚠${c.reset} Python dependency install failed: ${errMsg.split("\n")[0]}`);
+
+    // Auto-fallback: try Docker if available
+    if (tryExec("docker --version")) {
+      console.log(`\n${c.cyan}Falling back to Docker${c.reset} — no dependency issues, everything pre-built.`);
+      const dockerResult = await installImageEngine("docker");
+      if (dockerResult.success) return dockerResult;
+    }
+
+    return { success: false, message: `Dependency install failed.\n\n${c.bold}Alternatives:${c.reset}\n  ${c.cyan}notoken install stable-diffusion --docker${c.reset} — containerized, no deps\n  ${c.cyan}notoken install stability-matrix${c.reset} — standalone, no Python needed\n  ${c.dim}Or fix manually: cd ${dir} && source venv/bin/activate && pip install -r requirements_versions.txt${c.reset}` };
   }
 
   // Step 6: Download the base AI model

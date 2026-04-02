@@ -252,44 +252,53 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     }
 
     if (wantsOffline && !hasLocal) {
-      // User wants offline — install automatically
-      const { installImageEngine, detectGpu, getInstallPlan } = await import("../utils/imageGen.js");
+      // User wants offline — pick the best install path automatically
+      const { installImageEngine, detectGpu } = await import("../utils/imageGen.js");
       const gpu = detectGpu();
+      const { execSync: ex } = await import("node:child_process");
+      const exec = (cmd: string) => { try { return ex(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
+      const hasDocker = !!exec("docker --version");
+      const hasPython = !!exec("python3 --version") || !!exec("python --version");
+      const pyVer = exec("python3 --version") ?? exec("python --version") ?? "not installed";
 
-      const lines: string[] = [];
-      lines.push(`\x1b[1m\x1b[35mSetting up offline image generation\x1b[0m\n`);
-      lines.push(`Currently using cloud API. To generate images offline, we need to install a local engine.\n`);
+      console.error(`\x1b[1m\x1b[35mSetting up offline image generation\x1b[0m\n`);
+      console.error(`Currently using cloud API. Setting up local generation...\n`);
 
       if (gpu.hasNvidia) {
-        lines.push(`\x1b[32m✓ GPU detected: ${gpu.gpuName}${gpu.vram ? ` (${gpu.vram})` : ""}\x1b[0m — great for local generation\n`);
+        console.error(`\x1b[32m✓ GPU: ${gpu.gpuName}${gpu.vram ? ` (${gpu.vram})` : ""}\x1b[0m`);
       } else {
-        lines.push(`\x1b[33m⚠ No GPU detected — CPU mode will be slower but works\x1b[0m\n`);
+        console.error(`\x1b[33m⚠ No GPU — CPU mode (slower but works)\x1b[0m`);
       }
+      console.error(`${hasDocker ? "\x1b[32m✓" : "\x1b[31m✗"}\x1b[0m Docker: ${hasDocker ? "available" : "not installed"}`);
+      console.error(`${hasPython ? "\x1b[32m✓" : "\x1b[31m✗"}\x1b[0m Python: ${pyVer}`);
+      console.error(`\x1b[2mCancel anytime with Ctrl+C\x1b[0m\n`);
 
-      lines.push(`\x1b[1mInstalling Stability Matrix\x1b[0m — all-in-one launcher, no technical setup needed`);
-      lines.push(`\x1b[2mCancel anytime with Ctrl+C\x1b[0m\n`);
-
-      console.error(lines.join("\n"));
-
-      // Store as pending action so user can say "try it" / "ok" after install
       suggestAction({
         action: "generate a picture of a cat",
         description: "Generate a test image to verify offline setup works",
         type: "intent",
       });
 
-      // Actually start the install
-      try {
-        const installResult = await installImageEngine("auto1111");
-        result = installResult.message;
-        if (installResult.success) {
-          result += `\n\n\x1b[1mSay "try it" or "generate a picture of a cat" to test it.\x1b[0m`;
-        }
-      } catch {
-        // If auto1111 fails (no Python), fall back to showing download links
+      // Strategy: try Docker first (fastest, zero deps), then Python, then standalone
+      let installResult: { success: boolean; message: string } | null = null;
+
+      if (hasDocker) {
+        console.error(`\x1b[1mStrategy: Using Docker\x1b[0m — fastest, everything pre-built\n`);
+        installResult = await installImageEngine("docker");
+      }
+
+      if ((!installResult || !installResult.success) && hasPython) {
+        console.error(`\x1b[1mStrategy: Using Python + git\x1b[0m — direct install\n`);
+        installResult = await installImageEngine("auto1111");
+      }
+
+      if (installResult?.success) {
+        result = installResult.message + `\n\n\x1b[1mSay "try it" or "generate a picture of a cat" to test.\x1b[0m`;
+      } else {
+        // Nothing worked — show standalone download options
         result = [
-          `\x1b[33mAutomatic install needs Python 3.10+.\x1b[0m\n`,
-          `\x1b[1mDownload a standalone installer instead (no Python needed):\x1b[0m`,
+          `\x1b[33m${installResult?.message ?? "Could not install automatically."}\x1b[0m\n`,
+          `\x1b[1mDownload a standalone installer (no Docker or Python needed):\x1b[0m`,
           `  \x1b[1mStability Matrix:\x1b[0m https://lykos.ai`,
           `  \x1b[1mEasy Diffusion:\x1b[0m  https://easydiffusion.github.io`,
           `  \x1b[1mFooocus:\x1b[0m         https://github.com/lllyasviel/Fooocus`,
