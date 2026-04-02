@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { resolveEntity, verbalizeResolution, learnEntity, listEntities, loadEntities } from "../../../packages/core/src/utils/entityResolver.js";
+import { resolveEntity, verbalizeResolution, learnEntity, listEntities, defineServer, defineDatabase } from "../../../packages/core/src/utils/entityResolver.js";
 
-// Force load entities from known path before tests
+// Create test entities before tests (don't rely on config file path)
 beforeAll(() => {
-  // loadEntities will try multiple paths including cwd + packages/core/config
-  loadEntities(true);
+  defineServer("metroplex", "66.94.115.165", "root", "Main production server", ["the 66 server", "66 server", "66 box", "main server"]);
+  defineServer("astrotrain", "197.0.0.1", "deploy", "Staging server", ["the 197 server", "197 server"]);
+  defineDatabase("maindb", "postgres", "localhost", "myapp_production", "postgres", ["main database", "production db", "prod db", "the database"]);
 });
 
 describe("resolveEntity", () => {

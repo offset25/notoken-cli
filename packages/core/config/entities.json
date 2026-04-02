@@ -10,8 +10,48 @@
         "40 server",
         "40 box"
       ]
+    },
+    "metroplex": {
+      "host": "66.94.115.165",
+      "user": "root",
+      "description": "Main production server",
+      "aliases": [
+        "the 66 server",
+        "66 server",
+        "66 box",
+        "main server",
+        "the 165 server",
+        "165 server",
+        "165 box"
+      ]
+    },
+    "astrotrain": {
+      "host": "197.0.0.1",
+      "user": "deploy",
+      "description": "Staging server",
+      "aliases": [
+        "the 197 server",
+        "197 server",
+        "197 box",
+        "the 1 server",
+        "1 server",
+        "1 box"
+      ]
     }
   },
-  "databases": {},
+  "databases": {
+    "maindb": {
+      "type": "postgres",
+      "host": "localhost",
+      "name": "myapp_production",
+      "user": "postgres",
+      "aliases": [
+        "main database",
+        "production db",
+        "prod db",
+        "the database"
+      ]
+    }
+  },
   "services": {}
 }
