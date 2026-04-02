@@ -2724,6 +2724,44 @@
       ]
     },
     {
+      "name": "tool.install",
+      "description": "Install a CLI tool like Claude, Codex, OpenClaw, Ollama, Docker, Convex, Node, or Bun",
+      "synonyms": [
+        "install claude",
+        "install codex",
+        "install openclaw",
+        "install ollama",
+        "install docker",
+        "install convex",
+        "install node",
+        "install bun",
+        "setup claude",
+        "setup codex",
+        "setup openclaw",
+        "get claude",
+        "get codex",
+        "download claude",
+        "download ollama"
+      ],
+      "fields": {
+        "tool": {
+          "type": "string",
+          "required": true,
+          "description": "tool name to install"
+        }
+      },
+      "command": "echo 'Use tool.install handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install claude",
+        "install openclaw",
+        "install codex",
+        "setup ollama"
+      ]
+    },
+    {
       "name": "package.check",
       "description": "Check if a package is installed",
       "synonyms": [

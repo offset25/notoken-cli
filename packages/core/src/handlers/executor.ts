@@ -563,34 +563,37 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
+  // Shared tool install registry
+  const INSTALL_INFO: Record<string, { name: string; install: string; check: string; description: string; notes?: string }> = {
+    claude: { name: "Claude Code CLI", install: "npm install -g @anthropic-ai/claude-code", check: "claude --version", description: "Anthropic's Claude Code — AI-assisted development", notes: "Requires Node.js 18+. After install, run `claude` to authenticate." },
+    codex: { name: "OpenAI Codex CLI", install: "npm install -g @openai/codex", check: "codex --version", description: "OpenAI Codex — coding agent with GPT-4o/5", notes: "Requires Node.js 18+. Set OPENAI_API_KEY after install." },
+    ollama: { name: "Ollama", install: "curl -fsSL https://ollama.com/install.sh | sh", check: "ollama --version", description: "Run AI models locally — no cloud tokens needed", notes: "After install: `ollama pull llama3.2` to download a model." },
+    docker: { name: "Docker", install: "curl -fsSL https://get.docker.com | sh", check: "docker --version", description: "Container runtime for packaging and deploying apps", notes: "On WSL, install Docker Desktop on Windows and enable WSL integration." },
+    convex: { name: "Convex CLI", install: "npm install -g convex", check: "npx convex --version", description: "Convex backend platform CLI", notes: "Run `npx convex dev` to start a project." },
+    openclaw: { name: "OpenClaw CLI", install: "npm install -g openclaw", check: "openclaw --version", description: "OpenClaw messaging gateway CLI", notes: "Requires Node.js 22+. Run `openclaw setup` after install." },
+    node: { name: "Node.js", install: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash && nvm install --lts", check: "node --version", description: "JavaScript runtime", notes: "Uses nvm for version management. Restart terminal after install." },
+    bun: { name: "Bun", install: "curl -fsSL https://bun.sh/install | bash", check: "bun --version", description: "Fast JavaScript runtime and toolkit", notes: "Alternative to Node.js with built-in bundler and test runner." },
+    certbot: { name: "Certbot", install: "sudo apt install -y certbot", check: "certbot --version", description: "Let's Encrypt SSL certificate manager", notes: "On RHEL/Fedora: `sudo dnf install certbot`" },
+  };
+
+  const TOOL_ALIASES: Record<string, string> = { "claude-code": "claude", "anthropic": "claude", "openai": "codex", "gpt": "codex", "chatgpt": "codex", "nvm": "node", "nodejs": "node", "claw": "openclaw" };
+
+  function resolveToolName(raw: string): string {
+    const toolMatch = raw.match(/(?:install|setup|get|download)\s+(\S+)/i)
+      ?? raw.match(/(\S+)\s+(?:install|setup)/i)
+      ?? raw.match(/(?:how.*?(?:install|setup|get))\s+(\S+)/i);
+    let name = (toolMatch?.[1] ?? "").toLowerCase().replace(/[?.!]/g, "");
+    return TOOL_ALIASES[name] ?? name;
+  }
+
   // Tool install info — "how do I install claude", "give me the command to install codex"
   if (intent.intent === "tool.info") {
-    const INSTALL_INFO: Record<string, { name: string; install: string; check: string; description: string; notes?: string }> = {
-      claude: { name: "Claude Code CLI", install: "npm install -g @anthropic-ai/claude-code", check: "claude --version", description: "Anthropic's Claude Code — AI-assisted development", notes: "Requires Node.js 18+. After install, run `claude` to authenticate." },
-      codex: { name: "OpenAI Codex CLI", install: "npm install -g @openai/codex", check: "codex --version", description: "OpenAI Codex — coding agent with GPT-4o/5", notes: "Requires Node.js 18+. Set OPENAI_API_KEY after install." },
-      ollama: { name: "Ollama", install: "curl -fsSL https://ollama.com/install.sh | sh", check: "ollama --version", description: "Run AI models locally — no cloud tokens needed", notes: "After install: `ollama pull llama3.2` to download a model." },
-      docker: { name: "Docker", install: "curl -fsSL https://get.docker.com | sh", check: "docker --version", description: "Container runtime for packaging and deploying apps", notes: "On WSL, install Docker Desktop on Windows and enable WSL integration." },
-      convex: { name: "Convex CLI", install: "npm install -g convex", check: "npx convex --version", description: "Convex backend platform CLI", notes: "Run `npx convex dev` to start a project." },
-      openclaw: { name: "OpenClaw CLI", install: "npm install -g openclaw", check: "openclaw --version", description: "OpenClaw messaging gateway CLI", notes: "Requires Node.js 22+. Run `openclaw setup` after install." },
-      node: { name: "Node.js", install: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash && nvm install --lts", check: "node --version", description: "JavaScript runtime", notes: "Uses nvm for version management. Restart terminal after install." },
-      bun: { name: "Bun", install: "curl -fsSL https://bun.sh/install | bash", check: "bun --version", description: "Fast JavaScript runtime and toolkit", notes: "Alternative to Node.js with built-in bundler and test runner." },
-      certbot: { name: "Certbot", install: "sudo apt install -y certbot", check: "certbot --version", description: "Let's Encrypt SSL certificate manager", notes: "On RHEL/Fedora: `sudo dnf install certbot`" },
-    };
-
-    // Extract tool name from input
-    const toolMatch = intent.rawText.match(/(?:install|setup|get|download)\s+(\S+)/i)
-      ?? intent.rawText.match(/(\S+)\s+(?:install|setup)/i)
-      ?? intent.rawText.match(/(?:how.*?(?:install|setup|get))\s+(\S+)/i);
-    let toolName = (toolMatch?.[1] ?? (fields.tool as string) ?? "").toLowerCase().replace(/[?.!]/g, "");
-
-    // Aliases
-    const aliases: Record<string, string> = { "claude-code": "claude", "anthropic": "claude", "openai": "codex", "gpt": "codex", "chatgpt": "codex", "nvm": "node", "nodejs": "node" };
-    toolName = aliases[toolName] ?? toolName;
+    let toolName = resolveToolName(intent.rawText) || ((fields.tool as string) ?? "").toLowerCase();
+    toolName = TOOL_ALIASES[toolName] ?? toolName;
 
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
 
     if (!toolName || !INSTALL_INFO[toolName]) {
-      // Show all available tools
       const lines = [`\n${cc.bold}${cc.cyan}── Available Tools ──${cc.reset}\n`];
       for (const [key, info] of Object.entries(INSTALL_INFO)) {
         const installed = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
@@ -608,15 +611,67 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
     if (installed) {
       lines.push(`  ${cc.green}✓ Already installed:${cc.reset} ${installed.trim()}\n`);
+      lines.push(`  ${cc.bold}Install command:${cc.reset}`);
+      lines.push(`  ${cc.cyan}${info.install}${cc.reset}\n`);
+      lines.push(`  ${cc.bold}Verify:${cc.reset} ${info.check}`);
+      if (info.notes) lines.push(`\n  ${cc.yellow}Note:${cc.reset} ${info.notes}`);
+    } else {
+      lines.push(`  ${cc.bold}Install command:${cc.reset}`);
+      lines.push(`  ${cc.cyan}${info.install}${cc.reset}\n`);
+      lines.push(`  ${cc.bold}Verify:${cc.reset} ${info.check}`);
+      if (info.notes) lines.push(`\n  ${cc.yellow}Note:${cc.reset} ${info.notes}`);
+      lines.push(`\n  ${cc.bold}I can install it for you.${cc.reset} Want me to do that?`);
+      // Register pending action so "yes"/"do it" triggers the install
+      suggestAction({ action: `install ${toolName}`, description: `Install ${info.name}`, type: "intent" });
     }
 
-    lines.push(`  ${cc.bold}Install command:${cc.reset}`);
-    lines.push(`  ${cc.cyan}${info.install}${cc.reset}\n`);
-    lines.push(`  ${cc.bold}Verify:${cc.reset} ${info.check}`);
-    if (info.notes) lines.push(`\n  ${cc.yellow}Note:${cc.reset} ${info.notes}`);
-    if (!installed) lines.push(`\n  ${cc.dim}Or just say: "install ${toolName}"${cc.reset}`);
-
     return lines.join("\n");
+  }
+
+  // Tool install — "install claude", "install openclaw", "install codex"
+  if (intent.intent === "tool.install") {
+    let toolName = resolveToolName(intent.rawText) || ((fields.tool as string) ?? "").toLowerCase();
+    toolName = TOOL_ALIASES[toolName] ?? toolName;
+
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    if (!toolName || !INSTALL_INFO[toolName]) {
+      return `${cc.red}✗ Unknown tool: "${toolName || "?"}"\x1b[0m\n\n  ${cc.dim}Available: ${Object.keys(INSTALL_INFO).join(", ")}${cc.reset}`;
+    }
+
+    const info = INSTALL_INFO[toolName];
+
+    // Check if already installed
+    const existing = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+    if (existing) {
+      return `${cc.green}✓${cc.reset} ${info.name} is already installed: ${cc.bold}${existing.trim()}${cc.reset}`;
+    }
+
+    // Check Node.js for npm-based tools
+    if (info.install.startsWith("npm ")) {
+      const nodeVer = await runLocalCommand("node --version 2>/dev/null").catch(() => "");
+      if (!nodeVer) {
+        return `${cc.red}✗ Node.js is required to install ${info.name}.${cc.reset}\n  ${cc.dim}Say: "install node" first.${cc.reset}`;
+      }
+    }
+
+    console.log(`\n${cc.cyan}Installing ${info.name}...${cc.reset}`);
+    console.log(`${cc.dim}  Running: ${info.install}${cc.reset}\n`);
+
+    try {
+      result = await withSpinner(`Installing ${info.name}...`, () => runLocalCommand(info.install + " 2>&1", 300_000));
+
+      // Verify installation
+      const ver = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+      if (ver) {
+        const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
+        if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
+        return lines.join("\n");
+      }
+      return `${cc.yellow}⚠${cc.reset} Install completed but could not verify. Try: ${cc.cyan}${info.check}${cc.reset}\n\n${cc.dim}Output:\n${result.substring(0, 500)}${cc.reset}`;
+    } catch (err: unknown) {
+      return `${cc.red}✗ Installation failed:${cc.reset} ${(err as Error).message.split("\n")[0]}\n\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
+    }
   }
 
   // Entity define/list
