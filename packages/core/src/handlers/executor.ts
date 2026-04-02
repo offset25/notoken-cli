@@ -172,16 +172,112 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
   // Ollama model management
   if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
-    const out = await withSpinner("Checking Ollama...", () => runLocalCommand("ollama list 2>&1"));
-    return out;
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Get system resources
+    const ramOut = await runLocalCommand("free -b | grep Mem | awk '{print $2}'").catch(() => "0");
+    const totalRAMGB = Math.round(parseInt(ramOut) / 1073741824);
+    const freeRamOut = await runLocalCommand("free -b | grep Mem | awk '{print $7}'").catch(() => "0");
+    const freeRAMGB = Math.round(parseInt(freeRamOut) / 1073741824);
+
+    // Get installed models
+    const installed = await runLocalCommand("ollama list 2>&1").catch(() => "Ollama not running");
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Ollama Models ──${cc.reset}\n`);
+    lines.push(`  ${cc.bold}System:${cc.reset} ${totalRAMGB}GB RAM (${freeRAMGB}GB available)\n`);
+
+    // Load model database
+    let modelDb: any = {};
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
+        if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
+      }
+    } catch { /* no model db */ }
+
+    lines.push(`  ${cc.bold}Installed:${cc.reset}`);
+    if (installed.includes("NAME")) {
+      for (const line of installed.split("\n").slice(1).filter(Boolean)) {
+        const parts = line.trim().split(/\s+/);
+        const name = parts[0];
+        const size = parts[2] ? `${parts[2]} ${parts[3] ?? ""}`.trim() : "";
+        const info = modelDb[name] ?? modelDb[name.split(":")[0]];
+        lines.push(`    ${cc.green}✓${cc.reset} ${cc.bold}${name}${cc.reset}  ${cc.dim}${size}${cc.reset}${info ? `  ${info.description}` : ""}`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No models installed.${cc.reset}`);
+    }
+
+    // Recommend models based on RAM
+    const recommended = Object.entries(modelDb).filter(([_, m]: [string, any]) => m.recRAMGB <= totalRAMGB && m.tier !== "frontier");
+    if (recommended.length > 0) {
+      lines.push(`\n  ${cc.bold}Recommended for your system (${totalRAMGB}GB RAM):${cc.reset}`);
+      for (const [name, m] of recommended.slice(0, 6) as [string, any][]) {
+        const canRun = m.minRAMGB <= freeRAMGB ? `${cc.green}✓ can run now${cc.reset}` :
+                       m.minRAMGB <= totalRAMGB ? `${cc.yellow}⚠ may need to close other apps${cc.reset}` :
+                       `${cc.red}✗ not enough RAM${cc.reset}`;
+        lines.push(`    ${cc.cyan}${name.padEnd(20)}${cc.reset} ${m.parameters.padEnd(8)} ${m.sizeGB}GB  ${canRun}  ${cc.dim}${m.description.substring(0, 50)}${cc.reset}`);
+      }
+    }
+
+    // Models that are too big
+    const tooBig = Object.entries(modelDb).filter(([_, m]: [string, any]) => m.minRAMGB > totalRAMGB);
+    if (tooBig.length > 0) {
+      lines.push(`\n  ${cc.dim}Too large for this system: ${tooBig.map(([n]) => n).join(", ")}${cc.reset}`);
+    }
+
+    lines.push(`\n  ${cc.dim}Pull: "ollama pull llama3.2" or "ollama pull codellama"${cc.reset}`);
+    return lines.join("\n");
   }
   if (intent.intent === "ollama.pull") {
     const model = (fields.model as string) ?? intent.rawText.match(/pull\s+(\S+)/)?.[1] ?? "llama3.2";
-    // Check disk space before pulling
+
+    // Load model info
+    let modelInfo: any = null;
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
+        if (existsSync(p)) { const db = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; modelInfo = db[model] ?? db[model.split(":")[0]]; break; }
+      }
+    } catch { /* */ }
+
+    // Check resources
     const dfOut = await runLocalCommand("df -BG / | tail -1 | awk '{print $4}'").catch(() => "0G");
     const freeGB = parseInt(dfOut);
-    if (freeGB < 5) return `\x1b[31m⚠ Only ${freeGB}GB free — Ollama models need 4-8GB. Free up space first.\x1b[0m`;
-    console.log(`\x1b[2mPulling ${model}... this may take a few minutes.\x1b[0m`);
+    const ramOut = await runLocalCommand("free -b | grep Mem | awk '{print $7}'").catch(() => "0");
+    const freeRAMGB = Math.round(parseInt(ramOut) / 1073741824);
+
+    const lines: string[] = [];
+    if (modelInfo) {
+      lines.push(`\n\x1b[1m\x1b[36m── ${modelInfo.name} ──\x1b[0m\n`);
+      lines.push(`  Provider:    ${modelInfo.provider}`);
+      lines.push(`  Parameters:  ${modelInfo.parameters}`);
+      lines.push(`  Download:    ${modelInfo.sizeGB}GB`);
+      lines.push(`  RAM needed:  ${modelInfo.minRAMGB}GB min, ${modelInfo.recRAMGB}GB recommended`);
+      lines.push(`  Context:     ${modelInfo.context.toLocaleString()} tokens`);
+      lines.push(`  Capabilities: ${modelInfo.capabilities.join(", ")}`);
+      lines.push(`  ${modelInfo.description}\n`);
+
+      // Resource check
+      if (modelInfo.sizeGB > freeGB) {
+        lines.push(`  \x1b[31m✗ Not enough disk space: need ${modelInfo.sizeGB}GB, only ${freeGB}GB free.\x1b[0m`);
+        lines.push(`  \x1b[2m  Run "free up space" to make room.\x1b[0m`);
+        return lines.join("\n");
+      }
+      if (modelInfo.minRAMGB > freeRAMGB) {
+        lines.push(`  \x1b[33m⚠ Tight on RAM: model needs ${modelInfo.minRAMGB}GB, you have ${freeRAMGB}GB free.\x1b[0m`);
+        lines.push(`  \x1b[2m  It may run slowly or require closing other apps.\x1b[0m`);
+      } else {
+        lines.push(`  \x1b[32m✓ Resources OK: ${freeGB}GB disk, ${freeRAMGB}GB RAM available.\x1b[0m`);
+      }
+    } else if (freeGB < 5) {
+      return `\x1b[31m⚠ Only ${freeGB}GB free — models typically need 2-8GB. Free up space first.\x1b[0m`;
+    }
+
+    console.log(lines.join("\n"));
+    console.log(`\n\x1b[2mPulling ${model}... this may take a few minutes.\x1b[0m`);
     result = await withSpinner(`Pulling ${model}...`, () => runLocalCommand(`ollama pull ${model} 2>&1`, 300_000));
     return result;
   }

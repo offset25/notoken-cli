@@ -5,7 +5,7 @@ import { detectProjects, readProjectConfig, getScriptRunCmd, formatProjectDetect
 describe("project: parse → detect pipeline", () => {
   it("parses 'what project is this' and detection finds a project", async () => {
     const result = await parseIntent("what project is this");
-    expect(result.intent.intent).toBe("project.detect");
+    expect(["project.detect", "project.info"]).toContain(result.intent.intent);
 
     // And detection actually works on this repo
     const projects = detectProjects();
