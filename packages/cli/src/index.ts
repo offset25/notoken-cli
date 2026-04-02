@@ -42,6 +42,11 @@ async function main() {
         return;
       }
       case "fix": {
+        if (subArgs[0] === "nvm") {
+          const { fixNvm } = await import("./commands/fix-nvm.js");
+          await fixNvm();
+          return;
+        }
         const { runFix } = await import("./commands/fix.js");
         await runFix(subArgs);
         return;
