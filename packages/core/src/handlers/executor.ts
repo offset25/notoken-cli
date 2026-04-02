@@ -259,9 +259,89 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     if (!requestedModel) { const m = intent.rawText.match(/([\w-]+\/[\w.-]+)/); if (m) requestedModel = m[1]; }
 
     if (requestedModel) {
+      const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+      // If switching to an Ollama model, validate it meets OpenClaw requirements
+      if (requestedModel.startsWith("ollama/")) {
+        const ollamaModelName = requestedModel.replace("ollama/", "");
+        const OPENCLAW_MIN_CTX = 16_000;
+
+        // Check if Ollama is running
+        const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null").catch(() => "");
+        if (!ollamaUp.includes("models")) {
+          return `${cc.red}✗ Ollama is not running.${cc.reset}\n  ${cc.dim}Start it: "start ollama"${cc.reset}`;
+        }
+
+        // Load model database for context window info
+        let modelDb: Record<string, any> = {};
+        try {
+          const { readFileSync, existsSync } = await import("node:fs");
+          const { resolve } = await import("node:path");
+          for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
+            if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
+          }
+        } catch { /* */ }
+
+        const modelInfo = modelDb[ollamaModelName] ?? modelDb[ollamaModelName.split(":")[0]];
+        const ctxWindow = modelInfo?.context ?? 0;
+
+        // Check if model is installed
+        const installed = ollamaUp.includes(`"${ollamaModelName}"`);
+
+        if (ctxWindow > 0 && ctxWindow < OPENCLAW_MIN_CTX) {
+          // Model exists in our DB and context is too small
+          const compatible = Object.entries(modelDb)
+            .filter(([_, m]: [string, any]) => m.context >= OPENCLAW_MIN_CTX)
+            .sort((a: any, b: any) => a[1].sizeGB - b[1].sizeGB);
+
+          const lines = [`\n${cc.red}✗ ${ollamaModelName} has ${ctxWindow.toLocaleString()} token context — OpenClaw needs at least ${OPENCLAW_MIN_CTX.toLocaleString()}.${cc.reset}\n`];
+          if (compatible.length > 0) {
+            lines.push(`  ${cc.bold}Compatible models:${cc.reset}`);
+            for (const [name, m] of compatible.slice(0, 5) as [string, any][]) {
+              const isInstalled = ollamaUp.includes(`"${name}"`);
+              lines.push(`    ${isInstalled ? cc.green + "✓" : cc.dim + "○"}${cc.reset} ${cc.bold}${name}${cc.reset} — ${m.context.toLocaleString()} ctx, ${m.sizeGB}GB ${isInstalled ? cc.dim + "(installed)" + cc.reset : ""}`);
+            }
+            const best = compatible[0][0];
+            lines.push(`\n  ${cc.dim}Try: "switch openclaw to ${best}"${cc.reset}`);
+
+            // Suggest pulling if not installed
+            const bestInstalled = ollamaUp.includes(`"${best}"`);
+            if (!bestInstalled) {
+              lines.push(`  ${cc.dim}Or: "ollama pull ${best}" first, then switch${cc.reset}`);
+              suggestAction({ action: `ollama pull ${best}`, description: `Pull ${best} for OpenClaw`, type: "intent" });
+            }
+          }
+          return lines.join("\n");
+        }
+
+        // Model not in DB or context OK — check if installed
+        if (!installed) {
+          // Check disk space before suggesting pull
+          const dfOut = await runLocalCommand("df -BG / | tail -1 | awk '{print $4}'").catch(() => "0G");
+          const freeGB = parseInt(dfOut);
+          const needsGB = modelInfo?.sizeGB ?? 4;
+
+          const lines = [`\n${cc.yellow}⚠ ${ollamaModelName} is not installed in Ollama.${cc.reset}\n`];
+          if (modelInfo) {
+            lines.push(`  ${cc.bold}${modelInfo.name}${cc.reset} — ${modelInfo.parameters}, ${modelInfo.sizeGB}GB download`);
+            lines.push(`  Context: ${modelInfo.context.toLocaleString()} tokens ${modelInfo.context >= OPENCLAW_MIN_CTX ? cc.green + "✓ OK for OpenClaw" + cc.reset : cc.red + "✗ too small" + cc.reset}`);
+          }
+
+          // Check if models should be moved to another drive first
+          if (freeGB < needsGB + 5) {
+            lines.push(`\n  ${cc.yellow}⚠ Only ${freeGB}GB free. Consider moving Ollama models first:${cc.reset}`);
+            lines.push(`  ${cc.dim}  "move ollama models to /mnt/d/ollama"${cc.reset}`);
+          }
+
+          lines.push(`\n  ${cc.bold}I can pull it for you.${cc.reset} Want me to do that?`);
+          suggestAction({ action: `ollama pull ${ollamaModelName}`, description: `Pull ${ollamaModelName} then switch OpenClaw`, type: "intent" });
+          return lines.join("\n");
+        }
+      }
+
       const switchCmd = `openclaw models set "${requestedModel}"`;
       result = await withSpinner(`Switching to ${requestedModel}...`, () => runOcCmd(switchCmd, ocTarget, ocEnv!));
-      return result + `\n\x1b[32m✓\x1b[0m OpenClaw now using: \x1b[1m${requestedModel}\x1b[0m`;
+      return result + `\n${cc.green}✓${cc.reset} OpenClaw now using: ${cc.bold}${requestedModel}${cc.reset}`;
     }
     result = await withSpinner("Checking model...", () => runOcCmd("openclaw models status --plain", ocTarget, ocEnv!));
     return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet" or "switch openclaw to sonnet on windows"\x1b[0m`;
@@ -550,11 +630,37 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       lines.push(`  Capabilities: ${modelInfo.capabilities.join(", ")}`);
       lines.push(`  ${modelInfo.description}\n`);
 
-      // Resource check
-      if (modelInfo.sizeGB > freeGB) {
-        lines.push(`  \x1b[31m✗ Not enough disk space: need ${modelInfo.sizeGB}GB, only ${freeGB}GB free.\x1b[0m`);
-        lines.push(`  \x1b[2m  Run "free up space" to make room.\x1b[0m`);
-        return lines.join("\n");
+      // Resource check — auto-detect other drives for more space
+      if (modelInfo.sizeGB > freeGB || freeGB < modelInfo.sizeGB + 5) {
+        // Check if models can be moved to another drive
+        const pullIsWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+        let altDrive = "";
+        let altFreeGB = 0;
+        if (pullIsWSL) {
+          for (const drive of ["/mnt/d", "/mnt/e", "/mnt/f"]) {
+            const altDf = await runLocalCommand(`df -BG "${drive}" 2>/dev/null | tail -1 | awk '{print $4}'`).catch(() => "0G");
+            const altFree = parseInt(altDf);
+            if (altFree > altFreeGB) { altFreeGB = altFree; altDrive = drive; }
+          }
+        }
+
+        if (modelInfo.sizeGB > freeGB) {
+          lines.push(`  \x1b[31m✗ Not enough disk space: need ${modelInfo.sizeGB}GB, only ${freeGB}GB free.\x1b[0m`);
+          if (altDrive && altFreeGB >= modelInfo.sizeGB + 5) {
+            lines.push(`  \x1b[33m→ ${altDrive} has ${altFreeGB}GB free. Move models there first:\x1b[0m`);
+            lines.push(`  \x1b[2m  "move ollama models to ${altDrive}/ollama"\x1b[0m`);
+            suggestAction({ action: `move ollama models to ${altDrive}/ollama`, description: `Move Ollama models to ${altDrive} then pull ${model}`, type: "intent" });
+          } else {
+            lines.push(`  \x1b[2m  Run "free up space" to make room.\x1b[0m`);
+          }
+          return lines.join("\n");
+        }
+
+        // Tight on space — warn and suggest move
+        if (altDrive && altFreeGB > freeGB * 2) {
+          lines.push(`  \x1b[33m⚠ Space is tight (${freeGB}GB free). Consider moving models to ${altDrive} (${altFreeGB}GB free):\x1b[0m`);
+          lines.push(`  \x1b[2m  "move ollama models to ${altDrive}/ollama"\x1b[0m`);
+        }
       }
       if (modelInfo.minRAMGB > freeRAMGB) {
         lines.push(`  \x1b[33m⚠ Tight on RAM: model needs ${modelInfo.minRAMGB}GB, you have ${freeRAMGB}GB free.\x1b[0m`);
