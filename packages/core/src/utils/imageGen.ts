@@ -511,10 +511,19 @@ async function waitForReady(url: string, timeoutSeconds: number): Promise<boolea
     await sleep(3000);
   }
 
-  console.error(`${c.yellow}⚠${c.reset} Timed out waiting for engine after ${timeoutSeconds}s`);
+  console.error(`${c.yellow}⚠${c.reset} Engine not ready after ${timeoutSeconds}s — still loading in the background.`);
   console.error(`${c.dim}  First launch downloads the AI model (~4GB) — this can take 5-10 minutes.${c.reset}`);
-  console.error(`${c.dim}  The engine may still be starting in the background.${c.reset}`);
-  console.error(`${c.dim}  Try again in a few minutes, or use cloud API for now.${c.reset}`);
+  console.error(`${c.dim}  The engine is still starting in the background.${c.reset}`);
+  console.error(`${c.dim}  Say "check image status" to see if it's ready, or we'll use cloud for now.${c.reset}`);
+
+  // Store pending action for "is it ready yet"
+  const { suggestAction } = await import("../conversation/pendingActions.js");
+  suggestAction({
+    action: "generate a picture of a cat",
+    description: "Try generating locally — engine may be ready now",
+    type: "intent",
+  });
+
   return false;
 }
 
@@ -1184,6 +1193,30 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
     lines.push(`  ${c.bold}Currently using:${c.reset} ${c.cyan}Cloud API (Pollinations.ai)${c.reset} — free, no install needed`);
     lines.push(`  ${c.dim}Powered by Stable Diffusion via Pollinations. Images are generated on their servers.${c.reset}`);
     lines.push(`  ${c.dim}For private/offline generation, install a local engine above.${c.reset}`);
+  }
+
+  // Check if a previously-started engine is now ready
+  if (installed && !running) {
+    // Quick check if it came up since we last looked
+    const a1Check = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+    const comfyCheck = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
+    const edCheck = !!tryExec("curl -sf --max-time 2 http://localhost:9000/ping 2>/dev/null");
+
+    if (a1Check) {
+      lines.push(`  ${c.green}✓ auto1111 just became ready at http://localhost:7860!${c.reset}`);
+      lines.push(`  ${c.bold}Say "generate a picture of a cat" to use it.${c.reset}`);
+    } else if (comfyCheck) {
+      lines.push(`  ${c.green}✓ ComfyUI just became ready at http://localhost:8188!${c.reset}`);
+    } else if (edCheck) {
+      lines.push(`  ${c.green}✓ Easy Diffusion just became ready at http://localhost:9000!${c.reset}`);
+    } else {
+      // Check if the process is at least running
+      const sdProcess = tryExec("ps aux 2>/dev/null | grep -E 'webui\\.py|main\\.py|entry_with_update' | grep -v grep");
+      if (sdProcess) {
+        lines.push(`  ${c.yellow}⏳ Engine process is running — still loading (model download may be in progress)${c.reset}`);
+        lines.push(`  ${c.dim}Check again in a minute: "image status"${c.reset}`);
+      }
+    }
   }
 
   // Docker data location warning
