@@ -62,6 +62,41 @@ tmpfs       16G     0   16G   0% /tmp`;
   });
 });
 
+describe("analyzeDisk — Windows format", () => {
+  it("parses PowerShell df-compatible output", () => {
+    const winOutput = `Filesystem      Size  Used Avail Use% Mounted on
+C:              238.5G 232.4G 6.1G 97% C:\\
+D:              500G 200G 300G 40% D:\\`;
+    const analysis = analyzeDisk(winOutput);
+    expect(analysis).toContain("CRITICAL");
+    expect(analysis).toContain("C:\\");
+    expect(analysis).toContain("97%");
+  });
+
+  it("resolves 'c drive' alias to C:\\ mount", () => {
+    const winOutput = `Filesystem      Size  Used Avail Use% Mounted on
+C:              238.5G 232.4G 6.1G 97% C:\\`;
+    const analysis = analyzeDisk(winOutput, "c drive");
+    expect(analysis).toContain("C:\\");
+    expect(analysis).toContain("CRITICAL");
+  });
+
+  it("resolves 'd drive' alias", () => {
+    const winOutput = `Filesystem      Size  Used Avail Use% Mounted on
+D:              500G 200G 300G 40% D:\\`;
+    const analysis = analyzeDisk(winOutput, "d drive");
+    expect(analysis).toContain("D:\\");
+    expect(analysis).toContain("Healthy");
+  });
+
+  it("suggests cleanup on critical disk", () => {
+    const criticalDf = `Filesystem  Size  Used Avail Use% Mounted on
+/dev/sda1   100G   98G    2G  98% /`;
+    const analysis = analyzeDisk(criticalDf);
+    expect(analysis).toContain("free up space");
+  });
+});
+
 describe("analyzeMemory", () => {
   it("detects healthy memory", () => {
     const output = `               total        used        free      shared  buff/cache   available

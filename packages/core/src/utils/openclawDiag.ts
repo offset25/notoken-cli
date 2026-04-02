@@ -1,0 +1,783 @@
+/**
+ * OpenClaw advanced diagnostics.
+ *
+ * Runs a multi-step check:
+ *   1. Is the gateway process running?
+ *   2. Is the HTTP health endpoint responding?
+ *   3. Can we reach the WebSocket gateway?
+ *   4. What channels are configured (Telegram, Discord, Matrix)?
+ *   5. Are channels connected and healthy?
+ *   6. What's the config state?
+ *   7. Any errors in recent logs?
+ */
+
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
+
+const c = {
+  reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",
+  green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m",
+};
+
+interface DiagStep {
+  name: string;
+  status: "pass" | "warn" | "fail" | "skip";
+  detail: string;
+}
+
+/** Extract the text reply from openclaw agent JSON output. */
+function extractAgentReply(output: string): string | null {
+  try {
+    // Output may have log lines before JSON — find the JSON
+    const jsonStart = output.indexOf("{");
+    if (jsonStart < 0) return null;
+    const json = JSON.parse(output.substring(jsonStart));
+    // openclaw agent --json returns: { result: { payloads: [{ text: "..." }] } }
+    const text = json?.result?.payloads?.[0]?.text
+      ?? json?.reply
+      ?? json?.text
+      ?? json?.content;
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+async function runCmd(cmd: string, timeout = 15_000): Promise<string> {
+  try {
+    const { stdout, stderr } = await execAsync(cmd, { timeout });
+    return (stdout + stderr).trim();
+  } catch (err) {
+    return (err as any)?.stdout?.trim() ?? (err as Error).message.split("\n")[0];
+  }
+}
+
+/**
+ * Quick connectivity check — escalates from simplest to most thorough.
+ * Used for "can you talk to openclaw?" / "is openclaw reachable?"
+ *
+ * Steps:
+ *   1. Is the process alive? (ps aux — instant)
+ *   2. Does the health endpoint respond? (curl — fast)
+ *   3. Can the CLI communicate? (openclaw health — slower)
+ *
+ * Stops at the first failure and reports what's wrong.
+ */
+export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promise<string>): Promise<string> {
+  const run = runRemote ?? ((cmd: string) => runCmd(cmd));
+  const lines: string[] = [];
+
+  lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
+
+  // Step 1: Is process running?
+  console.error(`${c.dim}Checking if openclaw is running...${c.reset}`);
+  const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
+  if (!psOut || !psOut.includes("openclaw")) {
+    lines.push(`  ${c.yellow}✗${c.reset} Gateway is not running. ${c.bold}Starting now...${c.reset}`);
+
+    // Check Node version — openclaw needs 22+
+    const nodeOk = await ensureNodeVersion(run, lines);
+    if (!nodeOk) {
+      return lines.join("\n");
+    }
+
+    // Start the gateway with the right Node
+    console.error(`${c.dim}→ Starting openclaw gateway...${c.reset}`);
+    const startCmd = await buildStartCommand(run);
+    const startOut = await run(`${startCmd} sleep 8 && curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo STARTING`);
+
+    if (startOut.includes('"ok":true') || startOut.includes('"status"')) {
+      lines.push(`  ${c.green}✓${c.reset} ${c.bold}Gateway started successfully.${c.reset}`);
+    } else if (startOut.includes("STARTING")) {
+      lines.push(`  ${c.yellow}⚠${c.reset} Gateway starting... may take a few more seconds.`);
+      // Try one more time after a brief wait
+      const retryOut = await run("sleep 3 && curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo FAIL");
+      if (retryOut.includes('"ok"')) {
+        lines.push(`  ${c.green}✓${c.reset} ${c.bold}Gateway is now running.${c.reset}`);
+      } else {
+        lines.push(`  ${c.dim}Still starting — check: openclaw health${c.reset}`);
+      }
+    } else {
+      lines.push(`  ${c.red}✗${c.reset} Failed to start gateway.`);
+      lines.push(`  ${c.dim}Try manually: openclaw gateway --force${c.reset}`);
+      return lines.join("\n");
+    }
+  }
+
+  const pidMatch = psOut.match(/\S+\s+(\d+)/);
+  const pid = pidMatch?.[1] ?? "?";
+  lines.push(`  ${c.green}✓${c.reset} Gateway process running ${c.dim}(PID ${pid})${c.reset}`);
+
+  // Step 2: Health endpoint
+  console.error(`${c.dim}Checking health endpoint...${c.reset}`);
+  const healthOut = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo FAIL");
+  if (healthOut === "FAIL" || !healthOut.includes('"ok"')) {
+    lines.push(`  ${c.red}✗${c.reset} ${c.bold}Health endpoint not responding.${c.reset}`);
+    lines.push(`  ${c.dim}Process is running but HTTP port 18789 isn't accepting connections.${c.reset}`);
+    lines.push(`\n  ${c.bold}Try:${c.reset} ${c.cyan}restart openclaw${c.reset}`);
+    return lines.join("\n");
+  }
+
+  lines.push(`  ${c.green}✓${c.reset} Health endpoint OK ${c.dim}(http://127.0.0.1:18789)${c.reset}`);
+
+  // Step 3: CLI communication (use nvm if needed for correct Node)
+  console.error(`${c.dim}Testing CLI communication...${c.reset}`);
+  const nvmPrefix = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
+  const cliOut = await run(`bash -c '${nvmPrefix} openclaw health 2>&1 | head -5'`);
+
+  if (cliOut.includes("Agents:") || cliOut.includes("Heartbeat") || cliOut.includes("Session store")) {
+    lines.push(`  ${c.green}✓${c.reset} CLI can communicate with gateway`);
+
+    const agentMatch = cliOut.match(/Agents:\s*(.+)/);
+    const heartbeatMatch = cliOut.match(/Heartbeat interval:\s*(.+)/);
+    const sessionMatch = cliOut.match(/- (.+ago)/);
+    if (agentMatch) lines.push(`  ${c.dim}  Agent: ${agentMatch[1]}${c.reset}`);
+    if (heartbeatMatch) lines.push(`  ${c.dim}  Heartbeat: ${heartbeatMatch[1]}${c.reset}`);
+    if (sessionMatch) lines.push(`  ${c.dim}  Last session: ${sessionMatch[1]}${c.reset}`);
+
+    // Step 4: Try to actually send a message to the agent
+    console.error(`${c.dim}Sending test message to agent...${c.reset}`);
+    const agentOut = await run(`bash -c '${nvmPrefix} timeout 30 openclaw agent --agent main --message "hi" --json 2>&1'`);
+
+    const agentReply = extractAgentReply(agentOut);
+    if (agentReply) {
+      lines.push(`  ${c.green}✓${c.reset} Agent responded!`);
+      lines.push(`  ${c.bold}  OpenClaw says:${c.reset} ${agentReply}`);
+    } else if (agentOut.includes("No API key") || agentOut.includes("auth")) {
+      // Try to auto-detect API keys from environment
+      const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+      const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+
+      // Try to auto-configure auth — escalating methods:
+      // 1. Claude CLI OAuth token sync (frictionless — uses existing login)
+      // 2. Environment variables (ANTHROPIC_API_KEY / OPENAI_API_KEY)
+      // 3. Suggest manual setup
+
+      let authFixed = false;
+
+      // Method 1: Read Claude Code's OAuth token directly from ~/.claude/.credentials.json
+      const claudeCredsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+      let claudeToken: string | null = null;
+      try {
+        const { readFileSync: readFS, existsSync: existsFS } = await import("node:fs");
+        if (existsFS(claudeCredsPath)) {
+          const creds = JSON.parse(readFS(claudeCredsPath, "utf-8"));
+          claudeToken = creds?.claudeAiOauth?.accessToken ?? null;
+        }
+      } catch {}
+
+      if (claudeToken) {
+        lines.push(`  ${c.cyan}Found Claude Code OAuth token — configuring openclaw...${c.reset}`);
+
+        // Write directly into openclaw's auth-profiles.json
+        const authProfilePath = `${process.env.HOME ?? "/root"}/.openclaw/agents/main/agent/auth-profiles.json`;
+        try {
+          const { readFileSync: readFS, writeFileSync: writeFS, existsSync: existsFS, mkdirSync: mkdirFS } = await import("node:fs");
+          const { dirname: dirnameFS } = await import("node:path");
+
+          let profiles: any = { version: 1, profiles: {} };
+          if (existsFS(authProfilePath)) {
+            profiles = JSON.parse(readFS(authProfilePath, "utf-8"));
+          } else {
+            mkdirFS(dirnameFS(authProfilePath), { recursive: true });
+          }
+
+          // Add/update the anthropic profile with the Claude Code OAuth token
+          profiles.profiles["anthropic:claude-oauth"] = {
+            type: "oauth",
+            provider: "anthropic",
+            access: claudeToken,
+            expires: Date.now() + 86400000, // 24h — token will be refreshed by Claude
+          };
+
+          writeFS(authProfilePath, JSON.stringify(profiles, null, 2));
+          lines.push(`  ${c.green}✓${c.reset} Claude OAuth token injected into openclaw auth`);
+
+          // Reload secrets so the gateway picks up the new token
+          await run(`bash -c '${nvmPrefix} openclaw secrets reload 2>&1 || true'`);
+          authFixed = true;
+        } catch (e) {
+          lines.push(`  ${c.yellow}⚠${c.reset} Could not write auth profile: ${(e as Error).message?.split("\n")[0]}`);
+        }
+      }
+
+      // Method 1b: Try openclaw's built-in setup-token sync as fallback
+      if (!authFixed) {
+        const claudeInstalled = await run("which claude 2>/dev/null");
+        if (claudeInstalled && claudeInstalled.includes("claude")) {
+          lines.push(`  ${c.cyan}Trying Claude CLI token sync...${c.reset}`);
+          const syncOut = await run(`bash -c '${nvmPrefix} openclaw models auth setup-token --provider anthropic --yes 2>&1'`);
+          if (!syncOut.includes("error") && !syncOut.includes("Error")) {
+            lines.push(`  ${c.green}✓${c.reset} Claude token synced`);
+            authFixed = true;
+          }
+        }
+      }
+
+      // Method 2: Environment API keys
+      if (!authFixed) {
+        const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+        const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+        if (hasAnthropicKey || hasOpenAIKey) {
+          const provider = hasAnthropicKey ? "anthropic" : "openai";
+          const key = hasAnthropicKey ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
+          lines.push(`  ${c.cyan}Found ${provider.toUpperCase()} key — configuring...${c.reset}`);
+          const pasteOut = await run(`bash -c '${nvmPrefix} openclaw models auth paste-token --provider ${provider} <<< "${key}" 2>&1'`);
+          if (!pasteOut.includes("error")) {
+            lines.push(`  ${c.green}✓${c.reset} API key configured`);
+            authFixed = true;
+          }
+        }
+      }
+
+      // Method 3: Check if Codex CLI is available (OpenAI Codex OAuth)
+      if (!authFixed) {
+        const codexCheck = await run("which codex 2>/dev/null");
+        if (codexCheck && codexCheck.includes("codex")) {
+          lines.push(`  ${c.cyan}Found Codex CLI — syncing OAuth token...${c.reset}`);
+          const syncOut = await run(`bash -c '${nvmPrefix} openclaw models auth setup-token --provider openai-codex --yes 2>&1'`);
+          if (!syncOut.includes("error") && !syncOut.includes("Error")) {
+            lines.push(`  ${c.green}✓${c.reset} Codex OAuth token synced to openclaw`);
+            authFixed = true;
+          }
+        }
+      }
+
+      // Retry the message if auth was fixed
+      if (authFixed) {
+        console.error(`${c.dim}Retrying message to agent...${c.reset}`);
+        const retryOut = await run(`bash -c '${nvmPrefix} timeout 30 openclaw agent --agent main --message "hi" --json 2>&1'`);
+        const retryReply = extractAgentReply(retryOut);
+        if (retryReply) {
+          lines.push(`  ${c.green}✓${c.reset} Agent responded!`);
+          lines.push(`  ${c.bold}  OpenClaw says:${c.reset} ${retryReply}`);
+        } else if (retryOut.includes("No API key") || retryOut.includes("auth")) {
+          lines.push(`  ${c.yellow}⚠${c.reset} Auth configured but agent still needs setup`);
+          lines.push(`  ${c.dim}  Run: openclaw configure --section model${c.reset}`);
+        } else {
+          lines.push(`  ${c.yellow}⚠${c.reset} Agent didn't reply — may need gateway restart`);
+          lines.push(`  ${c.dim}  Try: restart openclaw${c.reset}`);
+        }
+      } else {
+        lines.push(`  ${c.yellow}⚠${c.reset} No API key found — need Claude CLI or ANTHROPIC_API_KEY`);
+        lines.push(`  ${c.dim}  Install Claude: npm install -g @anthropic-ai/claude-code${c.reset}`);
+        lines.push(`  ${c.dim}  Then: claude login${c.reset}`);
+        lines.push(`  ${c.dim}  notoken will sync the token to openclaw automatically.${c.reset}`);
+      }
+    } else if (agentOut.includes("pairing required")) {
+      lines.push(`  ${c.yellow}⚠${c.reset} Gateway needs pairing`);
+      lines.push(`  ${c.dim}  Run: openclaw setup${c.reset}`);
+    } else {
+      lines.push(`  ${c.yellow}⚠${c.reset} Agent didn't respond: ${c.dim}${agentOut.split("\n")[0].substring(0, 60)}${c.reset}`);
+    }
+
+    lines.push(`\n  ${c.green}${c.bold}✓ OpenClaw gateway is running and reachable.${c.reset}`);
+    lines.push(`  ${c.dim}Dashboard: http://127.0.0.1:18789/${c.reset}`);
+    lines.push(`  ${c.dim}TUI: openclaw tui${c.reset}`);
+  } else if (cliOut.includes("error") || cliOut.includes("failed")) {
+    lines.push(`  ${c.yellow}⚠${c.reset} CLI returned errors: ${c.dim}${cliOut.split("\n")[0]}${c.reset}`);
+    lines.push(`\n  ${c.bold}Try:${c.reset} ${c.cyan}diagnose openclaw${c.reset} ${c.dim}for full diagnostics${c.reset}`);
+  } else {
+    lines.push(`  ${c.green}✓${c.reset} CLI responded ${c.dim}(${cliOut.split("\n")[0].substring(0, 60)})${c.reset}`);
+    lines.push(`\n  ${c.green}${c.bold}✓ OpenClaw is running and reachable.${c.reset}`);
+  }
+
+  // ── Component audit — what's available for openclaw ──
+  await auditOpenclawComponents(run, nvmPrefix, lines);
+
+  return lines.join("\n");
+}
+
+/**
+ * Audit all optional components that openclaw can use.
+ * Reports what's detected, what's optional, and what's needed.
+ */
+async function auditOpenclawComponents(
+  run: (cmd: string) => Promise<string>,
+  nvmPrefix: string,
+  lines: string[],
+): Promise<void> {
+  lines.push(`\n${c.bold}${c.cyan}── OpenClaw Components ──${c.reset}`);
+  lines.push(`${c.dim}  Each is optional — need at least one LLM or one channel.${c.reset}\n`);
+
+  let hasLLM = false;
+  let hasChannel = false;
+
+  // ── LLM / AI Providers ──
+  lines.push(`  ${c.bold}LLM Providers:${c.reset}`);
+
+  // Claude CLI
+  const claudeVer = await run("claude --version 2>/dev/null | head -1");
+  if (claudeVer && !claudeVer.includes("not found")) {
+    lines.push(`  ${c.green}✓${c.reset} Claude Code: ${c.dim}${claudeVer.trim()}${c.reset}`);
+
+    // Check OAuth token
+    const claudeCredsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+    try {
+      const { existsSync: ef, readFileSync: rf } = await import("node:fs");
+      if (ef(claudeCredsPath)) {
+        const creds = JSON.parse(rf(claudeCredsPath, "utf-8"));
+        if (creds?.claudeAiOauth?.accessToken) {
+          lines.push(`    ${c.green}✓${c.reset} OAuth token present`);
+          hasLLM = true;
+        }
+      }
+    } catch {}
+    if (!hasLLM) {
+      lines.push(`    ${c.yellow}○${c.reset} Not logged in — run: ${c.cyan}claude login${c.reset}`);
+    }
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Claude Code: not installed ${c.dim}(optional — npm install -g @anthropic-ai/claude-code)${c.reset}`);
+  }
+
+  // ANTHROPIC_API_KEY
+  if (process.env.ANTHROPIC_API_KEY) {
+    lines.push(`  ${c.green}✓${c.reset} ANTHROPIC_API_KEY: set in environment`);
+    hasLLM = true;
+  }
+
+  // OPENAI_API_KEY
+  if (process.env.OPENAI_API_KEY) {
+    lines.push(`  ${c.green}✓${c.reset} OPENAI_API_KEY: set in environment`);
+    hasLLM = true;
+  }
+
+  // Codex CLI (OpenAI Codex)
+  const codexCheck = await run("which codex 2>/dev/null");
+  if (codexCheck && codexCheck.includes("codex")) {
+    const codexVer = await run("codex --version 2>/dev/null | head -1");
+    lines.push(`  ${c.green}✓${c.reset} Codex CLI: ${codexVer?.trim() ?? "installed"}`);
+    // Check if openai-codex auth is in openclaw
+    const authCheck = await run(`bash -c '${nvmPrefix} openclaw models status 2>&1'`);
+    if (authCheck.includes("openai-codex")) {
+      lines.push(`    ${c.green}✓${c.reset} OAuth synced to openclaw`);
+      hasLLM = true;
+    } else {
+      lines.push(`    ${c.yellow}○${c.reset} Not synced — run: ${c.cyan}openclaw models auth setup-token --provider openai-codex${c.reset}`);
+    }
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Codex CLI: not installed ${c.dim}(optional — npm install -g @openai/codex)${c.reset}`);
+  }
+
+  // Ollama (local LLM)
+  const ollamaVer = await run("ollama --version 2>/dev/null | head -1");
+  if (ollamaVer && !ollamaVer.includes("not found")) {
+    const ollamaRunning = await run("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1");
+    if (ollamaRunning && ollamaRunning.includes("models")) {
+      lines.push(`  ${c.green}✓${c.reset} Ollama: running (local LLM — no API key needed)`);
+      hasLLM = true;
+    } else {
+      lines.push(`  ${c.yellow}○${c.reset} Ollama: installed but not running — ${c.cyan}ollama serve${c.reset}`);
+    }
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Ollama: not installed ${c.dim}(optional — local LLM, no tokens needed)${c.reset}`);
+  }
+
+  // ── Chat Channels ──
+  lines.push(`\n  ${c.bold}Chat Channels:${c.reset}`);
+
+  // TUI (terminal — always available if gateway is running)
+  const gwUp = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo FAIL");
+  if (gwUp.includes('"ok"')) {
+    lines.push(`  ${c.green}✓${c.reset} Terminal (TUI): available — ${c.cyan}openclaw tui${c.reset}`);
+    lines.push(`    ${c.green}✓${c.reset} notoken can talk to it: ${c.cyan}tell openclaw <message>${c.reset}`);
+    hasChannel = true;
+  } else {
+    lines.push(`  ${c.yellow}○${c.reset} Terminal (TUI): gateway not running`);
+  }
+
+  const channelsOut = await run(`bash -c '${nvmPrefix} openclaw channels list 2>&1'`);
+
+  // Telegram
+  if (channelsOut.toLowerCase().includes("telegram")) {
+    const configured = channelsOut.toLowerCase().includes("telegram") && channelsOut.includes("configured");
+    lines.push(`  ${configured ? `${c.green}✓` : `${c.yellow}○`}${c.reset} Telegram: ${configured ? "configured" : "detected but not configured"}`);
+    if (configured) hasChannel = true;
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Telegram: not configured ${c.dim}(optional — openclaw configure --section channels)${c.reset}`);
+  }
+
+  // Discord
+  if (channelsOut.toLowerCase().includes("discord")) {
+    const configured = channelsOut.includes("configured");
+    lines.push(`  ${configured ? `${c.green}✓` : `${c.yellow}○`}${c.reset} Discord: ${configured ? "configured" : "detected but not configured"}`);
+    if (configured) hasChannel = true;
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Discord: not configured ${c.dim}(optional)${c.reset}`);
+  }
+
+  // Matrix
+  if (channelsOut.toLowerCase().includes("matrix")) {
+    const errored = channelsOut.includes("failed") || channelsOut.includes("Blocked");
+    const configured = channelsOut.includes("configured");
+    if (configured && !errored) {
+      lines.push(`  ${c.green}✓${c.reset} Matrix: configured and running`);
+      hasChannel = true;
+    } else if (configured) {
+      lines.push(`  ${c.yellow}⚠${c.reset} Matrix: configured but has errors — run: ${c.cyan}openclaw doctor --fix${c.reset}`);
+    }
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} Matrix: not configured ${c.dim}(optional — can run locally, no account needed)${c.reset}`);
+  }
+
+  // WhatsApp
+  if (channelsOut.toLowerCase().includes("whatsapp")) {
+    lines.push(`  ${c.green}✓${c.reset} WhatsApp: configured`);
+    hasChannel = true;
+  } else {
+    lines.push(`  ${c.dim}○${c.reset} WhatsApp: not configured ${c.dim}(optional)${c.reset}`);
+  }
+
+  // ── Summary ──
+  lines.push("");
+  if (hasLLM && hasChannel) {
+    lines.push(`  ${c.green}${c.bold}✓ Fully operational:${c.reset} LLM + chat channel available.`);
+  } else if (hasLLM) {
+    lines.push(`  ${c.green}✓${c.reset} LLM available — agent can respond.`);
+    lines.push(`  ${c.dim}  Add a channel (Telegram/Discord/Matrix) to chat from your phone.${c.reset}`);
+  } else if (hasChannel) {
+    lines.push(`  ${c.green}✓${c.reset} Chat channel available.`);
+    lines.push(`  ${c.yellow}  Need an LLM: set ANTHROPIC_API_KEY, install Claude, or run Ollama.${c.reset}`);
+  } else {
+    lines.push(`  ${c.yellow}${c.bold}⚠ Need at least one of:${c.reset}`);
+    lines.push(`    ${c.cyan}1.${c.reset} LLM: Claude Code (${c.cyan}claude login${c.reset}), API key, or Ollama (local)`);
+    lines.push(`    ${c.cyan}2.${c.reset} Channel: Telegram, Discord, or Matrix (${c.cyan}openclaw configure${c.reset})`);
+  }
+}
+
+/**
+ * Ensure Node.js 22+ is available. Installs via nvm if needed.
+ * Works in WSL, Linux, and Windows (via nvm-windows or fnm).
+ */
+async function ensureNodeVersion(
+  run: (cmd: string) => Promise<string>,
+  lines: string[],
+): Promise<boolean> {
+  // Check current Node version
+  const nodeVer = await run("node --version 2>/dev/null");
+  const major = parseInt(nodeVer.replace("v", ""));
+
+  if (major >= 22) {
+    return true; // Already good
+  }
+
+  lines.push(`  ${c.dim}Current Node: ${nodeVer.trim()} (need 22+)${c.reset}`);
+
+  // Check if nvm is available — try multiple common locations
+  const nvmSourceCmd = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done`;
+  const nvmCheck = await run(`bash -c '${nvmSourceCmd} 2>/dev/null && nvm --version' 2>/dev/null`);
+  const hasNvm = nvmCheck && !nvmCheck.includes("not found") && /\d+\.\d+/.test(nvmCheck);
+
+  if (hasNvm) {
+    // nvm exists — check if Node 22 is installed
+    const nvmList = await run(`bash -c '${nvmSourceCmd} 2>/dev/null && nvm ls 22 2>/dev/null'`);
+
+    if (nvmList.includes("v22")) {
+      lines.push(`  ${c.green}✓${c.reset} Node 22 available via nvm`);
+      return true;
+    }
+
+    // Install Node 22 via nvm
+    lines.push(`  ${c.cyan}Installing Node 22 via nvm...${c.reset}`);
+    console.error(`${c.dim}→ nvm install 22${c.reset}`);
+    const installOut = await run(`bash -c '${nvmSourceCmd} && nvm install 22' 2>&1`);
+
+    if (installOut.includes("v22") || installOut.includes("Now using")) {
+      lines.push(`  ${c.green}✓${c.reset} Node 22 installed via nvm`);
+      return true;
+    } else {
+      lines.push(`  ${c.red}✗${c.reset} nvm install failed: ${installOut.split("\n")[0]}`);
+      return false;
+    }
+  }
+
+  // Check for fnm (fast node manager — common on Windows)
+  const fnmCheck = await run("fnm --version 2>/dev/null");
+  if (fnmCheck && fnmCheck.includes("fnm")) {
+    lines.push(`  ${c.cyan}Installing Node 22 via fnm...${c.reset}`);
+    const fnmOut = await run("fnm install 22 && fnm use 22 2>&1");
+    if (fnmOut.includes("installed") || fnmOut.includes("v22")) {
+      lines.push(`  ${c.green}✓${c.reset} Node 22 installed via fnm`);
+      return true;
+    }
+  }
+
+  // No version manager — install nvm first
+  lines.push(`  ${c.cyan}Installing nvm...${c.reset}`);
+  console.error(`${c.dim}→ Installing nvm + Node 22${c.reset}`);
+  const nvmInstall = await run(
+    "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh 2>/dev/null | bash 2>&1; " +
+    `bash -c '${nvmSourceCmd} && nvm install 22' 2>&1`
+  );
+
+  if (nvmInstall.includes("v22") || nvmInstall.includes("Now using")) {
+    lines.push(`  ${c.green}✓${c.reset} nvm + Node 22 installed`);
+    return true;
+  }
+
+  lines.push(`  ${c.red}✗${c.reset} Could not install Node 22 automatically.`);
+  lines.push(`  ${c.dim}Install manually: nvm install 22 (or download from nodejs.org)${c.reset}`);
+  return false;
+}
+
+/**
+ * Build the command to start openclaw with the correct Node version.
+ * Uses nvm if the system Node is too old.
+ */
+async function buildStartCommand(run: (cmd: string) => Promise<string>): Promise<string> {
+  const nodeVer = await run("node --version 2>/dev/null");
+  const major = parseInt(nodeVer.replace("v", ""));
+
+  if (major >= 22) {
+    return "openclaw gateway --force --allow-unconfigured &";
+  }
+
+  // Try nvm — find it wherever it lives
+  const nvmSource = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done`;
+  const nvmNode22 = await run(`bash -c '${nvmSource} 2>/dev/null && nvm which 22 2>/dev/null'`);
+  if (nvmNode22 && nvmNode22.includes("/node")) {
+    return `bash -c '${nvmSource} && nvm use 22 && openclaw gateway --force --allow-unconfigured' &`;
+  }
+
+  // Try fnm
+  const fnmCheck = await run("fnm --version 2>/dev/null");
+  if (fnmCheck && fnmCheck.includes("fnm")) {
+    return `bash -c 'eval "$(fnm env)" && fnm use 22 && openclaw gateway --force --allow-unconfigured' &`;
+  }
+
+  // Fallback — just try
+  return "nohup openclaw gateway --force > /dev/null 2>&1";
+}
+
+export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: string) => Promise<string>): Promise<string> {
+  const run = runRemote ?? ((cmd: string) => runCmd(cmd));
+  const steps: DiagStep[] = [];
+  const lines: string[] = [];
+
+  lines.push(`\n${c.bold}${c.cyan}── OpenClaw Diagnostics ──${c.reset}\n`);
+
+  // ── Step 0: Node version ──
+  const nodeVer = await run("node --version 2>/dev/null");
+  const nodeMajor = parseInt(nodeVer.replace("v", ""));
+  if (nodeMajor >= 22) {
+    steps.push({ name: "Node.js", status: "pass", detail: nodeVer.trim() });
+  } else {
+    steps.push({ name: "Node.js", status: "warn", detail: `${nodeVer.trim()} (need 22+) — will auto-install if needed` });
+    // Try to ensure Node 22 is available
+    const fixLines: string[] = [];
+    const nodeOk = await ensureNodeVersion(run, fixLines);
+    if (nodeOk) {
+      steps[steps.length - 1] = { name: "Node.js", status: "pass", detail: `${nodeVer.trim()} → Node 22 available via nvm` };
+    }
+  }
+
+  // ── Step 1: Is the process running? ──
+  const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -3");
+  if (psOut && psOut.includes("openclaw")) {
+    const pidMatch = psOut.match(/\S+\s+(\d+)/);
+    const pid = pidMatch?.[1] ?? "?";
+    steps.push({ name: "Gateway process", status: "pass", detail: `Running (PID ${pid})` });
+  } else {
+    // Try to auto-start
+    const startCmd = await buildStartCommand(run);
+    await run(`${startCmd} & sleep 4`);
+    const retryPs = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
+    if (retryPs && retryPs.includes("openclaw")) {
+      const pid = retryPs.match(/\S+\s+(\d+)/)?.[1] ?? "?";
+      steps.push({ name: "Gateway process", status: "pass", detail: `Started automatically (PID ${pid})` });
+    } else {
+      steps.push({ name: "Gateway process", status: "fail", detail: "Not running — auto-start failed" });
+    }
+  }
+
+  // ── Step 2: HTTP health endpoint ──
+  const healthOut = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo FAIL");
+  if (healthOut.includes('"ok":true') || healthOut.includes('"status":"live"')) {
+    steps.push({ name: "Health endpoint", status: "pass", detail: "http://127.0.0.1:18789/health → OK" });
+  } else if (healthOut === "FAIL") {
+    steps.push({ name: "Health endpoint", status: "fail", detail: "Not responding on port 18789" });
+  } else {
+    steps.push({ name: "Health endpoint", status: "warn", detail: healthOut.substring(0, 80) });
+  }
+
+  // ── Step 3: Gateway RPC / WebSocket ──
+  const gatewayOut = await run("openclaw gateway status 2>&1 | head -5");
+  if (gatewayOut.includes("running") || gatewayOut.includes("RPC probe: ok")) {
+    steps.push({ name: "Gateway RPC", status: "pass", detail: "WebSocket gateway responding" });
+  } else if (gatewayOut.includes("not installed") || gatewayOut.includes("not found")) {
+    steps.push({ name: "Gateway RPC", status: "fail", detail: "openclaw CLI not found" });
+  } else {
+    steps.push({ name: "Gateway RPC", status: "warn", detail: gatewayOut.split("\n")[0] });
+  }
+
+  // ── Step 4: TUI connectivity test ──
+  // The TUI connects via WebSocket — if gateway is up, TUI would work
+  if (steps.find(s => s.name === "Health endpoint")?.status === "pass") {
+    steps.push({ name: "TUI connectivity", status: "pass", detail: "Gateway reachable — TUI can connect (openclaw tui)" });
+  } else {
+    steps.push({ name: "TUI connectivity", status: "fail", detail: "Gateway not reachable — TUI will fail" });
+  }
+
+  // ── Step 5: Channels ──
+  const channelsOut = await run("openclaw channels list 2>&1");
+  const channelLines = channelsOut.split("\n");
+
+  // Parse channel list
+  const channels: Array<{ name: string; type: string; status: string }> = [];
+
+  // Check for Telegram
+  if (channelsOut.toLowerCase().includes("telegram")) {
+    const teleLine = channelLines.find(l => l.toLowerCase().includes("telegram"));
+    const configured = teleLine?.includes("configured") ?? false;
+    channels.push({ name: "Telegram", type: "telegram", status: configured ? "configured" : "not configured" });
+  }
+
+  // Check for Discord
+  if (channelsOut.toLowerCase().includes("discord")) {
+    const discLine = channelLines.find(l => l.toLowerCase().includes("discord"));
+    const configured = discLine?.includes("configured") ?? false;
+    channels.push({ name: "Discord", type: "discord", status: configured ? "configured" : "not configured" });
+  }
+
+  // Check for Matrix
+  if (channelsOut.toLowerCase().includes("matrix")) {
+    const matLine = channelLines.find(l => l.toLowerCase().includes("matrix"));
+    const configured = matLine?.includes("configured") ?? false;
+    const errored = matLine?.includes("failed") || matLine?.includes("error") || channelsOut.includes("Blocked hostname");
+    channels.push({
+      name: "Matrix",
+      type: "matrix",
+      status: errored ? "configured but errored" : configured ? "configured" : "not configured",
+    });
+  }
+
+  // Check for WhatsApp
+  if (channelsOut.toLowerCase().includes("whatsapp")) {
+    const waLine = channelLines.find(l => l.toLowerCase().includes("whatsapp"));
+    const configured = waLine?.includes("configured") ?? false;
+    channels.push({ name: "WhatsApp", type: "whatsapp", status: configured ? "configured" : "not configured" });
+  }
+
+  if (channels.length > 0) {
+    for (const ch of channels) {
+      const status = ch.status === "configured" ? "pass" :
+                     ch.status.includes("error") ? "warn" : "skip";
+      steps.push({ name: `Channel: ${ch.name}`, status, detail: ch.status });
+    }
+  } else {
+    steps.push({ name: "Channels", status: "warn", detail: "No channels configured — run: openclaw configure" });
+  }
+
+  // ── Step 6: Config ──
+  const configFileOut = await run("openclaw config file 2>&1");
+  if (configFileOut && !configFileOut.includes("error") && !configFileOut.includes("not found")) {
+    steps.push({ name: "Config file", status: "pass", detail: configFileOut.trim() });
+  } else {
+    steps.push({ name: "Config file", status: "fail", detail: "No config — run: openclaw setup" });
+  }
+
+  // ── Step 7: Recent errors in logs ──
+  const logErrors = await run("openclaw logs 2>&1 | grep -i 'error\\|fail\\|fatal\\|crash' | tail -5");
+  if (logErrors && logErrors.trim().length > 0) {
+    const errorCount = logErrors.split("\n").length;
+    steps.push({ name: "Recent log errors", status: "warn", detail: `${errorCount} error(s) in recent logs` });
+  } else {
+    steps.push({ name: "Recent log errors", status: "pass", detail: "No recent errors" });
+  }
+
+  // ── Step 8: Version ──
+  const versionOut = await run("openclaw --version 2>&1");
+  if (versionOut) {
+    steps.push({ name: "Version", status: "pass", detail: versionOut.trim() });
+  }
+
+  // ── Render results ──
+  for (const step of steps) {
+    const icon = step.status === "pass" ? `${c.green}✓${c.reset}` :
+                 step.status === "warn" ? `${c.yellow}⚠${c.reset}` :
+                 step.status === "fail" ? `${c.red}✗${c.reset}` :
+                 `${c.dim}○${c.reset}`;
+    lines.push(`  ${icon} ${c.bold}${step.name}${c.reset}  ${c.dim}${step.detail}${c.reset}`);
+  }
+
+  // ── Summary ──
+  const passCount = steps.filter(s => s.status === "pass").length;
+  const warnCount = steps.filter(s => s.status === "warn").length;
+  const failCount = steps.filter(s => s.status === "fail").length;
+
+  lines.push("");
+  if (failCount === 0 && warnCount === 0) {
+    lines.push(`  ${c.green}${c.bold}✓ All checks passed.${c.reset}`);
+  } else {
+    lines.push(`  ${c.bold}Results:${c.reset} ${c.green}${passCount} passed${c.reset} | ${c.yellow}${warnCount} warnings${c.reset} | ${c.red}${failCount} failed${c.reset}`);
+  }
+
+  // ── Auto-fix ──
+  if (failCount > 0 || warnCount > 0) {
+    const fixes: Array<{ issue: string; command: string; description: string }> = [];
+
+    if (steps.find(s => s.name === "Gateway process" && s.status === "fail")) {
+      fixes.push({ issue: "Gateway not running", command: "openclaw gateway --force", description: "Start the gateway (kills stale port binds)" });
+    }
+    if (steps.find(s => s.name.includes("Matrix") && s.status === "warn")) {
+      fixes.push({ issue: "Matrix plugin errors", command: "openclaw doctor --fix", description: "Install missing plugin dependencies" });
+    }
+    if (steps.find(s => s.name === "Config file" && s.status === "fail")) {
+      fixes.push({ issue: "No configuration", command: "openclaw setup", description: "Run interactive setup" });
+    }
+    if (steps.find(s => s.name === "Channels" && s.status === "warn" && s.detail.includes("No channels"))) {
+      fixes.push({ issue: "No channels configured", command: "openclaw configure --section channels", description: "Set up Telegram/Discord/Matrix" });
+    }
+
+    if (fixes.length > 0) {
+      lines.push(`\n  ${c.bold}Available fixes:${c.reset}`);
+      for (let i = 0; i < fixes.length; i++) {
+        lines.push(`    ${c.yellow}${i + 1}.${c.reset} ${fixes[i].issue}`);
+        lines.push(`       ${c.cyan}${fixes[i].command}${c.reset}  ${c.dim}— ${fixes[i].description}${c.reset}`);
+      }
+
+      // Store fixes for auto-fix
+      (globalThis as any).__openclawFixes = fixes;
+      lines.push(`\n  ${c.dim}Run "fix openclaw" to apply these fixes automatically.${c.reset}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Apply auto-fixes from the last diagnosis.
+ */
+export async function autoFixOpenclaw(runRemote?: (cmd: string) => Promise<string>): Promise<string> {
+  const run = runRemote ?? ((cmd: string) => runCmd(cmd));
+  const fixes = (globalThis as any).__openclawFixes as Array<{ issue: string; command: string; description: string }> | undefined;
+
+  if (!fixes || fixes.length === 0) {
+    return `${c.dim}No fixes pending. Run "diagnose openclaw" first.${c.reset}`;
+  }
+
+  const lines: string[] = [];
+  lines.push(`\n${c.bold}${c.cyan}── OpenClaw Auto-Fix ──${c.reset}\n`);
+
+  for (const fix of fixes) {
+    lines.push(`  ${c.cyan}Fixing:${c.reset} ${fix.issue}`);
+    lines.push(`  ${c.dim}→ ${fix.command}${c.reset}`);
+
+    const result = await run(fix.command + " 2>&1");
+    const firstLine = result.split("\n")[0];
+
+    if (result.includes("error") || result.includes("FAIL")) {
+      lines.push(`  ${c.red}✗ ${firstLine}${c.reset}\n`);
+    } else {
+      lines.push(`  ${c.green}✓ Done${c.reset}\n`);
+    }
+  }
+
+  // Clear fixes
+  (globalThis as any).__openclawFixes = undefined;
+
+  lines.push(`  ${c.dim}Run "diagnose openclaw" again to verify.${c.reset}`);
+  return lines.join("\n");
+}

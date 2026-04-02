@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
-const CLI = resolve(ROOT, "packages/cli/src/index.ts");
+const CLI = resolve(ROOT, "src/index.ts");
 
 function runCli(args: string): { stdout: string; exitCode: number } {
   try {
@@ -62,5 +62,41 @@ describe("full pipeline e2e", () => {
     // help exits with 0
     expect(stdout).toContain("notoken");
     expect(stdout).toContain("Usage");
+  });
+
+  it("parses disk cleanup intent", () => {
+    const { stdout } = runCli('"free up space" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("disk.cleanup");
+  });
+
+  it("parses disk full as cleanup", () => {
+    const { stdout } = runCli('"disk full" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("disk.cleanup");
+  });
+
+  it("parses find claude intent", () => {
+    const { stdout } = runCli('"find claude" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("llm.find_claude");
+  });
+
+  it("parses check disk as server.check_disk", () => {
+    const { stdout } = runCli('"check disk space" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("server.check_disk");
+  });
+
+  it("parses scan drives as disk.scan", () => {
+    const { stdout } = runCli('"scan all drives" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("disk.scan");
+  });
+
+  it("parses what is eating space as disk.scan", () => {
+    const { stdout } = runCli('"what is eating space" --json --dry-run');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.intent.intent).toBe("disk.scan");
   });
 });

@@ -22,6 +22,44 @@ describe("executor sanitization", () => {
   });
 });
 
+describe("Windows command selection", () => {
+  it("uses commandWindows when platform is windows", () => {
+    const def = {
+      command: "df -h",
+      commandWindows: "powershell -Command Get-PSDrive",
+    };
+    const platform = { os: "windows" };
+    const cmd = (platform.os === "windows" && def.commandWindows)
+      ? def.commandWindows
+      : def.command;
+    expect(cmd).toBe("powershell -Command Get-PSDrive");
+  });
+
+  it("falls back to command on linux", () => {
+    const def = {
+      command: "df -h",
+      commandWindows: "powershell -Command Get-PSDrive",
+    };
+    const platform = { os: "linux" };
+    const cmd = (platform.os === "windows" && def.commandWindows)
+      ? def.commandWindows
+      : def.command;
+    expect(cmd).toBe("df -h");
+  });
+
+  it("falls back to command when commandWindows missing", () => {
+    const def = {
+      command: "df -h",
+      commandWindows: undefined,
+    };
+    const platform = { os: "windows" };
+    const cmd = (platform.os === "windows" && def.commandWindows)
+      ? def.commandWindows
+      : def.command;
+    expect(cmd).toBe("df -h");
+  });
+});
+
 describe("command template interpolation", () => {
   it("replaces {{field}} placeholders", () => {
     const template = "tail -n {{lines}} {{logPath}}";

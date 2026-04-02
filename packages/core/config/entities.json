@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "testbot": {
+      "host": "10.20.30.40",
+      "aliases": [
+        "the 10 server",
+        "10 server",
+        "10 box",
+        "the 40 server",
+        "40 server",
+        "40 box"
+      ]
+    }
+  },
+  "databases": {},
+  "services": {}
+}

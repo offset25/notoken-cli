@@ -1353,21 +1353,62 @@ async function installOnWindows(
   const pythonExe = "python";
 
   try {
+    console.log(`${c.dim}  Creating virtual environment...${c.reset}`);
     execSync(`cd /d "${engineDir}" && ${pythonExe} -m venv venv`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+    console.log(`${c.dim}  Upgrading pip...${c.reset}`);
     execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install --upgrade pip`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+    console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU" : "CPU"})...${c.reset}`);
     execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install torch torchvision --index-url https://download.pytorch.org/whl/${torchUrl}`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
 
-    if (engine === "comfyui") {
-      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements.txt`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+    // Install engine requirements
+    if (engine === "auto1111") {
+      console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
+      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements_versions.txt`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
+    } else if (engine === "comfyui") {
+      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements.txt`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
     } else if (engine === "fooocus") {
-      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements_versions.txt`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements_versions.txt`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
     }
   } catch (err) {
-    return { success: false, message: `Dependency install failed: ${err instanceof Error ? err.message : err}\n\n${c.dim}Alternative: download Stability Matrix from https://lykos.ai (no Python needed)${c.reset}` };
+    const errMsg = err instanceof Error ? err.message : String(err);
+    // If build fails, try installing Visual C++ Build Tools
+    if (errMsg.includes("error") && errMsg.includes("build")) {
+      console.log(`${c.yellow}⚠ Build failed — trying to install Visual C++ Build Tools...${c.reset}`);
+      try {
+        execSync("winget install Microsoft.VisualStudio.2022.BuildTools --accept-source-agreements --accept-package-agreements -h", { stdio: "inherit", timeout: 300000 });
+        console.log(`${c.dim}  Retrying pip install...${c.reset}`);
+        execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements_versions.txt`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
+      } catch {
+        return { success: false, message: `Dependency install failed.\n\n${c.bold}Alternatives:${c.reset}\n  ${c.cyan}Download Stability Matrix:${c.reset} https://lykos.ai (no build tools needed)\n  ${c.dim}Or install Visual C++ Build Tools manually: winget install Microsoft.VisualStudio.2022.BuildTools${c.reset}` };
+      }
+    } else {
+      return { success: false, message: `Dependency install failed: ${errMsg.split("\n")[0]}\n\n${c.dim}Alternative: download Stability Matrix from https://lykos.ai (no Python needed)${c.reset}` };
+    }
   }
 
-  // 5. Create a launcher script
-  console.log(`${c.cyan}Step 4/${c.reset} Creating launcher...`);
+  // 5. Download base model
+  {
+    const modelsDir = `${engineDir}\\models\\Stable-diffusion`;
+    try { execSync(`if not exist "${modelsDir}" mkdir "${modelsDir}"`, { shell: "cmd.exe", stdio: "ignore" }); } catch {}
+    const modelPath = `${modelsDir}\\v1-5-pruned-emaonly.safetensors`;
+    const hasModel = tryExec(`if exist "${modelPath}" echo yes`);
+
+    if (hasModel) {
+      console.log(`${c.cyan}Step 4/${c.reset} ${c.green}Model already downloaded${c.reset}`);
+    } else {
+      console.log(`${c.cyan}Step 4/${c.reset} Downloading AI model (SD 1.5, ~4.3GB)...`);
+      console.log(`${c.dim}  This is the largest download — may take 5-15 minutes.${c.reset}`);
+      try {
+        execSync(`powershell -Command "Invoke-WebRequest -Uri 'https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors' -OutFile '${modelPath}'"`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
+        console.log(`${c.green}✓${c.reset} Model downloaded.`);
+      } catch {
+        console.log(`${c.yellow}⚠${c.reset} Model download failed — the engine will download it on first launch.`);
+      }
+    }
+  }
+
+  // 6. Create a launcher script
+  console.log(`${c.cyan}Step 5/${c.reset} Creating launcher...`);
   const launcherPath = `${engineDir}\\start-notoken.bat`;
   const launcherContent = engine === "auto1111"
     ? `@echo off\ncd /d "${engineDir}"\ncall venv\\Scripts\\activate\npython webui.py --api --listen\npause`
