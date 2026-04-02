@@ -1068,8 +1068,22 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
   lines.push("");
   if (running) {
     lines.push(`  ${c.bold}Currently using:${c.reset} ${c.green}${running.engine}${c.reset} (local, ${running.url})`);
+    if (running.path) lines.push(`  ${c.dim}Location: ${running.path}${c.reset}`);
   } else if (installed) {
     lines.push(`  ${c.bold}Currently using:${c.reset} ${c.yellow}${installed.engine} installed but stopped${c.reset} — will auto-start on generate`);
+    if (installed.path) {
+      const size = tryExec(`du -sh "${installed.path}" 2>/dev/null`)?.split("\t")[0] ?? "?";
+      lines.push(`  ${c.dim}Location: ${installed.path} (${size})${c.reset}`);
+      // Show which drive/partition
+      const dfLine = tryExec(`df -h "${installed.path}" 2>/dev/null | tail -1`);
+      if (dfLine) {
+        const parts = dfLine.split(/\s+/);
+        const mount = parts[parts.length - 1];
+        const avail = parts[3];
+        const pct = parts[4];
+        lines.push(`  ${c.dim}Drive: ${mount} — ${avail} free (${pct} used)${c.reset}`);
+      }
+    }
   } else {
     lines.push(`  ${c.bold}Currently using:${c.reset} ${c.cyan}Cloud API (Pollinations.ai)${c.reset} — free, no install needed`);
     lines.push(`  ${c.dim}Powered by Stable Diffusion via Pollinations. Images are generated on their servers.${c.reset}`);
