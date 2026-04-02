@@ -563,6 +563,62 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
+  // Tool install info — "how do I install claude", "give me the command to install codex"
+  if (intent.intent === "tool.info") {
+    const INSTALL_INFO: Record<string, { name: string; install: string; check: string; description: string; notes?: string }> = {
+      claude: { name: "Claude Code CLI", install: "npm install -g @anthropic-ai/claude-code", check: "claude --version", description: "Anthropic's Claude Code — AI-assisted development", notes: "Requires Node.js 18+. After install, run `claude` to authenticate." },
+      codex: { name: "OpenAI Codex CLI", install: "npm install -g @openai/codex", check: "codex --version", description: "OpenAI Codex — coding agent with GPT-4o/5", notes: "Requires Node.js 18+. Set OPENAI_API_KEY after install." },
+      ollama: { name: "Ollama", install: "curl -fsSL https://ollama.com/install.sh | sh", check: "ollama --version", description: "Run AI models locally — no cloud tokens needed", notes: "After install: `ollama pull llama3.2` to download a model." },
+      docker: { name: "Docker", install: "curl -fsSL https://get.docker.com | sh", check: "docker --version", description: "Container runtime for packaging and deploying apps", notes: "On WSL, install Docker Desktop on Windows and enable WSL integration." },
+      convex: { name: "Convex CLI", install: "npm install -g convex", check: "npx convex --version", description: "Convex backend platform CLI", notes: "Run `npx convex dev` to start a project." },
+      openclaw: { name: "OpenClaw CLI", install: "npm install -g openclaw", check: "openclaw --version", description: "OpenClaw messaging gateway CLI", notes: "Requires Node.js 22+. Run `openclaw setup` after install." },
+      node: { name: "Node.js", install: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash && nvm install --lts", check: "node --version", description: "JavaScript runtime", notes: "Uses nvm for version management. Restart terminal after install." },
+      bun: { name: "Bun", install: "curl -fsSL https://bun.sh/install | bash", check: "bun --version", description: "Fast JavaScript runtime and toolkit", notes: "Alternative to Node.js with built-in bundler and test runner." },
+      certbot: { name: "Certbot", install: "sudo apt install -y certbot", check: "certbot --version", description: "Let's Encrypt SSL certificate manager", notes: "On RHEL/Fedora: `sudo dnf install certbot`" },
+    };
+
+    // Extract tool name from input
+    const toolMatch = intent.rawText.match(/(?:install|setup|get|download)\s+(\S+)/i)
+      ?? intent.rawText.match(/(\S+)\s+(?:install|setup)/i)
+      ?? intent.rawText.match(/(?:how.*?(?:install|setup|get))\s+(\S+)/i);
+    let toolName = (toolMatch?.[1] ?? (fields.tool as string) ?? "").toLowerCase().replace(/[?.!]/g, "");
+
+    // Aliases
+    const aliases: Record<string, string> = { "claude-code": "claude", "anthropic": "claude", "openai": "codex", "gpt": "codex", "chatgpt": "codex", "nvm": "node", "nodejs": "node" };
+    toolName = aliases[toolName] ?? toolName;
+
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+
+    if (!toolName || !INSTALL_INFO[toolName]) {
+      // Show all available tools
+      const lines = [`\n${cc.bold}${cc.cyan}── Available Tools ──${cc.reset}\n`];
+      for (const [key, info] of Object.entries(INSTALL_INFO)) {
+        const installed = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+        const status = installed ? `${cc.green}✓ installed${cc.reset}` : `${cc.dim}○ not installed${cc.reset}`;
+        lines.push(`  ${cc.bold}${key.padEnd(12)}${cc.reset} ${status}  ${cc.dim}${info.description}${cc.reset}`);
+      }
+      lines.push(`\n  ${cc.dim}Say: "how to install claude" or "install codex"${cc.reset}`);
+      return lines.join("\n");
+    }
+
+    const info = INSTALL_INFO[toolName];
+    const installed = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+    const lines = [`\n${cc.bold}${cc.cyan}── ${info.name} ──${cc.reset}\n`];
+    lines.push(`  ${info.description}\n`);
+
+    if (installed) {
+      lines.push(`  ${cc.green}✓ Already installed:${cc.reset} ${installed.trim()}\n`);
+    }
+
+    lines.push(`  ${cc.bold}Install command:${cc.reset}`);
+    lines.push(`  ${cc.cyan}${info.install}${cc.reset}\n`);
+    lines.push(`  ${cc.bold}Verify:${cc.reset} ${info.check}`);
+    if (info.notes) lines.push(`\n  ${cc.yellow}Note:${cc.reset} ${info.notes}`);
+    if (!installed) lines.push(`\n  ${cc.dim}Or just say: "install ${toolName}"${cc.reset}`);
+
+    return lines.join("\n");
+  }
+
   // Entity define/list
   if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
   if (intent.intent === "entity.list") return listEntities();

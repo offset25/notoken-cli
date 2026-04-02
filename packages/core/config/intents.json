@@ -2690,6 +2690,40 @@
       ]
     },
     {
+      "name": "tool.info",
+      "description": "Show how to install a tool or CLI — installation commands, requirements, and tips",
+      "synonyms": [
+        "how to install",
+        "how do i install",
+        "give me the command to install",
+        "install command for",
+        "how to setup",
+        "how do i setup",
+        "what is the command to install",
+        "how to get",
+        "where to download",
+        "installation instructions",
+        "install guide"
+      ],
+      "fields": {
+        "tool": {
+          "type": "string",
+          "required": false,
+          "description": "tool name (claude, codex, ollama, docker, etc.)"
+        }
+      },
+      "command": "echo 'Use tool.info handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "how to install claude",
+        "give me the command to install codex",
+        "how do I install ollama",
+        "install command for docker"
+      ]
+    },
+    {
       "name": "package.check",
       "description": "Check if a package is installed",
       "synonyms": [
