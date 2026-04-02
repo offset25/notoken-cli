@@ -85,6 +85,81 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   // ── Ported handlers ─────────────────────────────────────────────────────────
   const nvmPfx = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
 
+  // ── WSL/Windows environment-aware OpenClaw execution ──
+  // Detects current env, parses "on windows"/"on wsl"/"the other one"/"both",
+  // and routes commands accordingly.
+  type OcEnv = "wsl" | "windows" | "both";
+
+  // Persist last targeted env so "the other one" works
+  const _ocEnvKey = "__notoken_last_oc_env";
+  function getLastOcEnv(): OcEnv | null {
+    return (process as any)[_ocEnvKey] ?? null;
+  }
+  function setLastOcEnv(env: OcEnv) {
+    (process as any)[_ocEnvKey] = env;
+  }
+
+  async function detectOcEnv(): Promise<{ inWSL: boolean; wslInstalled: boolean; winInstalled: boolean }> {
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+    if (!isWSL) return { inWSL: false, wslInstalled: true, winInstalled: false };
+    const wslOC = await runLocalCommand("which openclaw 2>/dev/null").catch(() => "");
+    const winOC = await runLocalCommand("cmd.exe /c 'where openclaw' 2>/dev/null").catch(() => "");
+    return { inWSL: true, wslInstalled: !!wslOC.includes("openclaw"), winInstalled: !!winOC.includes("openclaw") };
+  }
+
+  function parseOcTarget(rawText: string): OcEnv | null {
+    const t = rawText.toLowerCase();
+    if (/\bboth\b/.test(t)) return "both";
+    if (/\b(on\s+)?windows\b|\b(on\s+)?win\b|\bhost\b/.test(t)) return "windows";
+    if (/\b(on\s+|in\s+)?wsl\b|\b(on\s+)?linux\b/.test(t)) return "wsl";
+    if (/\bthe\s+other\s+(one|side|env|environment)\b|\bnot\s+this\s+one\b|\bthe\s+other\b/.test(t)) {
+      const last = getLastOcEnv();
+      if (last === "wsl") return "windows";
+      if (last === "windows") return "wsl";
+      return null; // don't know which "other" means
+    }
+    return null; // default — use current env
+  }
+
+  /** Run an openclaw command on the specified environment(s). */
+  async function runOcCmd(cmd: string, target: OcEnv | null, env: Awaited<ReturnType<typeof detectOcEnv>>): Promise<string> {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+
+    // Resolve target — default to current env
+    const effective = target ?? (env.inWSL ? "wsl" : "wsl");
+    setLastOcEnv(effective === "both" ? "wsl" : effective);
+
+    if (effective === "both") {
+      const results: string[] = [];
+      if (env.wslInstalled) {
+        results.push(`${cc.bold}${cc.cyan}[WSL]${cc.reset}`);
+        results.push(await runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
+      } else {
+        results.push(`${cc.bold}${cc.cyan}[WSL]${cc.reset} ${cc.dim}Not installed${cc.reset}`);
+      }
+      if (env.winInstalled) {
+        results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset}`);
+        const winCmd = cmd.replace(/'/g, '"');
+        results.push(await runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, 30_000).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
+      } else {
+        results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset} ${cc.dim}Not installed${cc.reset}`);
+      }
+      return results.join("\n");
+    }
+
+    if (effective === "windows") {
+      if (!env.inWSL) return `${cc.yellow}⚠ Not in WSL — can't target Windows host.${cc.reset}`;
+      if (!env.winInstalled) return `${cc.yellow}⚠ OpenClaw not installed on Windows host.${cc.reset}\n${cc.dim}Install: open PowerShell and run: npm install -g openclaw${cc.reset}`;
+      setLastOcEnv("windows");
+      const winCmd = cmd.replace(/'/g, '"');
+      return runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, 30_000);
+    }
+
+    // WSL / native Linux
+    setLastOcEnv("wsl");
+    return runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000);
+  }
+
   const MODEL_ALIASES: Record<string, string> = {
     "opus": "anthropic/claude-opus-4-6", "sonnet": "anthropic/claude-sonnet-4-6", "haiku": "anthropic/claude-haiku-4-5",
     "claude": "anthropic/claude-opus-4-6", "gpt-4o": "openai-codex/gpt-4o", "gpt-5": "openai-codex/gpt-5.4",
@@ -98,6 +173,35 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   // Multi-environment execution
   const multiTargets = detectMultiTarget(intent.rawText);
   if (multiTargets && multiTargets.length > 1) return executeMulti(intent, multiTargets);
+
+  // ── OpenClaw handlers (environment-aware) ──────────────────────────────────
+  // All openclaw.* intents detect WSL/Windows, support "on windows"/"on wsl"/
+  // "the other one"/"both", and verbosely announce which env they're targeting.
+
+  const isOpenclawIntent = intent.intent.startsWith("openclaw.");
+  let ocEnv: Awaited<ReturnType<typeof detectOcEnv>> | null = null;
+  let ocTarget: OcEnv | null = null;
+  let ocLabel = "";
+
+  if (isOpenclawIntent) {
+    ocEnv = await detectOcEnv();
+    ocTarget = parseOcTarget(intent.rawText);
+
+    // Build verbose label
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", yellow: "\x1b[33m" };
+    if (ocTarget === "both") {
+      ocLabel = `${cc.bold}${cc.cyan}Targeting: both WSL and Windows${cc.reset}`;
+    } else if (ocTarget === "windows") {
+      ocLabel = `${cc.bold}${cc.cyan}Targeting: Windows host${cc.reset}`;
+    } else if (ocTarget === "wsl") {
+      ocLabel = `${cc.bold}${cc.cyan}Targeting: WSL${cc.reset}`;
+    } else if (ocEnv.inWSL) {
+      ocLabel = `${cc.bold}${cc.cyan}Targeting: WSL${cc.reset} ${cc.dim}(say "on windows", "the other one", or "both")${cc.reset}`;
+    } else {
+      ocLabel = `${cc.bold}${cc.cyan}Targeting: local${cc.reset}`;
+    }
+    console.log(`\n  ${ocLabel}\n`);
+  }
 
   // OpenClaw status
   if (intent.intent === "openclaw.status") {
@@ -118,14 +222,14 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return isLocal ? await autoFixOpenclaw() : await autoFixOpenclaw((cmd: string) => runRemoteCommand(environment, cmd));
   }
 
-  // OpenClaw message
+  // OpenClaw message — send to the targeted env
   if (intent.intent === "openclaw.message") {
     const msgMatch = intent.rawText.match(/(?:tell|ask|message|say to|send)\s+(?:openclaw|claw)\s+(.*)/i);
     const message = msgMatch?.[1]?.trim() || (fields.message as string) || intent.rawText;
-    const agentCmd = `bash -c '${nvmPfx} timeout 60 openclaw agent --agent main --message ${JSON.stringify(message)} --json 2>&1'`;
     console.log(`\x1b[2mSending to OpenClaw: "${message}"\x1b[0m`);
     try {
-      const agentOut = await runLocalCommand(agentCmd, 90_000);
+      const agentCmd = `timeout 60 openclaw agent --agent main --message ${JSON.stringify(message)} --json`;
+      const agentOut = await runOcCmd(agentCmd, ocTarget, ocEnv!);
       const jsonStart = agentOut.indexOf("{");
       if (jsonStart >= 0) {
         const json = JSON.parse(agentOut.substring(jsonStart));
@@ -136,9 +240,9 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     } catch (err: unknown) { return `\x1b[31m✗ ${(err as Error).message.split("\n")[0]}\x1b[0m`; }
   }
 
-  // OpenClaw model — check or switch LLM
+  // OpenClaw model — check or switch LLM on targeted env
   if (intent.intent === "openclaw.model") {
-    const skipWords = new Set(["openclaw","model","llm","to","the","set","switch","change","use","using","which","what","is","on"]);
+    const skipWords = new Set(["openclaw","model","llm","to","the","set","switch","change","use","using","which","what","is","on","windows","wsl","linux","host","both","other","one","side"]);
     const words = intent.rawText.toLowerCase().split(/\s+/).filter((w: string) => !skipWords.has(w) && w.length > 1);
     const lastWord = words[words.length - 1];
     const lastTwo = words.slice(-2).join(" ");
@@ -146,12 +250,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     if (!requestedModel) { const m = intent.rawText.match(/([\w-]+\/[\w.-]+)/); if (m) requestedModel = m[1]; }
 
     if (requestedModel) {
-      result = await withSpinner(`Switching to ${requestedModel}...`, () =>
-        runLocalCommand(`bash -c '${nvmPfx} openclaw models set "${requestedModel}" 2>&1'`, 10_000));
+      const switchCmd = `openclaw models set "${requestedModel}"`;
+      result = await withSpinner(`Switching to ${requestedModel}...`, () => runOcCmd(switchCmd, ocTarget, ocEnv!));
       return result + `\n\x1b[32m✓\x1b[0m OpenClaw now using: \x1b[1m${requestedModel}\x1b[0m`;
     }
-    result = await withSpinner("Checking model...", () => runLocalCommand(`bash -c '${nvmPfx} openclaw models status --plain 2>&1'`, 10_000));
-    return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet"\x1b[0m`;
+    result = await withSpinner("Checking model...", () => runOcCmd("openclaw models status --plain", ocTarget, ocEnv!));
+    return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet" or "switch openclaw to sonnet on windows"\x1b[0m`;
   }
 
   // Notoken model — check or switch LLM backend
