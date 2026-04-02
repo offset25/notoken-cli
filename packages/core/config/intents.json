@@ -7401,6 +7401,57 @@
         "run test",
         "start dev server"
       ]
+    },
+    {
+      "name": "ollama.models",
+      "description": "List installed Ollama models",
+      "synonyms": [
+        "ollama models",
+        "ollama list",
+        "list ollama models",
+        "show ollama models",
+        "what ollama models",
+        "local models",
+        "installed models"
+      ],
+      "fields": {},
+      "command": "[ollama-models]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ollama models",
+        "what local models do I have",
+        "list ollama models"
+      ]
+    },
+    {
+      "name": "ollama.pull",
+      "description": "Download a new Ollama model — checks disk space first",
+      "synonyms": [
+        "ollama pull",
+        "pull ollama model",
+        "download model",
+        "install ollama model",
+        "get model",
+        "ollama download"
+      ],
+      "fields": {
+        "model": {
+          "type": "string",
+          "required": false,
+          "default": "llama3.2"
+        }
+      },
+      "command": "[ollama-pull]",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "ollama pull llama3.2",
+        "download codellama",
+        "install phi3 model"
+      ]
     }
   ]
 }

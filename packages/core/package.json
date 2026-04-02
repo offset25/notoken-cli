@@ -25,9 +25,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@types/ssh2": "^1.15.5",
     "compromise": "^14.15.0",
     "dotenv": "^17.3.1",
     "simple-git": "^3.33.0",
+    "ssh2": "^1.17.0",
     "yaml": "^2.8.3",
     "zod": "^3.22.0"
   },

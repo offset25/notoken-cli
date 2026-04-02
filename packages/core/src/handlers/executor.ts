@@ -13,6 +13,18 @@ import { withSpinner } from "../utils/spinner.js";
 import { analyzeOutput } from "../utils/analysis.js";
 import { smartRead, smartSearch } from "../utils/smartFile.js";
 import { pluginRegistry } from "../plugins/registry.js";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import { Spinner } from "../utils/spinner.js";
+import { runDockerExec, testSshConnection } from "../execution/ssh.js";
+import { scanForCleanup, formatCleanupTable, runInteractiveCleanup, smartDriveScan, formatDriveScan, runDeepScanBackground } from "../utils/diskCleanup.js";
+import { detectProjects as detectProjectsNew, formatProjectDetection, readProjectConfig, formatPackageScripts, getScriptRunCmd } from "../utils/projectDetect.js";
+import { smartArchive } from "../utils/smartArchive.js";
+import { buildQuery, formatQueryPlan, type DbType } from "../utils/dbQuery.js";
+import { resolveEntity, verbalizeResolution, learnEntity, listEntities } from "../utils/entityResolver.js";
+import { detectMultiTarget, executeMulti } from "../utils/multiExec.js";
+import { diagnoseOpenclaw, autoFixOpenclaw, quickConnectivityCheck } from "../utils/openclawDiag.js";
+const execAsync = promisify(exec);
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
@@ -69,6 +81,160 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       // For remote: prepend backup command
     }
   }
+
+  // ── Ported handlers ─────────────────────────────────────────────────────────
+  const nvmPfx = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
+
+  const MODEL_ALIASES: Record<string, string> = {
+    "opus": "anthropic/claude-opus-4-6", "sonnet": "anthropic/claude-sonnet-4-6", "haiku": "anthropic/claude-haiku-4-5",
+    "claude": "anthropic/claude-opus-4-6", "gpt-4o": "openai-codex/gpt-4o", "gpt-5": "openai-codex/gpt-5.4",
+    "gpt": "openai-codex/gpt-4o", "chatgpt": "openai-codex/gpt-4o", "codex": "openai-codex/gpt-5.4",
+    "openai": "openai-codex/gpt-4o", "gemini": "google/gemini-2.5-pro", "mistral": "mistral/mistral-large",
+    "llama": "ollama/llama2:13b", "llama2": "ollama/llama2:13b", "llama3": "ollama/llama3.2",
+    "ollama": "ollama/llama2:13b", "codellama": "ollama/codellama", "phi": "ollama/phi3", "qwen": "ollama/qwen2.5",
+    "deepseek": "ollama/deepseek-v3",
+  };
+
+  // Multi-environment execution
+  const multiTargets = detectMultiTarget(intent.rawText);
+  if (multiTargets && multiTargets.length > 1) return executeMulti(intent, multiTargets);
+
+  // OpenClaw status
+  if (intent.intent === "openclaw.status") {
+    const diagRemote = environment !== "local" && environment !== "localhost" && hasRealHost(environment);
+    return diagRemote ? await quickConnectivityCheck((cmd: string) => runRemoteCommand(environment, cmd)) : await quickConnectivityCheck();
+  }
+
+  // OpenClaw diagnose
+  if (intent.intent === "openclaw.diagnose") {
+    const diagRemote = environment !== "local" && environment !== "localhost" && hasRealHost(environment);
+    return diagRemote
+      ? await withSpinner(`Diagnosing on ${environment}...`, () => diagnoseOpenclaw(true, (cmd: string) => runRemoteCommand(environment, cmd)))
+      : await withSpinner("Diagnosing OpenClaw...", () => diagnoseOpenclaw(false));
+  }
+
+  // OpenClaw doctor auto-fix
+  if (intent.intent === "openclaw.doctor" && intent.rawText.match(/fix|repair|auto.?fix/i)) {
+    return isLocal ? await autoFixOpenclaw() : await autoFixOpenclaw((cmd: string) => runRemoteCommand(environment, cmd));
+  }
+
+  // OpenClaw message
+  if (intent.intent === "openclaw.message") {
+    const msgMatch = intent.rawText.match(/(?:tell|ask|message|say to|send)\s+(?:openclaw|claw)\s+(.*)/i);
+    const message = msgMatch?.[1]?.trim() || (fields.message as string) || intent.rawText;
+    const agentCmd = `bash -c '${nvmPfx} timeout 60 openclaw agent --agent main --message ${JSON.stringify(message)} --json 2>&1'`;
+    console.log(`\x1b[2mSending to OpenClaw: "${message}"\x1b[0m`);
+    try {
+      const agentOut = await runLocalCommand(agentCmd, 90_000);
+      const jsonStart = agentOut.indexOf("{");
+      if (jsonStart >= 0) {
+        const json = JSON.parse(agentOut.substring(jsonStart));
+        const reply = json?.result?.payloads?.[0]?.text ?? json?.reply ?? json?.text;
+        if (reply) return `\n\x1b[1m\x1b[36mOpenClaw:\x1b[0m ${reply}`;
+      }
+      return agentOut.substring(0, 500);
+    } catch (err: unknown) { return `\x1b[31m✗ ${(err as Error).message.split("\n")[0]}\x1b[0m`; }
+  }
+
+  // OpenClaw model — check or switch LLM
+  if (intent.intent === "openclaw.model") {
+    const skipWords = new Set(["openclaw","model","llm","to","the","set","switch","change","use","using","which","what","is","on"]);
+    const words = intent.rawText.toLowerCase().split(/\s+/).filter((w: string) => !skipWords.has(w) && w.length > 1);
+    const lastWord = words[words.length - 1];
+    const lastTwo = words.slice(-2).join(" ");
+    let requestedModel = MODEL_ALIASES[lastTwo] ?? MODEL_ALIASES[lastWord ?? ""] ?? undefined;
+    if (!requestedModel) { const m = intent.rawText.match(/([\w-]+\/[\w.-]+)/); if (m) requestedModel = m[1]; }
+
+    if (requestedModel) {
+      result = await withSpinner(`Switching to ${requestedModel}...`, () =>
+        runLocalCommand(`bash -c '${nvmPfx} openclaw models set "${requestedModel}" 2>&1'`, 10_000));
+      return result + `\n\x1b[32m✓\x1b[0m OpenClaw now using: \x1b[1m${requestedModel}\x1b[0m`;
+    }
+    result = await withSpinner("Checking model...", () => runLocalCommand(`bash -c '${nvmPfx} openclaw models status --plain 2>&1'`, 10_000));
+    return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet"\x1b[0m`;
+  }
+
+  // Notoken model — check or switch LLM backend
+  if (intent.intent === "notoken.model") {
+    const { getLLMBackend } = await import("../nlp/llmFallback.js");
+    const switchMatch = intent.rawText.match(/(?:switch|change|use)\s+(?:notoken\s+(?:to\s+)?|(?:to\s+)?)(\S+)/i);
+    const target = ((fields.model as string)?.trim() || switchMatch?.[1])?.toLowerCase();
+    if (target && ["claude","ollama","chatgpt"].includes(target)) {
+      process.env.MYCLI_LLM_CLI = target === "chatgpt" ? "" : target;
+      if (target === "chatgpt") process.env.MYCLI_LLM_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+      else delete process.env.MYCLI_LLM_ENDPOINT;
+      return `\x1b[32m✓\x1b[0m Notoken now using: \x1b[1m${target}\x1b[0m\n\x1b[2mSet MYCLI_LLM_CLI=${target} to make permanent.\x1b[0m`;
+    }
+    const backend = getLLMBackend();
+    const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1").catch(() => "");
+    return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n\n  \x1b[2mSwitch: "use claude" or "use ollama"\x1b[0m`;
+  }
+
+  // Ollama model management
+  if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
+    const out = await withSpinner("Checking Ollama...", () => runLocalCommand("ollama list 2>&1"));
+    return out;
+  }
+  if (intent.intent === "ollama.pull") {
+    const model = (fields.model as string) ?? intent.rawText.match(/pull\s+(\S+)/)?.[1] ?? "llama3.2";
+    // Check disk space before pulling
+    const dfOut = await runLocalCommand("df -BG / | tail -1 | awk '{print $4}'").catch(() => "0G");
+    const freeGB = parseInt(dfOut);
+    if (freeGB < 5) return `\x1b[31m⚠ Only ${freeGB}GB free — Ollama models need 4-8GB. Free up space first.\x1b[0m`;
+    console.log(`\x1b[2mPulling ${model}... this may take a few minutes.\x1b[0m`);
+    result = await withSpinner(`Pulling ${model}...`, () => runLocalCommand(`ollama pull ${model} 2>&1`, 300_000));
+    return result;
+  }
+
+  // Entity define/list
+  if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
+  if (intent.intent === "entity.list") return listEntities();
+
+  // Disk cleanup / scan
+  if (intent.intent === "disk.cleanup") {
+    const targets = await withSpinner("Scanning disk...", () => scanForCleanup());
+    console.log(formatCleanupTable(targets));
+    return targets.length > 0 ? await runInteractiveCleanup(targets) : "";
+  }
+  if (intent.intent === "disk.scan") {
+    const drives = await withSpinner("Scanning drives...", () => smartDriveScan());
+    return await formatDriveScan(drives, false);
+  }
+
+  // Database query
+  if (intent.intent === "db.query" || intent.intent === "db.tables" || intent.intent === "db.describe") {
+    let dbType: DbType = "postgres";
+    try { await runLocalCommand("which psql"); } catch { try { await runLocalCommand("which mysql"); dbType = "mysql"; } catch { /* */ } }
+    const qr = buildQuery(intent.rawText, fields, dbType);
+    if (!qr.query) return qr.explanation;
+    console.log(formatQueryPlan(qr));
+    const { askForConfirmation } = await import("../policy/confirm.js");
+    if (!(await askForConfirmation("\nRun this query?"))) return "\x1b[2mCancelled.\x1b[0m";
+    return isLocal ? await withSpinner("Running...", () => runLocalCommand(qr.command)) : await withSpinner(`Running on ${environment}...`, () => runRemoteCommand(environment, qr.command));
+  }
+
+  // Project detect/install/update/run
+  if (intent.intent === "project.detect") { const p = detectProjectsNew(); const i = readProjectConfig(); return formatProjectDetection(p) + (i ? "\n" + formatPackageScripts(i) : ""); }
+  if (intent.intent === "project.install") { const p = detectProjectsNew(); if (!p.length) return "No project found."; return await withSpinner(`${p[0].installCmd}...`, () => runLocalCommand(p[0].installCmd)); }
+  if (intent.intent === "project.update") { const p = detectProjectsNew(); if (!p.length) return "No project found."; return await withSpinner(`${p[0].updateCmd}...`, () => runLocalCommand(p[0].updateCmd)); }
+  if (intent.intent === "project.run") { const s = (fields.script as string) ?? "dev"; const cmd = getScriptRunCmd(s); if (!cmd) { const i = readProjectConfig(); return i ? `"${s}" not found.\n${formatPackageScripts(i)}` : "No project."; } return await runLocalCommand(cmd); }
+
+  // SSH test
+  if (intent.intent === "ssh.test") return await testSshConnection(environment);
+
+  // Smart archive
+  if (intent.intent === "archive.tar" && isLocal) return await smartArchive({ source: (fields.source as string) ?? process.cwd(), destination: fields.destination as string | undefined, includeAll: !!intent.rawText.match(/include.?(all|everything)/i) });
+
+  // OpenClaw nvm wrapper for template commands
+  if (intent.intent.startsWith("openclaw.") && def.command.includes("openclaw") && !def.command.startsWith("[")) {
+    command = interpolateCommand(def, fields);
+    try { result = await withSpinner(`${intent.intent}...`, () => runLocalCommand(`bash -c '${nvmPfx} ${command}'`)); }
+    catch (err: unknown) { result = `\x1b[31m✗ ${(err as Error).message.split("\n")[0]}\x1b[0m`; }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
+  }
+
+  // ── End ported handlers ────────────────────────────────────────────────────
 
   // Smart file reading — size check, sampling, context search
   if (intent.intent === "file.read" || intent.intent === "file.parse") {
