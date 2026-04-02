@@ -1265,13 +1265,17 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
 
       if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
         console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
-        // Pre-install problematic packages with relaxed versions (pre-built wheels)
-        // scikit-image==0.21.0 has no wheel for Python 3.12+, but >=0.21 does
-        console.log(`${c.dim}  Pre-installing packages that need pre-built wheels...${c.reset}`);
-        await runWithProgress(venvPip, ["install", "--prefer-binary", "scikit-image>=0.21", "scipy", "tqdm", "safetensors"], dir);
-        // Now install the rest — already-satisfied packages will be skipped
-        console.log(`${c.dim}  Installing remaining requirements...${c.reset}`);
-        await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", resolve(dir, "requirements_versions.txt")], dir);
+        // Fix pinned versions that don't have wheels for this Python version
+        const reqPath = resolve(dir, "requirements_versions.txt");
+        const reqContent = readFileSync(reqPath, "utf-8");
+        const fixedReq = reqContent
+          .replace(/scikit-image==[\d.]+/, "scikit-image>=0.21")  // 0.21.0 has no wheel for py3.12
+          .replace(/numpy==[\d.]+/, "numpy>=1.24")                // relax numpy too
+          ;
+        const fixedReqPath = resolve(dir, "requirements_notoken.txt");
+        writeFileSync(fixedReqPath, fixedReq);
+        console.log(`${c.dim}  Relaxed version pins for wheel compatibility${c.reset}`);
+        await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
       } else if (engine === "comfyui" || engine === "fooocus") {
         const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
         if (existsSync(resolve(dir, reqFile))) {
