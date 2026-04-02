@@ -150,13 +150,25 @@ export function routeByConcepts(rawText: string): ConceptRouterResult | null {
   const matchedDomains = new Map<string, number>();
   const matchedConcepts: string[] = [];
 
-  // Check single words against concept map
-  for (const word of [...nouns, ...verbs]) {
+  // Check ALL words against concept map (not just POS-tagged nouns/verbs)
+  // because domain terms like "crontab", "docker", "nginx" may not be tagged correctly
+  for (const word of allWords) {
     const domains = CONCEPT_DOMAINS[word];
     if (domains) {
       matchedConcepts.push(word);
       for (const domain of domains) {
         matchedDomains.set(domain, (matchedDomains.get(domain) ?? 0) + 1);
+      }
+    }
+    // Also check plurals/variants (crontabs → crontab, containers → container)
+    const singular = word.replace(/s$/, "");
+    if (singular !== word) {
+      const sDomains = CONCEPT_DOMAINS[singular];
+      if (sDomains) {
+        matchedConcepts.push(singular);
+        for (const domain of sDomains) {
+          matchedDomains.set(domain, (matchedDomains.get(domain) ?? 0) + 1);
+        }
       }
     }
   }
