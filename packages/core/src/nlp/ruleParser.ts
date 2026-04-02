@@ -213,6 +213,7 @@ function matchIntent(
 ): { def: IntentDef; matchedPhrase: string } | null {
   let best: { def: IntentDef; matchedPhrase: string; length: number } | null = null;
 
+  // Pass 1: exact substring match (fast path)
   for (const def of intents) {
     for (const phrase of def.synonyms) {
       if (text.includes(phrase)) {
@@ -223,7 +224,85 @@ function matchIntent(
     }
   }
 
+  if (best) return { def: best.def, matchedPhrase: best.matchedPhrase };
+
+  // Pass 2: fuzzy/spell-corrected match — correct typos in user input
+  // then retry matching. Only for single/double-word synonyms to avoid
+  // false positives on long phrases.
+  const corrected = spellCorrectText(text, intents);
+  if (corrected !== text) {
+    for (const def of intents) {
+      for (const phrase of def.synonyms) {
+        if (corrected.includes(phrase)) {
+          if (!best || phrase.length > best.length) {
+            best = { def, matchedPhrase: phrase, length: phrase.length };
+          }
+        }
+      }
+    }
+  }
+
   return best ? { def: best.def, matchedPhrase: best.matchedPhrase } : null;
+}
+
+/**
+ * Spell-correct text by replacing unknown words with the closest known synonym word.
+ * Uses Levenshtein distance with a max edit distance of 2.
+ */
+function spellCorrectText(text: string, intents: IntentDef[]): string {
+  // Build vocabulary from all synonyms
+  const vocab = new Set<string>();
+  for (const def of intents) {
+    for (const phrase of def.synonyms) {
+      for (const word of phrase.split(/\s+/)) {
+        if (word.length >= 3) vocab.add(word);
+      }
+    }
+  }
+
+  const words = text.split(/\s+/);
+  let changed = false;
+  const correctedWords = words.map(word => {
+    if (word.length < 3) return word;
+    if (vocab.has(word)) return word; // already a known word
+
+    // Find closest vocabulary word
+    let bestWord = word;
+    let bestDist = Infinity;
+    const maxDist = word.length <= 4 ? 1 : 2;
+
+    for (const candidate of vocab) {
+      // Quick length check — edit distance can't be less than length difference
+      if (Math.abs(candidate.length - word.length) > maxDist) continue;
+      const dist = editDistance(word, candidate);
+      if (dist <= maxDist && dist < bestDist) {
+        bestDist = dist;
+        bestWord = candidate;
+      }
+    }
+
+    if (bestWord !== word) changed = true;
+    return bestWord;
+  });
+
+  return changed ? correctedWords.join(" ") : text;
+}
+
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
 }
 
 function extractEnvironment(

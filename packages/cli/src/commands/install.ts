@@ -79,8 +79,62 @@ const TOOLS: Record<string, ToolInstaller> = {
   },
 };
 
+// All known install names for fuzzy matching
+const ALL_INSTALL_NAMES = [
+  ...Object.keys(TOOLS),
+  "stable-diffusion", "sd", "stablediffusion", "auto1111", "automatic1111",
+  "comfyui", "comfy", "fooocus", "focus",
+];
+
+// Extra aliases that map to canonical names
+const INSTALL_ALIASES: Record<string, string> = {
+  "focus": "fooocus", "foocus": "fooocus", "focuus": "fooocus", "foccus": "fooocus",
+  "stablediff": "stable-diffusion", "sdiffusion": "stable-diffusion",
+  "midjourney": "stable-diffusion", // suggest local alternative
+};
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function fuzzyMatchInstall(input: string): string | null {
+  const normalized = input.toLowerCase().replace(/[\s_-]+/g, "");
+  // Check explicit aliases first
+  if (INSTALL_ALIASES[normalized]) return INSTALL_ALIASES[normalized];
+  // Direct substring check
+  for (const name of ALL_INSTALL_NAMES) {
+    const normName = name.replace(/[\s_-]+/g, "");
+    if (normName === normalized) return name;
+    if (normName.includes(normalized) || normalized.includes(normName)) return name;
+  }
+  // Levenshtein distance — allow up to 2 edits for short names, 3 for long
+  let bestMatch: string | null = null;
+  let bestDist = Infinity;
+  for (const name of ALL_INSTALL_NAMES) {
+    const normName = name.replace(/[\s_-]+/g, "");
+    const dist = levenshtein(normalized, normName);
+    const maxDist = normName.length <= 5 ? 1 : normName.length <= 10 ? 2 : 3;
+    if (dist <= maxDist && dist < bestDist) {
+      bestDist = dist;
+      bestMatch = name;
+    }
+  }
+  return bestMatch;
+}
+
 export async function runInstall(args: string[]): Promise<void> {
-  const toolName = args[0];
+  let toolName = args.filter(a => !a.startsWith("--")).join(" ").trim() || args[0];
   const flags = new Set(args.filter(a => a.startsWith("--")));
 
   if (!toolName) {
@@ -97,6 +151,19 @@ export async function runInstall(args: string[]): Promise<void> {
     console.log(`  ${c.dim}○${c.reset} ${c.cyan}${"fooocus".padEnd(20)}${c.reset} Fooocus (simplest, Midjourney-like)`);
     console.log(`\n  ${c.dim}Any other name installs as a system package (apt/dnf/yum).${c.reset}`);
     return;
+  }
+
+  // Normalize: join multi-word args ("stable diffusion" → "stable-diffusion")
+  const joined = toolName.replace(/\s+/g, "-").toLowerCase();
+
+  // Fuzzy match against known tools
+  const matched = TOOLS[joined] ? joined : fuzzyMatchInstall(joined);
+
+  if (matched && matched !== joined) {
+    console.log(`${c.dim}(matched "${toolName}" → "${matched}")${c.reset}`);
+    toolName = matched;
+  } else if (matched) {
+    toolName = matched;
   }
 
   // Handle AI image generation installs
@@ -118,7 +185,14 @@ export async function runInstall(args: string[]): Promise<void> {
   if (tool) {
     await installTool(tool, toolName);
   } else {
-    await installSystemPackage(toolName);
+    // Last resort: try fuzzy match before falling back to system package
+    const fuzzy = fuzzyMatchInstall(toolName);
+    if (fuzzy && TOOLS[fuzzy]) {
+      console.log(`${c.dim}(did you mean "${fuzzy}"?)${c.reset}`);
+      await installTool(TOOLS[fuzzy], fuzzy);
+    } else {
+      await installSystemPackage(toolName);
+    }
   }
 }
 
