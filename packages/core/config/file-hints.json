@@ -1,0 +1,255 @@
+{
+  "_description": "Known file locations by service/category. Add your own paths here.",
+  "nginx": {
+    "aliases": ["nginx", "web", "webserver", "proxy", "reverse-proxy"],
+    "configs": [
+      { "path": "/etc/nginx/nginx.conf", "description": "Main config" },
+      { "path": "/etc/nginx/conf.d/", "description": "Config directory" },
+      { "path": "/etc/nginx/sites-available/", "description": "Sites available" },
+      { "path": "/etc/nginx/sites-enabled/", "description": "Sites enabled" },
+      { "path": "/etc/nginx/mime.types", "description": "MIME types" }
+    ],
+    "logs": [
+      { "path": "/var/log/nginx/access.log", "description": "Access log" },
+      { "path": "/var/log/nginx/error.log", "description": "Error log" }
+    ],
+    "data": [
+      { "path": "/usr/share/nginx/html/", "description": "Default webroot" },
+      { "path": "/var/www/html/", "description": "Common webroot" }
+    ],
+    "service": "nginx",
+    "parser": "nginx"
+  },
+  "apache": {
+    "aliases": ["apache", "apache2", "httpd", "http"],
+    "configs": [
+      { "path": "/etc/apache2/apache2.conf", "description": "Main config (Debian)" },
+      { "path": "/etc/httpd/conf/httpd.conf", "description": "Main config (RHEL)" },
+      { "path": "/etc/apache2/sites-available/", "description": "Sites available" },
+      { "path": "/etc/apache2/sites-enabled/", "description": "Sites enabled" },
+      { "path": "/etc/httpd/conf.d/", "description": "Config directory (RHEL)" },
+      { "path": "/etc/apache2/mods-enabled/", "description": "Enabled modules" }
+    ],
+    "logs": [
+      { "path": "/var/log/apache2/access.log", "description": "Access log (Debian)" },
+      { "path": "/var/log/apache2/error.log", "description": "Error log (Debian)" },
+      { "path": "/var/log/httpd/access_log", "description": "Access log (RHEL)" },
+      { "path": "/var/log/httpd/error_log", "description": "Error log (RHEL)" }
+    ],
+    "data": [
+      { "path": "/var/www/html/", "description": "Default webroot" }
+    ],
+    "service": "apache2",
+    "parser": "apache"
+  },
+  "postgres": {
+    "aliases": ["postgres", "postgresql", "pg", "database", "db"],
+    "configs": [
+      { "path": "/etc/postgresql/", "description": "Config directory" },
+      { "path": "/etc/postgresql/*/main/postgresql.conf", "description": "Main config" },
+      { "path": "/etc/postgresql/*/main/pg_hba.conf", "description": "Client auth config" }
+    ],
+    "logs": [
+      { "path": "/var/log/postgresql/", "description": "Log directory" }
+    ],
+    "data": [
+      { "path": "/var/lib/postgresql/", "description": "Data directory" }
+    ],
+    "service": "postgresql",
+    "parser": "text"
+  },
+  "mysql": {
+    "aliases": ["mysql", "mariadb", "maria"],
+    "configs": [
+      { "path": "/etc/mysql/my.cnf", "description": "Main config" },
+      { "path": "/etc/mysql/mysql.conf.d/", "description": "Config directory" },
+      { "path": "/etc/mysql/mariadb.conf.d/", "description": "MariaDB config" }
+    ],
+    "logs": [
+      { "path": "/var/log/mysql/", "description": "Log directory" }
+    ],
+    "data": [
+      { "path": "/var/lib/mysql/", "description": "Data directory" }
+    ],
+    "service": "mysql",
+    "parser": "text"
+  },
+  "redis": {
+    "aliases": ["redis", "cache"],
+    "configs": [
+      { "path": "/etc/redis/redis.conf", "description": "Main config" },
+      { "path": "/etc/redis/sentinel.conf", "description": "Sentinel config" }
+    ],
+    "logs": [
+      { "path": "/var/log/redis/redis-server.log", "description": "Server log" }
+    ],
+    "data": [
+      { "path": "/var/lib/redis/", "description": "Data directory" }
+    ],
+    "service": "redis-server",
+    "parser": "text"
+  },
+  "ssh": {
+    "aliases": ["ssh", "sshd", "openssh"],
+    "configs": [
+      { "path": "/etc/ssh/sshd_config", "description": "SSH daemon config" },
+      { "path": "/etc/ssh/ssh_config", "description": "SSH client config" },
+      { "path": "~/.ssh/config", "description": "User SSH config" },
+      { "path": "~/.ssh/authorized_keys", "description": "Authorized keys" },
+      { "path": "~/.ssh/known_hosts", "description": "Known hosts" }
+    ],
+    "logs": [
+      { "path": "/var/log/auth.log", "description": "Auth log (Debian)" },
+      { "path": "/var/log/secure", "description": "Auth log (RHEL)" }
+    ],
+    "service": "sshd",
+    "parser": "text"
+  },
+  "system": {
+    "aliases": ["system", "os", "linux", "server"],
+    "configs": [
+      { "path": "/etc/hostname", "description": "Hostname" },
+      { "path": "/etc/hosts", "description": "Hosts file" },
+      { "path": "/etc/resolv.conf", "description": "DNS resolver" },
+      { "path": "/etc/fstab", "description": "Filesystem mounts" },
+      { "path": "/etc/crontab", "description": "System crontab" },
+      { "path": "/etc/environment", "description": "System environment" },
+      { "path": "/etc/sysctl.conf", "description": "Kernel parameters" },
+      { "path": "/etc/passwd", "description": "User accounts" },
+      { "path": "/etc/shadow", "description": "Password hashes" },
+      { "path": "/etc/group", "description": "Group definitions" },
+      { "path": "/etc/sudoers", "description": "Sudo rules" }
+    ],
+    "logs": [
+      { "path": "/var/log/syslog", "description": "System log (Debian)" },
+      { "path": "/var/log/messages", "description": "System log (RHEL)" },
+      { "path": "/var/log/kern.log", "description": "Kernel log" },
+      { "path": "/var/log/dmesg", "description": "Boot messages" }
+    ],
+    "parser": "text"
+  },
+  "ssl": {
+    "aliases": ["ssl", "tls", "certs", "certificates", "letsencrypt", "lets-encrypt"],
+    "configs": [
+      { "path": "/etc/ssl/certs/", "description": "System certificates" },
+      { "path": "/etc/ssl/private/", "description": "Private keys" },
+      { "path": "/etc/letsencrypt/live/", "description": "Let's Encrypt certs" },
+      { "path": "/etc/pki/tls/certs/", "description": "PKI certificates (RHEL)" }
+    ],
+    "parser": "text"
+  },
+  "docker": {
+    "aliases": ["docker", "container", "compose"],
+    "configs": [
+      { "path": "/etc/docker/daemon.json", "description": "Docker daemon config" },
+      { "path": "docker-compose.yml", "description": "Docker Compose" },
+      { "path": "docker-compose.yaml", "description": "Docker Compose" },
+      { "path": "Dockerfile", "description": "Dockerfile" }
+    ],
+    "logs": [
+      { "path": "/var/log/docker.log", "description": "Docker log" }
+    ],
+    "service": "docker",
+    "parser": "yaml"
+  },
+  "systemd": {
+    "aliases": ["systemd", "services", "units", "systemctl"],
+    "configs": [
+      { "path": "/etc/systemd/system/", "description": "Custom unit files" },
+      { "path": "/usr/lib/systemd/system/", "description": "System unit files" }
+    ],
+    "logs": [
+      { "path": "/var/log/journal/", "description": "Journal logs" }
+    ],
+    "parser": "text"
+  },
+  "network": {
+    "aliases": ["network", "firewall", "iptables", "netplan", "interfaces"],
+    "configs": [
+      { "path": "/etc/network/interfaces", "description": "Interfaces (Debian)" },
+      { "path": "/etc/netplan/", "description": "Netplan config (Ubuntu)" },
+      { "path": "/etc/sysconfig/network-scripts/", "description": "Network (RHEL)" },
+      { "path": "/etc/iptables/rules.v4", "description": "iptables rules" },
+      { "path": "/etc/firewalld/", "description": "Firewalld config" },
+      { "path": "/etc/resolv.conf", "description": "DNS resolver" }
+    ],
+    "parser": "text"
+  },
+  "env": {
+    "aliases": ["env", "dotenv", "environment", ".env"],
+    "configs": [
+      { "path": ".env", "description": "Local .env" },
+      { "path": ".env.local", "description": "Local overrides" },
+      { "path": ".env.production", "description": "Production env" },
+      { "path": ".env.staging", "description": "Staging env" },
+      { "path": ".env.development", "description": "Development env" },
+      { "path": ".env.test", "description": "Test env" }
+    ],
+    "parser": "env"
+  },
+  "node": {
+    "aliases": ["node", "nodejs", "npm", "yarn", "pnpm"],
+    "configs": [
+      { "path": "package.json", "description": "Package manifest" },
+      { "path": "tsconfig.json", "description": "TypeScript config" },
+      { "path": ".eslintrc.json", "description": "ESLint config" },
+      { "path": ".prettierrc", "description": "Prettier config" },
+      { "path": "vite.config.ts", "description": "Vite config" },
+      { "path": "next.config.js", "description": "Next.js config" }
+    ],
+    "parser": "json"
+  },
+  "python": {
+    "aliases": ["python", "pip", "django", "flask", "fastapi"],
+    "configs": [
+      { "path": "requirements.txt", "description": "Python requirements" },
+      { "path": "pyproject.toml", "description": "Project config" },
+      { "path": "setup.py", "description": "Setup script" },
+      { "path": ".python-version", "description": "Python version" }
+    ],
+    "parser": "text"
+  },
+  "bind": {
+    "aliases": ["bind", "bind9", "named", "dns server", "zone file", "dns zone"],
+    "configs": [
+      { "path": "/etc/bind/named.conf", "description": "BIND main config" },
+      { "path": "/etc/bind/named.conf.local", "description": "BIND local zones" },
+      { "path": "/etc/bind/named.conf.options", "description": "BIND options" },
+      { "path": "/etc/bind/named.conf.default-zones", "description": "Default zones" },
+      { "path": "/etc/bind/zones/", "description": "Zone files directory" },
+      { "path": "/var/cache/bind/", "description": "BIND cache" },
+      { "path": "/etc/named.conf", "description": "BIND config (RHEL)" },
+      { "path": "/var/named/", "description": "Zone files (RHEL)" }
+    ],
+    "logs": [
+      { "path": "/var/log/named/", "description": "BIND logs" },
+      { "path": "/var/log/syslog", "description": "System log (BIND logs here too)" }
+    ],
+    "service": "named",
+    "parser": "text"
+  },
+  "letsencrypt": {
+    "aliases": ["letsencrypt", "lets-encrypt", "certbot", "acme", "ssl cert"],
+    "configs": [
+      { "path": "/etc/letsencrypt/", "description": "Let's Encrypt root" },
+      { "path": "/etc/letsencrypt/live/", "description": "Active certificates" },
+      { "path": "/etc/letsencrypt/renewal/", "description": "Renewal configs" },
+      { "path": "/etc/letsencrypt/accounts/", "description": "Account keys" },
+      { "path": "/etc/letsencrypt/cli.ini", "description": "Certbot defaults" }
+    ],
+    "logs": [
+      { "path": "/var/log/letsencrypt/", "description": "Certbot logs" }
+    ],
+    "service": "certbot",
+    "parser": "text"
+  },
+  "swap": {
+    "aliases": ["swap", "swapfile", "virtual memory"],
+    "configs": [
+      { "path": "/etc/fstab", "description": "Swap mount (look for swap entries)" },
+      { "path": "/swapfile", "description": "Common swap file location" },
+      { "path": "/swap", "description": "Alternative swap location" }
+    ],
+    "parser": "text"
+  }
+}

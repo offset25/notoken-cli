@@ -1,0 +1,100 @@
+{
+  "version": "2.0.1",
+  "intentSynonyms": {},
+  "environmentAliases": {
+    "local": [
+      "local",
+      "localhost",
+      "127.0.0.1"
+    ],
+    "dev": [
+      "dev",
+      "development"
+    ],
+    "staging": [
+      "staging",
+      "stage",
+      "stg",
+      "preprod",
+      "pre-prod"
+    ],
+    "prod": [
+      "prod",
+      "production",
+      "live",
+      "prd"
+    ]
+  },
+  "serviceAliases": {
+    "nginx": [
+      "nginx",
+      "web",
+      "webserver",
+      "web server",
+      "proxy",
+      "reverse proxy"
+    ],
+    "redis": [
+      "redis",
+      "cache",
+      "redis-server"
+    ],
+    "api": [
+      "api",
+      "backend",
+      "backend-api",
+      "server",
+      "app"
+    ],
+    "worker": [
+      "worker",
+      "background",
+      "jobs",
+      "sidekiq",
+      "queue"
+    ],
+    "postgres": [
+      "postgres",
+      "postgresql",
+      "pg",
+      "database",
+      "db"
+    ],
+    "mysql": [
+      "mysql",
+      "mariadb",
+      "maria"
+    ],
+    "mongo": [
+      "mongo",
+      "mongodb"
+    ],
+    "docker": [
+      "docker",
+      "container",
+      "containers"
+    ],
+    "sshd": [
+      "sshd",
+      "ssh",
+      "openssh"
+    ],
+    "apache": [
+      "apache",
+      "apache2",
+      "httpd"
+    ],
+    "certbot": [
+      "certbot",
+      "letsencrypt"
+    ],
+    "fail2ban": [
+      "fail2ban"
+    ],
+    "clamav": [
+      "clamav",
+      "clamscan",
+      "freshclam"
+    ]
+  }
+}

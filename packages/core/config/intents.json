@@ -1,0 +1,3920 @@
+{
+  "intents": [
+    {
+      "name": "service.restart",
+      "description": "Restart a service in an environment",
+      "synonyms": [
+        "restart",
+        "bounce",
+        "reload",
+        "recycle",
+        "kick"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl restart {{service}} && sudo systemctl status {{service}} --no-pager",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "allowlist": [
+        "nginx",
+        "redis",
+        "api",
+        "worker",
+        "postgres"
+      ],
+      "examples": [
+        "restart nginx on prod",
+        "bounce redis in production",
+        "restart api service in staging"
+      ]
+    },
+    {
+      "name": "service.status",
+      "description": "Check the status of a service",
+      "synonyms": [
+        "status",
+        "check service",
+        "is running",
+        "service health"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl status {{service}} --no-pager",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "allowlist": [
+        "nginx",
+        "redis",
+        "api",
+        "worker",
+        "postgres"
+      ],
+      "examples": [
+        "status of nginx on prod",
+        "is redis running on staging",
+        "check api service health"
+      ]
+    },
+    {
+      "name": "server.check_disk",
+      "description": "Check disk usage on a target server or specific path",
+      "synonyms": [
+        "disk",
+        "disk usage",
+        "space",
+        "storage",
+        "df",
+        "check disk",
+        "disk space",
+        "how much space",
+        "free space",
+        "space on",
+        "check space"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "df -h && echo '\\nTop directories:\\n' && du -sh /var/* 2>/dev/null | sort -rh | head -10",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check disk usage on prod",
+        "show disk space on api server",
+        "how much space on my documents",
+        "check space on c drive",
+        "disk space on /home",
+        "free space on downloads",
+        "what is eating space on staging"
+      ]
+    },
+    {
+      "name": "server.check_memory",
+      "description": "Check memory usage on a target server",
+      "synonyms": [
+        "memory",
+        "ram",
+        "mem",
+        "free",
+        "htop",
+        "memory usage",
+        "memory free"
+      ],
+      "fields": {
+        "target": {
+          "type": "service",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "free -h && echo '\\nTop 15 processes by memory:\\n' && ps aux --sort=-%mem | head -16 | awk '{printf \"%-10s %-8s %-6s %-6s %s\\n\", $1, $2, $4\"%\", $6/1024\"MB\", $11}'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check memory on prod",
+        "how much ram is used on staging",
+        "show memory usage"
+      ]
+    },
+    {
+      "name": "server.uptime",
+      "description": "Check server uptime and load",
+      "synonyms": [
+        "uptime",
+        "load",
+        "load average",
+        "check load",
+        "server load",
+        "server seems sluggish",
+        "server seems slow",
+        "figure out why"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "uptime && echo '' && nproc && echo '' && cat /proc/loadavg && echo '' && ps aux --sort=-%cpu | head -6",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "uptime on prod",
+        "show load average on staging",
+        "how long has prod been up"
+      ]
+    },
+    {
+      "name": "logs.find",
+      "description": "Find and list log files on the system, optionally for a specific service",
+      "synonyms": [
+        "find logs",
+        "find log files",
+        "list log files",
+        "where are the logs",
+        "log files",
+        "show log files",
+        "what logs"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo '=== /var/log ===' && ls -lhS /var/log/*.log /var/log/*/*.log 2>/dev/null | head -20 && echo '' && echo '=== Large logs (>50MB) ===' && find /var/log -type f -size +50M -exec ls -lh {} \\; 2>/dev/null && echo '' && echo '=== Recently modified ===' && find /var/log -type f -mmin -60 -name '*.log' 2>/dev/null | head -10",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "find log files on prod",
+        "where are the logs on staging",
+        "list log files on prod",
+        "what logs are on the server",
+        "find logs for nginx on prod"
+      ]
+    },
+    {
+      "name": "logs.errors",
+      "description": "Search for errors across common log files",
+      "synonyms": [
+        "check logs for errors",
+        "error logs",
+        "show errors",
+        "recent errors",
+        "any errors",
+        "check for errors"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo '=== Syslog errors ===' && grep -i 'error\\|fail\\|critical' /var/log/syslog 2>/dev/null | tail -10 || grep -i 'error\\|fail\\|critical' /var/log/messages 2>/dev/null | tail -10 && echo '' && echo '=== Auth errors ===' && grep -i 'error\\|fail' /var/log/auth.log 2>/dev/null | tail -5 || grep -i 'error\\|fail' /var/log/secure 2>/dev/null | tail -5 && echo '' && echo '=== Nginx errors ===' && tail -10 /var/log/nginx/error.log 2>/dev/null || echo 'No nginx error log' && echo '' && echo '=== Kernel errors ===' && dmesg --level=err,crit,alert,emerg 2>/dev/null | tail -5",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check logs for errors on prod",
+        "any errors on staging",
+        "show recent errors on prod",
+        "error logs on staging"
+      ]
+    },
+    {
+      "name": "logs.check",
+      "description": "Check a specific log file — shows recent entries, size, and rotation status",
+      "synonyms": [
+        "check log",
+        "check log file",
+        "check the log",
+        "look at log"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 30
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo '=== File info ===' && ls -lh {{path}} && echo '' && echo '=== Last {{lines}} lines ===' && tail -{{lines}} {{path}} && echo '' && echo '=== Rotation ===' && ls -lh {{path}}* 2>/dev/null | head -5",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check /var/log/syslog on prod",
+        "check the nginx error log on staging",
+        "look at /var/log/auth.log on prod"
+      ]
+    },
+    {
+      "name": "logs.tail",
+      "description": "Tail logs for a service",
+      "synonyms": [
+        "tail",
+        "logs",
+        "log",
+        "watch logs",
+        "show logs"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": false,
+          "default": "api"
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 100
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "tail -n {{lines}} {{logPath}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "logPaths": {
+        "nginx": "/var/log/nginx/error.log",
+        "api": "/var/log/api/app.log",
+        "redis": "/var/log/redis/redis-server.log",
+        "worker": "/var/log/worker/worker.log",
+        "postgres": "/var/log/postgresql/postgresql.log"
+      },
+      "examples": [
+        "tail nginx logs on prod",
+        "show me the last 100 lines for api logs",
+        "watch redis logs in staging"
+      ]
+    },
+    {
+      "name": "logs.search",
+      "description": "Search logs for a pattern",
+      "synonyms": [
+        "search logs",
+        "grep",
+        "find in logs",
+        "search for"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": false,
+          "default": "api"
+        },
+        "query": {
+          "type": "string",
+          "required": false,
+          "default": "error"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "grep -i '{{query}}' {{logPath}} | tail -50",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "logPaths": {
+        "nginx": "/var/log/nginx/error.log",
+        "api": "/var/log/api/app.log",
+        "redis": "/var/log/redis/redis-server.log",
+        "worker": "/var/log/worker/worker.log",
+        "postgres": "/var/log/postgresql/postgresql.log"
+      },
+      "examples": [
+        "search for errors in api logs",
+        "find timeout in nginx logs on prod",
+        "grep 500 in api logs"
+      ]
+    },
+    {
+      "name": "deploy.run",
+      "description": "Run a deployment",
+      "synonyms": [
+        "deploy",
+        "release",
+        "ship",
+        "push",
+        "promote"
+      ],
+      "fields": {
+        "app": {
+          "type": "string",
+          "required": false
+        },
+        "branch": {
+          "type": "branch",
+          "required": false,
+          "default": "main"
+        },
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "staging"
+        }
+      },
+      "command": "cd /srv/myapp && git fetch origin && git checkout {{branch}} && git pull origin {{branch}} && ./deploy.sh",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "deploy latest to staging",
+        "deploy main to prod",
+        "push release branch to production"
+      ]
+    },
+    {
+      "name": "deploy.rollback",
+      "description": "Rollback a deployment",
+      "synonyms": [
+        "rollback",
+        "revert",
+        "undo deploy",
+        "roll back",
+        "revert deploy",
+        "revert last deploy"
+      ],
+      "fields": {
+        "app": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "staging"
+        }
+      },
+      "command": "cd /srv/myapp && ./rollback.sh",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "rollback deploy on prod",
+        "revert last deploy in staging",
+        "undo production deploy"
+      ]
+    },
+    {
+      "name": "docker.list",
+      "description": "List running Docker containers",
+      "synonyms": [
+        "docker ps",
+        "containers",
+        "list containers",
+        "show containers",
+        "docker list"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show docker containers on prod",
+        "list containers in staging",
+        "what is running in docker"
+      ]
+    },
+    {
+      "name": "docker.restart",
+      "description": "Restart a Docker container",
+      "synonyms": [
+        "restart container",
+        "docker restart",
+        "bounce container"
+      ],
+      "fields": {
+        "container": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker restart {{container}} && docker ps -f name={{container}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "allowlist": [
+        "nginx",
+        "redis",
+        "api",
+        "worker",
+        "postgres"
+      ],
+      "examples": [
+        "restart docker container api on prod",
+        "bounce the redis container in staging"
+      ]
+    },
+    {
+      "name": "docker.stop",
+      "description": "Stop a running Docker container",
+      "synonyms": [
+        "docker stop",
+        "stop container",
+        "stop docker"
+      ],
+      "fields": {
+        "container": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker stop {{container}} && echo 'Stopped: {{container}}'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "stop container api on prod",
+        "docker stop redis on staging"
+      ]
+    },
+    {
+      "name": "docker.start",
+      "description": "Start a stopped Docker container",
+      "synonyms": [
+        "docker start",
+        "start container"
+      ],
+      "fields": {
+        "container": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker start {{container}} && docker ps -f name={{container}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "start container api on prod",
+        "docker start redis on staging"
+      ]
+    },
+    {
+      "name": "docker.logs",
+      "description": "View logs for a Docker container",
+      "synonyms": [
+        "docker logs",
+        "container logs",
+        "show container logs"
+      ],
+      "fields": {
+        "container": {
+          "type": "string",
+          "required": true
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 50
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker logs --tail {{lines}} {{container}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "docker logs api on prod",
+        "show container logs for redis",
+        "docker logs nginx 100 on staging"
+      ]
+    },
+    {
+      "name": "docker.all",
+      "description": "List all containers including stopped ones",
+      "synonyms": [
+        "all containers",
+        "docker ps -a",
+        "stopped containers",
+        "all docker",
+        "show all containers"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker ps -a --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Size}}'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show all containers on prod",
+        "stopped containers on staging",
+        "docker ps -a"
+      ]
+    },
+    {
+      "name": "docker.images",
+      "description": "List Docker images",
+      "synonyms": [
+        "docker images",
+        "list images",
+        "show images",
+        "docker image list"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}\\t{{.CreatedSince}}'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "docker images on prod",
+        "list images on staging"
+      ]
+    },
+    {
+      "name": "docker.cleanup",
+      "description": "Clean up unused/orphaned Docker resources — stopped containers, dangling images, unused volumes and networks",
+      "synonyms": [
+        "docker cleanup",
+        "docker prune",
+        "clean docker",
+        "orphaned containers",
+        "docker garbage",
+        "docker disk",
+        "docker space",
+        "unused containers",
+        "unused images",
+        "dangling images"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo '=== Stopped containers ===' && docker ps -a --filter status=exited --format 'table {{.Names}}\\t{{.Status}}\\t{{.Size}}' && echo '' && echo '=== Dangling images ===' && docker images -f dangling=true --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}' && echo '' && echo '=== Disk usage ===' && docker system df && echo '' && echo 'Run \"docker system prune -a\" to clean up (will ask for confirmation)'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "docker cleanup on prod",
+        "check orphaned containers on staging",
+        "docker disk usage",
+        "unused containers on prod",
+        "dangling images on staging"
+      ]
+    },
+    {
+      "name": "docker.prune",
+      "description": "Remove all stopped containers, unused images, networks, and volumes",
+      "synonyms": [
+        "docker system prune",
+        "prune docker",
+        "remove unused docker",
+        "free docker space"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker system prune -af --volumes && echo '' && docker system df",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "docker system prune on prod",
+        "prune docker on staging",
+        "free docker space on prod"
+      ]
+    },
+    {
+      "name": "docker.compose_up",
+      "description": "Start services with docker compose",
+      "synonyms": [
+        "docker compose up",
+        "compose up",
+        "docker-compose up",
+        "start compose",
+        "run compose"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "service": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker compose -f {{path}}/docker-compose.yml up -d {{service}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "docker compose up on prod",
+        "compose up on staging",
+        "start compose on dev",
+        "docker compose up api on prod"
+      ]
+    },
+    {
+      "name": "docker.compose_down",
+      "description": "Stop and remove docker compose services",
+      "synonyms": [
+        "docker compose down",
+        "compose down",
+        "docker-compose down",
+        "stop compose",
+        "tear down compose"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker compose -f {{path}}/docker-compose.yml down",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "docker compose down on prod",
+        "compose down on staging",
+        "stop compose on dev"
+      ]
+    },
+    {
+      "name": "docker.compose_build",
+      "description": "Build or rebuild docker compose services",
+      "synonyms": [
+        "docker compose build",
+        "compose build",
+        "docker-compose build",
+        "rebuild compose",
+        "rebuild containers",
+        "docker rebuild"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "service": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker compose -f {{path}}/docker-compose.yml build --no-cache {{service}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "docker compose build on prod",
+        "rebuild compose on staging",
+        "rebuild containers on dev",
+        "docker rebuild api on prod"
+      ]
+    },
+    {
+      "name": "docker.compose_status",
+      "description": "Show status of docker compose services",
+      "synonyms": [
+        "docker compose status",
+        "compose status",
+        "docker compose ps",
+        "compose ps"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker compose -f {{path}}/docker-compose.yml ps",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "docker compose status on prod",
+        "compose ps on staging"
+      ]
+    },
+    {
+      "name": "docker.compose_restart",
+      "description": "Restart docker compose services",
+      "synonyms": [
+        "docker compose restart",
+        "compose restart",
+        "restart compose"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "service": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "docker compose -f {{path}}/docker-compose.yml restart {{service}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "docker compose restart on prod",
+        "restart compose on staging",
+        "compose restart api on prod"
+      ]
+    },
+    {
+      "name": "cron.list",
+      "description": "List cron jobs on a server",
+      "synonyms": [
+        "cron",
+        "crontab",
+        "cron jobs",
+        "scheduled tasks",
+        "list cron"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "crontab -l 2>/dev/null && echo '\\nSystem crons:\\n' && ls -la /etc/cron.d/ 2>/dev/null",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show cron jobs on prod",
+        "list scheduled tasks on staging",
+        "what crons are running"
+      ]
+    },
+    {
+      "name": "network.ports",
+      "description": "Show listening ports on a server",
+      "synonyms": [
+        "ports",
+        "listening",
+        "netstat",
+        "open ports",
+        "ss"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ss -tlnp | head -30",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show open ports on prod",
+        "what ports are listening on staging",
+        "netstat on prod"
+      ]
+    },
+    {
+      "name": "network.ping",
+      "description": "Ping a host or check connectivity",
+      "synonyms": [
+        "ping",
+        "check connectivity",
+        "is reachable"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ping -c 4 {{target}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ping prod",
+        "check connectivity to staging"
+      ]
+    },
+    {
+      "name": "files.find",
+      "description": "Find files or directories by name or pattern",
+      "synonyms": [
+        "find file",
+        "find files",
+        "find log",
+        "locate",
+        "find directory",
+        "where is",
+        "search file",
+        "find config"
+      ],
+      "fields": {
+        "pattern": {
+          "type": "string",
+          "required": false,
+          "default": "*"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "find {{path}} -name '{{pattern}}' -maxdepth 5 2>/dev/null | head -30",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "find log files on prod",
+        "locate nginx config on staging",
+        "find files named *.conf on prod"
+      ]
+    },
+    {
+      "name": "files.grep",
+      "description": "Search file contents for a pattern",
+      "synonyms": [
+        "grep",
+        "search for text",
+        "find text",
+        "search in files",
+        "look for"
+      ],
+      "fields": {
+        "query": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/var/log"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "grep -rn '{{query}}' {{path}} 2>/dev/null | head -30",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "grep for error in /var/log on prod",
+        "search for timeout in api logs on staging",
+        "find text connection refused on prod"
+      ]
+    },
+    {
+      "name": "files.list",
+      "description": "List files and directories",
+      "synonyms": [
+        "list files",
+        "ls",
+        "show files",
+        "directory listing",
+        "what files"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/var/log"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ls -lah {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list files in /etc/nginx on prod",
+        "ls /var/log on staging",
+        "show files in /srv on prod"
+      ]
+    },
+    {
+      "name": "files.tail",
+      "description": "Tail any file by path",
+      "synonyms": [
+        "tail file",
+        "last lines",
+        "end of file",
+        "tail -f"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 50
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "tail -n {{lines}} {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "tail /var/log/syslog on prod",
+        "show last 200 lines of /tmp/output.log on staging"
+      ]
+    },
+    {
+      "name": "process.list",
+      "description": "List running processes, optionally filtered",
+      "synonyms": [
+        "ps",
+        "processes",
+        "show processes",
+        "what is running",
+        "top processes",
+        "process list"
+      ],
+      "fields": {
+        "filter": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ps aux --sort=-%cpu | head -20",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show processes on prod",
+        "ps on staging",
+        "what is running on prod",
+        "top processes on staging"
+      ]
+    },
+    {
+      "name": "process.kill",
+      "description": "Kill a process by name or PID",
+      "synonyms": [
+        "kill process",
+        "stop process",
+        "kill pid",
+        "terminate"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "pkill -f '{{target}}' && echo 'Killed processes matching: {{target}}'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "kill process node on staging",
+        "stop process java on dev",
+        "terminate worker on prod"
+      ]
+    },
+    {
+      "name": "ssh.connect",
+      "description": "Show SSH connection command for an environment",
+      "synonyms": [
+        "ssh",
+        "connect",
+        "ssh into",
+        "shell into",
+        "login to"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "dev"
+        }
+      },
+      "command": "echo 'Connected to {{environment}}' && hostname && whoami && uptime",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ssh into prod",
+        "connect to staging",
+        "login to dev"
+      ]
+    },
+    {
+      "name": "user.add",
+      "description": "Create a new system user",
+      "synonyms": [
+        "useradd",
+        "add user",
+        "create user",
+        "new user"
+      ],
+      "fields": {
+        "username": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "dev"
+        }
+      },
+      "command": "sudo useradd -m -s /bin/bash {{username}} && echo 'User {{username}} created'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "create user deploy on prod",
+        "add user monitoring on staging",
+        "useradd backup on prod"
+      ]
+    },
+    {
+      "name": "user.modify",
+      "description": "Modify an existing system user",
+      "synonyms": [
+        "usermod",
+        "modify user",
+        "change user",
+        "update user",
+        "add to group",
+        "add user to group",
+        "user to group",
+        "to group docker",
+        "to group sudo",
+        "to group www-data",
+        "to group admin"
+      ],
+      "fields": {
+        "username": {
+          "type": "string",
+          "required": true
+        },
+        "group": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "dev"
+        }
+      },
+      "command": "sudo usermod -aG {{group}} {{username}} && echo 'User {{username}} updated' && id {{username}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "add user deploy to group docker on prod",
+        "modify user monitoring add to sudo on staging",
+        "usermod deploy add to www-data on prod"
+      ]
+    },
+    {
+      "name": "files.copy",
+      "description": "Copy a file or directory to a destination",
+      "synonyms": [
+        "copy file",
+        "copy this",
+        "cp",
+        "copy to",
+        "duplicate file",
+        "copy over",
+        "copy"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "cp -rv {{source}} {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "copy nginx.conf to /root on prod",
+        "copy the api config to /tmp on staging",
+        "cp app.log to /backup on prod"
+      ]
+    },
+    {
+      "name": "files.move",
+      "description": "Move or rename a file or directory",
+      "synonyms": [
+        "move file",
+        "move this",
+        "move to",
+        "rename file",
+        "move over",
+        "move"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "mv -v {{source}} {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "move app.log to /root on prod",
+        "move this config to /backup on staging",
+        "rename the old log on prod"
+      ]
+    },
+    {
+      "name": "files.remove",
+      "description": "Remove a file (not directories)",
+      "synonyms": [
+        "delete file",
+        "remove file",
+        "rm",
+        "delete this"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "rm -v {{target}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "fuzzyResolve": [
+        "target"
+      ],
+      "examples": [
+        "delete old.log on prod",
+        "remove temp file on staging"
+      ]
+    },
+    {
+      "name": "user.list",
+      "description": "List system users or show user info",
+      "synonyms": [
+        "list users",
+        "show users",
+        "who",
+        "whoami",
+        "user info",
+        "id",
+        "users history the one we are running as"
+      ],
+      "fields": {
+        "username": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "cat /etc/passwd | grep -v nologin | grep -v false | cut -d: -f1,3,6",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list users on prod",
+        "show users on staging",
+        "who is on prod"
+      ]
+    },
+    {
+      "name": "git.status",
+      "description": "Show git working tree status",
+      "synonyms": [
+        "git status",
+        "git state",
+        "what changed",
+        "uncommitted changes",
+        "working tree"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} status",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git status",
+        "show git status",
+        "what changed in the repo",
+        "uncommitted changes"
+      ]
+    },
+    {
+      "name": "git.log",
+      "description": "Show recent git commit history",
+      "synonyms": [
+        "git log",
+        "commit history",
+        "recent commits",
+        "git history",
+        "show commits",
+        "last commits",
+        "show last",
+        "last 5 commits",
+        "last 10 commits"
+      ],
+      "fields": {
+        "count": {
+          "type": "number",
+          "required": false,
+          "default": 10
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} log --oneline -n {{count}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git log",
+        "show last 20 commits",
+        "recent commit history",
+        "git log 5"
+      ]
+    },
+    {
+      "name": "git.diff",
+      "description": "Show git diff of current changes",
+      "synonyms": [
+        "git diff",
+        "show diff",
+        "what is different",
+        "show changes"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "target": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "git -C {{path}} diff {{target}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git diff",
+        "show diff",
+        "what is different",
+        "git diff main"
+      ]
+    },
+    {
+      "name": "git.pull",
+      "description": "Pull latest changes from remote",
+      "synonyms": [
+        "git pull",
+        "pull latest",
+        "pull changes",
+        "update repo",
+        "fetch and merge"
+      ],
+      "fields": {
+        "remote": {
+          "type": "string",
+          "required": false,
+          "default": "origin"
+        },
+        "branch": {
+          "type": "branch",
+          "required": false
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} pull {{remote}} {{branch}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git pull",
+        "pull latest changes",
+        "update the repo",
+        "git pull origin main"
+      ]
+    },
+    {
+      "name": "git.push",
+      "description": "Push commits to remote",
+      "synonyms": [
+        "git push",
+        "push commits",
+        "push to remote",
+        "push changes"
+      ],
+      "fields": {
+        "remote": {
+          "type": "string",
+          "required": false,
+          "default": "origin"
+        },
+        "branch": {
+          "type": "branch",
+          "required": false
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} push {{remote}} {{branch}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "git push",
+        "push commits to origin",
+        "push to remote",
+        "git push origin main"
+      ]
+    },
+    {
+      "name": "git.branch",
+      "description": "List, create, or switch git branches",
+      "synonyms": [
+        "git branch",
+        "list branches",
+        "show branches",
+        "branches",
+        "current branch"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": false
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} branch -a",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git branch",
+        "list branches",
+        "show all branches",
+        "what branch am I on"
+      ]
+    },
+    {
+      "name": "git.checkout",
+      "description": "Switch to a different branch",
+      "synonyms": [
+        "git checkout",
+        "switch branch",
+        "switch to",
+        "checkout branch",
+        "go to branch"
+      ],
+      "fields": {
+        "branch": {
+          "type": "branch",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} checkout {{branch}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "git checkout main",
+        "switch to develop",
+        "checkout branch main",
+        "go to branch develop"
+      ]
+    },
+    {
+      "name": "git.commit",
+      "description": "Commit staged changes with a message",
+      "synonyms": [
+        "git commit",
+        "commit changes",
+        "save changes",
+        "commit with message"
+      ],
+      "fields": {
+        "message": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} commit -m '{{message}}'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "git commit fix typo",
+        "commit changes update readme",
+        "commit with message initial setup"
+      ]
+    },
+    {
+      "name": "git.add",
+      "description": "Stage files for commit",
+      "synonyms": [
+        "git add",
+        "stage files",
+        "stage changes",
+        "add files",
+        "add to staging",
+        "stage all",
+        "stage all files"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} add {{target}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git add all",
+        "stage all files",
+        "git add src/index.ts",
+        "stage changes"
+      ]
+    },
+    {
+      "name": "git.stash",
+      "description": "Stash or restore uncommitted changes",
+      "synonyms": [
+        "git stash",
+        "stash changes",
+        "save work",
+        "stash it",
+        "stash pop",
+        "restore stash"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false,
+          "default": "push"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} stash {{action}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "git stash",
+        "stash my changes",
+        "restore stash",
+        "git stash pop"
+      ]
+    },
+    {
+      "name": "git.reset",
+      "description": "Reset staged changes or undo last commit",
+      "synonyms": [
+        "git reset",
+        "unstage",
+        "undo commit",
+        "reset head"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": false,
+          "default": "HEAD"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
+      },
+      "command": "git -C {{path}} reset {{target}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "git reset",
+        "unstage all files",
+        "undo last commit",
+        "git reset HEAD~1"
+      ]
+    },
+    {
+      "name": "file.parse",
+      "description": "Read and parse a config file (passwd, shadow, .env, yaml, json, nginx, apache)",
+      "synonyms": [
+        "parse file",
+        "parse /",
+        "read file",
+        "show config",
+        "open file",
+        "read config",
+        "parse config",
+        "show file contents",
+        "cat file",
+        "parse",
+        "read /",
+        "cat /"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "cat {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "parse /etc/passwd",
+        "read the nginx config",
+        "show .env file",
+        "open /etc/shadow",
+        "read docker-compose.yml"
+      ]
+    },
+    {
+      "name": "file.read",
+      "description": "Read a file with smart output — shows sample if file is large",
+      "synonyms": [
+        "show me",
+        "output file",
+        "print file",
+        "display file",
+        "cat",
+        "show file",
+        "show the file",
+        "look at",
+        "open the"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "cat {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show me package.json",
+        "output /etc/nginx/nginx.conf",
+        "look at the README",
+        "show the .env file",
+        "cat tsconfig.json"
+      ]
+    },
+    {
+      "name": "file.search_in",
+      "description": "Search for something specific inside a file and show matches with context",
+      "synonyms": [
+        "search in file",
+        "find in file",
+        "look for in",
+        "show me the part",
+        "where does it say",
+        "find where",
+        "search file for"
+      ],
+      "fields": {
+        "query": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "grep -n -i -C 3 '{{query}}' {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "search for proxy_pass in /etc/nginx/nginx.conf",
+        "find database in .env",
+        "where does it say listen in nginx.conf",
+        "show me the part about ssl in the config",
+        "find where port is defined in package.json"
+      ]
+    },
+    {
+      "name": "file.search",
+      "description": "Find where a config or service file is located",
+      "synonyms": [
+        "where is",
+        "find config",
+        "find file for",
+        "locate config",
+        "show me where",
+        "where are the"
+      ],
+      "fields": {
+        "query": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo 'Searching for: {{query}}'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "where is the nginx config",
+        "find config for postgres",
+        "where are the ssh keys",
+        "locate redis config",
+        "find the .env file"
+      ]
+    },
+    {
+      "name": "env.get",
+      "description": "Read a variable from a .env file",
+      "synonyms": [
+        "get env",
+        "show env",
+        "read env",
+        "what is the value of",
+        "env value",
+        "read the .env",
+        "show the .env",
+        "read .env",
+        "read the .env file"
+      ],
+      "fields": {
+        "key": {
+          "type": "string",
+          "required": false
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": ".env"
+        }
+      },
+      "command": "cat {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "get env DATABASE_URL",
+        "show env API_KEY from .env.production",
+        "what is the value of REDIS_HOST",
+        "read env file"
+      ]
+    },
+    {
+      "name": "env.set",
+      "description": "Save a variable to a .env file with smart naming",
+      "synonyms": [
+        "set env",
+        "save env",
+        "save variable",
+        "add env",
+        "add variable",
+        "set variable",
+        "save to env",
+        "save database",
+        "save password",
+        "save api key",
+        "save token"
+      ],
+      "fields": {
+        "key": {
+          "type": "string",
+          "required": false
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "topic": {
+          "type": "string",
+          "required": false
+        },
+        "purpose": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": ".env"
+        }
+      },
+      "command": "echo 'Setting env variable'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "save database password for staging to .env",
+        "set env API_KEY=abc123",
+        "add redis url for prod",
+        "save variable smtp password"
+      ]
+    },
+    {
+      "name": "archive.tar",
+      "description": "Create a tar.gz archive from files or directories",
+      "synonyms": [
+        "tar",
+        "tar.gz",
+        "tarball",
+        "create tar",
+        "create archive",
+        "compress",
+        "tar up",
+        "make archive"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "tar -czvf {{destination}} {{source}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "tar /var/log/nginx to /tmp/nginx-logs.tar.gz",
+        "create tar.gz of /etc/nginx on prod",
+        "archive /srv/myapp to /backup/app.tar.gz",
+        "compress /var/log on staging",
+        "tar up the nginx config on prod"
+      ]
+    },
+    {
+      "name": "archive.untar",
+      "description": "Extract a tar.gz archive",
+      "synonyms": [
+        "untar",
+        "extract tar",
+        "extract archive",
+        "decompress tar",
+        "untar.gz",
+        "tar extract",
+        "unpack tar",
+        "unarchive",
+        "extract .tar",
+        "extract .gz",
+        "untar /",
+        "extract /"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "tar -xzvf {{source}} -C {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "untar /tmp/backup.tar.gz to /srv/restore",
+        "extract archive /backup/app.tar.gz on prod",
+        "decompress /tmp/logs.tar.gz on staging",
+        "unpack tar /root/data.tar.gz"
+      ]
+    },
+    {
+      "name": "archive.zip",
+      "description": "Create a zip archive from files or directories",
+      "synonyms": [
+        "zip",
+        "create zip",
+        "zip up",
+        "make zip"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "zip -r {{destination}} {{source}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "zip /var/log/nginx to /tmp/nginx-logs.zip",
+        "create zip of /etc/nginx on prod",
+        "zip up /srv/myapp on staging"
+      ]
+    },
+    {
+      "name": "archive.unzip",
+      "description": "Extract a zip archive",
+      "synonyms": [
+        "unzip",
+        "extract zip",
+        "decompress zip",
+        "unpack zip"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "unzip -o {{source}} -d {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "unzip /tmp/backup.zip to /srv/restore",
+        "extract zip /root/data.zip on prod",
+        "unpack zip /tmp/files.zip on staging"
+      ]
+    },
+    {
+      "name": "archive.list",
+      "description": "List contents of a tar.gz or zip archive without extracting",
+      "synonyms": [
+        "list archive",
+        "show archive",
+        "what is in the archive",
+        "list tar",
+        "list zip",
+        "archive contents"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "if echo '{{source}}' | grep -qE '\\.zip$'; then unzip -l {{source}}; else tar -tzvf {{source}}; fi",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "list archive /tmp/backup.tar.gz",
+        "what is in /root/data.zip",
+        "show archive contents of /backup/app.tar.gz on prod"
+      ]
+    },
+    {
+      "name": "sync.rsync",
+      "description": "Sync files between locations using rsync",
+      "synonyms": [
+        "rsync",
+        "sync files",
+        "sync to",
+        "sync from",
+        "mirror files",
+        "rsync to",
+        "rsync from"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "rsync -avz --progress {{source}} {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "rsync /var/www to /backup/www on prod",
+        "sync /srv/myapp to user@backup-server:/backup/",
+        "rsync from /opt/data to /mnt/nas on staging",
+        "mirror files /etc/nginx to /backup/nginx-config"
+      ]
+    },
+    {
+      "name": "sync.rsync_remote",
+      "description": "Rsync files between two servers or from local to remote",
+      "synonyms": [
+        "rsync remote",
+        "sync remote",
+        "rsync between",
+        "sync between servers",
+        "push files to",
+        "pull files from"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false
+        }
+      },
+      "command": "rsync -avz --progress -e ssh {{source}} {{destination}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "push files /var/www to user@prod:/var/www",
+        "pull files from staging:/var/log to /tmp/logs",
+        "rsync between dev and staging for /srv/app"
+      ]
+    },
+    {
+      "name": "backup.create",
+      "description": "Create a backup of files, directories, or databases",
+      "synonyms": [
+        "back up",
+        "create backup",
+        "make backup",
+        "snapshot",
+        "backup to",
+        "backup /"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "/backup"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "DEST={{destination}}/$(basename {{source}})-$(date +%Y%m%d-%H%M%S).tar.gz && tar -czvf $DEST {{source}} && echo 'Backup created: '$DEST",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "backup /etc/nginx on prod",
+        "create backup of /srv/myapp to /backup on staging",
+        "back up the database config on prod",
+        "backup /var/www on prod"
+      ]
+    },
+    {
+      "name": "backup.restore",
+      "description": "Restore from a backup archive",
+      "synonyms": [
+        "restore backup",
+        "restore from backup",
+        "recover",
+        "restore from"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "/"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "tar -xzvf {{source}} -C {{destination}} && echo 'Restored from: {{source}}'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "restore backup /backup/nginx-20240101.tar.gz on prod",
+        "restore from /backup/app-latest.tar.gz to /srv/myapp",
+        "recover from backup on staging"
+      ]
+    },
+    {
+      "name": "backup.list",
+      "description": "List available backups",
+      "synonyms": [
+        "list backups",
+        "show backups",
+        "available backups",
+        "what backups"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/backup"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ls -lah {{path}}/*.tar.gz {{path}}/*.zip 2>/dev/null | sort -k6,7 || echo 'No backups found in {{path}}'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list backups on prod",
+        "show available backups on staging",
+        "what backups are in /backup on prod"
+      ]
+    },
+    {
+      "name": "package.install",
+      "description": "Install a system package",
+      "synonyms": [
+        "install package",
+        "apt install",
+        "yum install",
+        "dnf install",
+        "install"
+      ],
+      "fields": {
+        "package": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "if command -v apt-get >/dev/null; then sudo apt-get install -y {{package}}; elif command -v dnf >/dev/null; then sudo dnf install -y {{package}}; elif command -v yum >/dev/null; then sudo yum install -y {{package}}; else echo 'No supported package manager found'; fi",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "install nginx on prod",
+        "apt install certbot on staging",
+        "install whois on dev",
+        "install zip on prod"
+      ]
+    },
+    {
+      "name": "package.check",
+      "description": "Check if a package is installed",
+      "synonyms": [
+        "is installed",
+        "check package",
+        "which",
+        "package installed",
+        "command exists",
+        "is zip installed",
+        "is nginx installed",
+        "is certbot installed"
+      ],
+      "fields": {
+        "package": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "command -v {{package}} && echo '{{package}} is installed' && {{package}} --version 2>/dev/null || dpkg -l {{package}} 2>/dev/null || rpm -q {{package}} 2>/dev/null || echo '{{package}} is NOT installed'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is nginx installed on prod",
+        "check package certbot on staging",
+        "which rsync on dev",
+        "is zip installed"
+      ]
+    },
+    {
+      "name": "swap.create",
+      "description": "Create and enable a swap file",
+      "synonyms": [
+        "create swap",
+        "add swap",
+        "make swap",
+        "enable swap",
+        "swapfile"
+      ],
+      "fields": {
+        "size": {
+          "type": "string",
+          "required": false,
+          "default": "2G"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/swapfile"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo fallocate -l {{size}} {{path}} && sudo chmod 600 {{path}} && sudo mkswap {{path}} && sudo swapon {{path}} && echo '{{path}} ({{size}}) activated' && free -h",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "create swap 4G on prod",
+        "add swap file on staging",
+        "make 2G swapfile on dev"
+      ]
+    },
+    {
+      "name": "swap.delete",
+      "description": "Disable and remove a swap file",
+      "synonyms": [
+        "delete swap",
+        "remove swap",
+        "disable swap",
+        "remove swapfile"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/swapfile"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo swapoff {{path}} && sudo rm -f {{path}} && echo 'Swap removed: {{path}}' && free -h",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "delete swap on prod",
+        "remove swapfile on staging",
+        "disable swap on dev"
+      ]
+    },
+    {
+      "name": "swap.status",
+      "description": "Show current swap usage",
+      "synonyms": [
+        "swap status",
+        "show swap",
+        "swap usage",
+        "swapon"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "swapon --show && echo '' && free -h",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show swap on prod",
+        "swap status on staging",
+        "swap usage on dev"
+      ]
+    },
+    {
+      "name": "network.curl",
+      "description": "Make an HTTP request to a URL",
+      "synonyms": [
+        "curl",
+        "http request",
+        "fetch url",
+        "get url",
+        "hit endpoint",
+        "call api",
+        "wget"
+      ],
+      "fields": {
+        "url": {
+          "type": "string",
+          "required": true
+        },
+        "method": {
+          "type": "string",
+          "required": false,
+          "default": "GET"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "curl -sS -X {{method}} -w '\\n\\nHTTP %{http_code} | %{time_total}s | %{size_download} bytes' {{url}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "curl https://example.com",
+        "hit endpoint https://api.example.com/health on prod",
+        "fetch url https://example.com/api/status",
+        "call api https://localhost:3000/health on dev"
+      ]
+    },
+    {
+      "name": "network.whois",
+      "description": "Look up domain registration and DNS information",
+      "synonyms": [
+        "whois",
+        "domain info",
+        "domain lookup",
+        "who owns",
+        "domain registration",
+        "rdap"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "whois {{target}} 2>/dev/null || curl -sS 'https://rdap.org/domain/{{target}}' | head -50",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "whois example.com",
+        "who owns google.com",
+        "domain info example.org",
+        "domain lookup mysite.io"
+      ]
+    },
+    {
+      "name": "network.dig",
+      "description": "DNS lookup for a domain",
+      "synonyms": [
+        "dig",
+        "dns lookup",
+        "nslookup",
+        "resolve dns",
+        "dns records",
+        "lookup dns"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "recordType": {
+          "type": "string",
+          "required": false,
+          "default": "A"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "dig {{target}} {{recordType}} +short && echo '\\n--- Full ---\\n' && dig {{target}} {{recordType}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "dig example.com",
+        "dns lookup google.com",
+        "nslookup example.com MX",
+        "resolve dns example.org",
+        "dns records for mysite.io"
+      ]
+    },
+    {
+      "name": "network.traceroute",
+      "description": "Trace the network route to a host",
+      "synonyms": [
+        "traceroute",
+        "trace route",
+        "tracepath",
+        "trace network"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "traceroute -m 15 {{target}} 2>/dev/null || tracepath {{target}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "traceroute google.com",
+        "trace route to 8.8.8.8 on prod",
+        "tracepath example.com"
+      ]
+    },
+    {
+      "name": "perm.check",
+      "description": "Check file or directory permissions and access",
+      "synonyms": [
+        "check permissions",
+        "file permissions",
+        "who can access",
+        "can i read",
+        "can i write",
+        "access check",
+        "stat file",
+        "show permissions"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "stat -c '%A %a %U %G %s %n' {{path}} && echo '' && ls -la {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check permissions on /etc/shadow",
+        "who can access /var/www on prod",
+        "show permissions for /etc/nginx on staging",
+        "can I write to /var/log on prod"
+      ]
+    },
+    {
+      "name": "perm.chmod",
+      "description": "Change file or directory permissions",
+      "synonyms": [
+        "chmod",
+        "change permissions",
+        "set permissions",
+        "make executable",
+        "make readable",
+        "make writable",
+        "set read only",
+        "secure file"
+      ],
+      "fields": {
+        "mode": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "recursive": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo chmod {{mode}} {{path}} && stat -c '%A %a %U %G %n' {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "chmod 755 /var/www on prod",
+        "make /deploy.sh executable on staging",
+        "set 600 on /etc/ssl/private/key.pem",
+        "change permissions to 644 on /etc/nginx/nginx.conf",
+        "secure /root/.ssh/id_rsa on prod"
+      ]
+    },
+    {
+      "name": "perm.chown",
+      "description": "Change file or directory ownership",
+      "synonyms": [
+        "chown",
+        "change owner",
+        "change ownership",
+        "set owner",
+        "give to user",
+        "give ownership"
+      ],
+      "fields": {
+        "owner": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo chown {{owner}} {{path}} && stat -c '%A %a %U %G %n' {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "chown www-data:www-data /var/www on prod",
+        "change owner of /srv/app to deploy on staging",
+        "give /var/log/app to deploy:deploy on prod"
+      ]
+    },
+    {
+      "name": "perm.chown_recursive",
+      "description": "Recursively change ownership of a directory",
+      "synonyms": [
+        "chown recursive",
+        "change owner recursively",
+        "chown -R"
+      ],
+      "fields": {
+        "owner": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo chown -R {{owner}} {{path}} && echo 'Ownership changed recursively' && ls -la {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "chown -R www-data:www-data /var/www on prod",
+        "change owner recursively deploy:deploy /srv/app on staging"
+      ]
+    },
+    {
+      "name": "perm.chmod_recursive",
+      "description": "Recursively change permissions of a directory",
+      "synonyms": [
+        "chmod recursive",
+        "chmod -R",
+        "change permissions recursively"
+      ],
+      "fields": {
+        "mode": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo chmod -R {{mode}} {{path}} && echo 'Permissions changed recursively' && ls -la {{path}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "chmod -R 755 /var/www on prod",
+        "change permissions recursively 644 /etc/nginx on staging"
+      ]
+    },
+    {
+      "name": "system.history",
+      "description": "Show shell command history",
+      "synonyms": [
+        "history",
+        "command history",
+        "bash history",
+        "check history",
+        "show history",
+        "recent commands",
+        "what did i run",
+        "show command history"
+      ],
+      "fields": {
+        "query": {
+          "type": "string",
+          "required": false
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 30
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "if [ -n '{{query}}' ]; then history 2>/dev/null | grep -i '{{query}}' | tail -{{lines}} || cat ~/.bash_history 2>/dev/null | grep -i '{{query}}' | tail -{{lines}}; else history 2>/dev/null | tail -{{lines}} || cat ~/.bash_history 2>/dev/null | tail -{{lines}}; fi",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check history",
+        "show command history",
+        "what did i run recently",
+        "search history for nginx",
+        "bash history on prod"
+      ]
+    },
+    {
+      "name": "system.hostname",
+      "description": "Show or set the system hostname",
+      "synonyms": [
+        "hostname",
+        "show hostname",
+        "what is the hostname",
+        "set hostname"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "hostname && hostnamectl 2>/dev/null || echo ''",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "hostname on prod",
+        "what is the hostname on staging"
+      ]
+    },
+    {
+      "name": "system.datetime",
+      "description": "Show date, time, and timezone",
+      "synonyms": [
+        "date",
+        "time",
+        "datetime",
+        "timedatectl",
+        "what time",
+        "timezone"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "date && echo '' && timedatectl 2>/dev/null || echo ''",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "date on prod",
+        "what time is it on staging",
+        "show timezone"
+      ]
+    },
+    {
+      "name": "system.reboot",
+      "description": "Reboot the server",
+      "synonyms": [
+        "reboot",
+        "restart server",
+        "reboot server"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": true
+        }
+      },
+      "command": "sudo reboot",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "reboot prod",
+        "restart server on staging"
+      ]
+    },
+    {
+      "name": "system.shutdown",
+      "description": "Shutdown the server",
+      "synonyms": [
+        "shutdown",
+        "power off",
+        "halt server",
+        "shutdown server"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": true
+        }
+      },
+      "command": "sudo shutdown -h now",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "shutdown prod",
+        "power off staging"
+      ]
+    },
+    {
+      "name": "system.info",
+      "description": "Show full system information (kernel, distro, hardware)",
+      "synonyms": [
+        "system info",
+        "uname",
+        "os info",
+        "kernel info",
+        "distro info",
+        "lsb_release",
+        "neofetch",
+        "what os",
+        "system health",
+        "os are we running"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "uname -a && echo '' && cat /etc/os-release 2>/dev/null && echo '' && lscpu | head -15 2>/dev/null",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "system info on prod",
+        "uname on staging",
+        "what distro is prod running"
+      ]
+    },
+    {
+      "name": "systemd.enable",
+      "description": "Enable a service to start on boot",
+      "synonyms": [
+        "systemctl enable",
+        "enable service",
+        "enable on boot",
+        "auto start",
+        "enable",
+        "enable nginx on boot",
+        "enable redis on boot",
+        "enable api on boot"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl enable {{service}} && systemctl is-enabled {{service}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "enable nginx on boot on prod",
+        "systemctl enable redis on staging"
+      ]
+    },
+    {
+      "name": "systemd.disable",
+      "description": "Disable a service from starting on boot",
+      "synonyms": [
+        "systemctl disable",
+        "disable service",
+        "disable on boot",
+        "no auto start"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl disable {{service}} && systemctl is-enabled {{service}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "disable nginx on boot on prod",
+        "systemctl disable redis on staging"
+      ]
+    },
+    {
+      "name": "systemd.start",
+      "description": "Start a service",
+      "synonyms": [
+        "start service",
+        "systemctl start",
+        "service start"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl start {{service}} && systemctl status {{service}} --no-pager",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "start nginx on prod",
+        "start redis on staging"
+      ]
+    },
+    {
+      "name": "systemd.stop",
+      "description": "Stop a service",
+      "synonyms": [
+        "stop service",
+        "systemctl stop",
+        "service stop",
+        "stop",
+        "stop redis",
+        "stop nginx",
+        "stop api"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo systemctl stop {{service}} && systemctl status {{service}} --no-pager",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "stop nginx on prod",
+        "stop redis on staging"
+      ]
+    },
+    {
+      "name": "logs.journal",
+      "description": "View systemd journal logs",
+      "synonyms": [
+        "journalctl",
+        "journal logs",
+        "systemd logs",
+        "service logs"
+      ],
+      "fields": {
+        "service": {
+          "type": "service",
+          "required": false
+        },
+        "lines": {
+          "type": "number",
+          "required": false,
+          "default": 50
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "journalctl -u {{service}} -n {{lines}} --no-pager 2>/dev/null || journalctl -n {{lines}} --no-pager",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "journalctl nginx on prod",
+        "service logs for api on staging",
+        "journal logs 100 on prod"
+      ]
+    },
+    {
+      "name": "logs.dmesg",
+      "description": "View kernel messages",
+      "synonyms": [
+        "dmesg",
+        "kernel messages",
+        "kernel log",
+        "boot messages"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "dmesg --time-format iso | tail -50",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "dmesg on prod",
+        "kernel messages on staging"
+      ]
+    },
+    {
+      "name": "disk.mount",
+      "description": "Mount a filesystem",
+      "synonyms": [
+        "mount",
+        "mount disk",
+        "mount volume",
+        "mount filesystem"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo mount {{source}} {{destination}} && df -h {{destination}}",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "mount /dev/sdb1 to /mnt/data on prod"
+      ]
+    },
+    {
+      "name": "disk.unmount",
+      "description": "Unmount a filesystem",
+      "synonyms": [
+        "unmount",
+        "umount",
+        "unmount disk",
+        "eject"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo umount {{path}} && echo 'Unmounted {{path}}'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "unmount /mnt/data on prod",
+        "umount /mnt/backup on staging"
+      ]
+    },
+    {
+      "name": "disk.list",
+      "description": "List block devices and partitions",
+      "synonyms": [
+        "lsblk",
+        "list disks",
+        "show disks",
+        "list partitions",
+        "disk info",
+        "fdisk -l",
+        "show drives"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "lsblk -f && echo '' && df -h",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list disks on prod",
+        "lsblk on staging",
+        "show partitions on prod"
+      ]
+    },
+    {
+      "name": "cron.add",
+      "description": "Add a cron job",
+      "synonyms": [
+        "add cron",
+        "create cron",
+        "schedule job",
+        "add crontab",
+        "new cron"
+      ],
+      "fields": {
+        "schedule": {
+          "type": "string",
+          "required": true
+        },
+        "command": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "(crontab -l 2>/dev/null; echo '{{schedule}} {{command}}') | crontab - && echo 'Cron added' && crontab -l",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "add cron job every hour to run /scripts/backup.sh on prod"
+      ]
+    },
+    {
+      "name": "cron.remove",
+      "description": "Remove a cron job",
+      "synonyms": [
+        "remove cron",
+        "delete cron",
+        "remove crontab entry"
+      ],
+      "fields": {
+        "pattern": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "crontab -l | grep -v '{{pattern}}' | crontab - && echo 'Removed entries matching: {{pattern}}' && crontab -l",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "remove cron job for backup.sh on prod"
+      ]
+    },
+    {
+      "name": "security.ufw",
+      "description": "Manage UFW firewall rules",
+      "synonyms": [
+        "ufw",
+        "firewall",
+        "ufw status",
+        "firewall status",
+        "ufw allow",
+        "ufw deny",
+        "open port",
+        "close port",
+        "block port"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false,
+          "default": "status"
+        },
+        "port": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo ufw {{action}} {{port}} 2>/dev/null && sudo ufw status verbose || echo 'ufw not installed'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "ufw status on prod",
+        "open port 8080 on staging",
+        "firewall status on prod",
+        "block port 3306 on prod"
+      ]
+    },
+    {
+      "name": "security.fail2ban",
+      "description": "Check or manage fail2ban",
+      "synonyms": [
+        "fail2ban",
+        "fail2ban status",
+        "banned ips",
+        "fail2ban jails"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo fail2ban-client status 2>/dev/null && echo '' && sudo fail2ban-client status sshd 2>/dev/null || echo 'fail2ban not installed'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "fail2ban status on prod",
+        "show banned ips on staging"
+      ]
+    },
+    {
+      "name": "security.iptables",
+      "description": "View iptables firewall rules",
+      "synonyms": [
+        "iptables",
+        "iptables rules",
+        "show firewall rules",
+        "nftables"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo iptables -L -n -v --line-numbers 2>/dev/null || sudo nft list ruleset 2>/dev/null || echo 'No iptables/nftables'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show iptables rules on prod",
+        "iptables on staging"
+      ]
+    },
+    {
+      "name": "security.sshkey",
+      "description": "Manage SSH keys (generate, list, add authorized)",
+      "synonyms": [
+        "ssh key",
+        "ssh keygen",
+        "generate ssh key",
+        "authorized keys",
+        "ssh keys",
+        "list ssh keys"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false,
+          "default": "list"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo 'Authorized keys:' && cat ~/.ssh/authorized_keys 2>/dev/null | wc -l && echo 'keys' && echo '' && ls -la ~/.ssh/ 2>/dev/null",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list ssh keys on prod",
+        "show authorized keys on staging"
+      ]
+    },
+    {
+      "name": "cert.check",
+      "description": "Check an SSL certificate for a domain or file",
+      "synonyms": [
+        "check certificate",
+        "check ssl",
+        "ssl cert",
+        "cert info",
+        "certificate expiry",
+        "openssl check",
+        "cert check"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "echo | openssl s_client -connect {{target}}:443 -servername {{target}} 2>/dev/null | openssl x509 -noout -subject -issuer -dates -fingerprint 2>/dev/null || openssl x509 -in {{target}} -noout -subject -issuer -dates 2>/dev/null || echo 'Could not check certificate'",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check ssl for example.com",
+        "cert info google.com on prod",
+        "certificate expiry for mysite.io"
+      ]
+    },
+    {
+      "name": "cert.generate",
+      "description": "Generate a self-signed SSL certificate",
+      "synonyms": [
+        "generate certificate",
+        "create ssl cert",
+        "self signed cert",
+        "openssl genrsa",
+        "generate ssl"
+      ],
+      "fields": {
+        "domain": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "/etc/ssl"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout {{path}}/private/{{domain}}.key -out {{path}}/certs/{{domain}}.crt -subj '/CN={{domain}}' && echo 'Certificate generated for {{domain}}'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "generate ssl cert for example.com on prod",
+        "create self signed cert for mysite.io"
+      ]
+    },
+    {
+      "name": "db.pg_dump",
+      "description": "Backup a PostgreSQL database",
+      "synonyms": [
+        "pg_dump",
+        "dump postgres",
+        "backup database",
+        "backup postgres",
+        "postgres dump",
+        "export database"
+      ],
+      "fields": {
+        "database": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "/backup"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "pg_dump {{database}} | gzip > {{destination}}/{{database}}-$(date +%Y%m%d-%H%M%S).sql.gz && echo 'Dump complete'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "dump postgres mydb on prod",
+        "backup database myapp to /backup on staging"
+      ]
+    },
+    {
+      "name": "db.pg_restore",
+      "description": "Restore a PostgreSQL database from dump",
+      "synonyms": [
+        "pg_restore",
+        "restore postgres",
+        "restore database",
+        "import database",
+        "load database"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "gunzip -c {{source}} | psql {{database}} && echo 'Restore complete'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "fuzzyResolve": [
+        "source"
+      ],
+      "examples": [
+        "restore postgres mydb from /backup/mydb-dump.sql.gz on staging"
+      ]
+    },
+    {
+      "name": "db.mysql_dump",
+      "description": "Backup a MySQL/MariaDB database",
+      "synonyms": [
+        "mysqldump",
+        "dump mysql",
+        "backup mysql",
+        "mysql dump",
+        "export mysql"
+      ],
+      "fields": {
+        "database": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "/backup"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "mysqldump {{database}} | gzip > {{destination}}/{{database}}-$(date +%Y%m%d-%H%M%S).sql.gz && echo 'Dump complete'",
+      "execution": "remote",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "dump mysql mydb on prod",
+        "backup mysql database on staging"
+      ]
+    },
+    {
+      "name": "db.redis_cli",
+      "description": "Run Redis CLI commands",
+      "synonyms": [
+        "redis-cli",
+        "redis cli",
+        "redis command",
+        "redis info",
+        "redis ping"
+      ],
+      "fields": {
+        "command": {
+          "type": "string",
+          "required": false,
+          "default": "info"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "redis-cli {{command}}",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "redis info on prod",
+        "redis-cli ping on staging",
+        "redis cli dbsize on prod"
+      ]
+    },
+    {
+      "name": "network.ip",
+      "description": "Show network interfaces and IP addresses",
+      "synonyms": [
+        "ip addr",
+        "ifconfig",
+        "show ip",
+        "ip address",
+        "network interfaces",
+        "my ip",
+        "what is my ip"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ip addr show 2>/dev/null || ifconfig 2>/dev/null",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show ip on prod",
+        "ip addr on staging",
+        "what is my ip on prod"
+      ]
+    },
+    {
+      "name": "network.route",
+      "description": "Show routing table",
+      "synonyms": [
+        "route",
+        "routing table",
+        "ip route",
+        "show routes",
+        "netstat -r"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ip route show 2>/dev/null || route -n 2>/dev/null",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show routes on prod",
+        "routing table on staging"
+      ]
+    },
+    {
+      "name": "network.connections",
+      "description": "Show active network connections",
+      "synonyms": [
+        "connections",
+        "active connections",
+        "netstat",
+        "established connections",
+        "who is connected"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "ss -tunap | head -30 2>/dev/null || netstat -tunap | head -30",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show connections on prod",
+        "active connections on staging",
+        "who is connected to prod"
+      ]
+    },
+    {
+      "name": "network.scp",
+      "description": "Securely copy files between hosts",
+      "synonyms": [
+        "scp",
+        "secure copy",
+        "scp to",
+        "scp from",
+        "copy to remote",
+        "copy from remote"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "scp -r {{source}} {{destination}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "scp /tmp/backup.tar.gz to user@prod:/backup/",
+        "secure copy config.yml to staging:/etc/app/"
+      ]
+    },
+    {
+      "name": "network.bandwidth",
+      "description": "Check network bandwidth and usage",
+      "synonyms": [
+        "bandwidth",
+        "network usage",
+        "nethogs",
+        "iftop",
+        "network speed"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "cat /proc/net/dev && echo '' && ip -s link 2>/dev/null | head -30",
+      "execution": "remote",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "bandwidth on prod",
+        "network usage on staging"
+      ]
+    },
+    {
+      "name": "llm.ask",
+      "description": "Ask an LLM (Claude or ChatGPT) a question",
+      "synonyms": [
+        "ask claude",
+        "ask chatgpt",
+        "ask ai",
+        "ask llm",
+        "claude",
+        "chatgpt",
+        "ai help"
+      ],
+      "fields": {
+        "prompt": {
+          "type": "string",
+          "required": true
+        },
+        "model": {
+          "type": "string",
+          "required": false,
+          "default": "claude"
+        }
+      },
+      "command": "echo 'LLM query'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ask claude how to set up nginx reverse proxy",
+        "ask chatgpt explain iptables",
+        "ask ai about load balancing"
+      ]
+    },
+    {
+      "name": "llm.claude_cli",
+      "description": "Run a command through Claude CLI",
+      "synonyms": [
+        "claude cli",
+        "run claude",
+        "claude code",
+        "use claude"
+      ],
+      "fields": {
+        "prompt": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "claude -p '{{prompt}}'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "claude cli explain this error",
+        "run claude to review my config"
+      ]
+    },
+    {
+      "name": "llm.convex",
+      "description": "Run Convex CLI commands",
+      "synonyms": [
+        "convex",
+        "convex cli",
+        "convex deploy",
+        "convex dev",
+        "convex run"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "npx convex {{action}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "convex dev",
+        "convex deploy",
+        "convex run"
+      ]
+    }
+  ]
+}

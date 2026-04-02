@@ -1,0 +1,42 @@
+{
+  "name": "notoken",
+  "version": "1.0.2",
+  "description": "Token-free terminal copilot — NLP-based server operations CLI",
+  "type": "module",
+  "license": "MIT",
+  "author": "Dino Bartolome",
+  "homepage": "https://notoken.sh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/offset25/notoken-cli",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/offset25/notoken-cli/issues"
+  },
+  "bin": {
+    "notoken": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist/", "service.js"],
+  "keywords": ["cli", "nlp", "devops", "server-operations", "sysadmin", "offline", "copilot"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@notoken/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

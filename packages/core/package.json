@@ -1,0 +1,39 @@
+{
+  "name": "@notoken/core",
+  "version": "1.0.0",
+  "description": "Shared engine for notoken — NLP parsing, execution, detection, analysis",
+  "type": "module",
+  "license": "MIT",
+  "author": "Dino Bartolome",
+  "homepage": "https://notoken.sh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/offset25/notoken-cli",
+    "directory": "packages/core"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist/", "config/"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "compromise": "^14.15.0",
+    "dotenv": "^17.3.1",
+    "simple-git": "^3.33.0",
+    "yaml": "^2.8.3",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

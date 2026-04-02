@@ -1,0 +1,112 @@
+{
+  "_description": "Reusable multi-step playbooks. Run with: mycli> :play <name> [env]",
+  "playbooks": [
+    {
+      "name": "health-check",
+      "description": "Full server health check — disk, memory, load, processes, services",
+      "steps": [
+        { "command": "uptime", "label": "Uptime & load" },
+        { "command": "free -h", "label": "Memory usage" },
+        { "command": "df -h", "label": "Disk usage" },
+        { "command": "ps aux --sort=-%cpu | head -10", "label": "Top CPU processes" },
+        { "command": "ps aux --sort=-%mem | head -10", "label": "Top memory processes" },
+        { "command": "ss -tlnp | head -20", "label": "Listening ports" },
+        { "command": "systemctl list-units --state=failed --no-pager 2>/dev/null || echo 'N/A'", "label": "Failed services" }
+      ]
+    },
+    {
+      "name": "disk-analysis",
+      "description": "Deep disk usage analysis — find what's consuming space",
+      "steps": [
+        { "command": "df -h", "label": "Filesystem overview" },
+        { "command": "du -sh /var/* 2>/dev/null | sort -rh | head -10", "label": "Largest dirs in /var" },
+        { "command": "du -sh /home/* 2>/dev/null | sort -rh | head -10", "label": "Largest dirs in /home" },
+        { "command": "du -sh /tmp/* 2>/dev/null | sort -rh | head -10", "label": "Largest in /tmp" },
+        { "command": "find /var/log -type f -size +100M 2>/dev/null", "label": "Large log files (>100MB)" },
+        { "command": "find /tmp -type f -mtime +7 2>/dev/null | wc -l", "label": "Old temp files (>7 days)" },
+        { "command": "journalctl --disk-usage 2>/dev/null || echo 'N/A'", "label": "Journal disk usage" }
+      ]
+    },
+    {
+      "name": "load-analysis",
+      "description": "Analyze what's causing high load — CPU, memory, I/O",
+      "steps": [
+        { "command": "uptime", "label": "Load average" },
+        { "command": "cat /proc/loadavg", "label": "Load detail" },
+        { "command": "nproc", "label": "CPU cores" },
+        { "command": "ps aux --sort=-%cpu | head -15", "label": "Top CPU consumers" },
+        { "command": "ps aux --sort=-%mem | head -15", "label": "Top memory consumers" },
+        { "command": "iostat -x 1 3 2>/dev/null || echo 'iostat not installed (sysstat)'", "label": "I/O stats" },
+        { "command": "vmstat 1 5 2>/dev/null || echo 'vmstat not available'", "label": "VM stats" }
+      ]
+    },
+    {
+      "name": "security-audit",
+      "description": "Basic security audit — open ports, auth, updates, suspicious activity",
+      "steps": [
+        { "command": "ss -tlnp", "label": "Open listening ports" },
+        { "command": "cat /etc/passwd | grep -v nologin | grep -v false | cut -d: -f1", "label": "Login-capable users" },
+        { "command": "lastlog 2>/dev/null | grep -v 'Never' | head -20", "label": "Recent logins" },
+        { "command": "last -n 10 2>/dev/null", "label": "Last 10 logins" },
+        { "command": "grep 'Failed password' /var/log/auth.log 2>/dev/null | tail -10 || grep 'Failed password' /var/log/secure 2>/dev/null | tail -10 || echo 'No auth log found'", "label": "Failed login attempts" },
+        { "command": "find / -perm -4000 -type f 2>/dev/null | head -20", "label": "SUID binaries" },
+        { "command": "apt list --upgradable 2>/dev/null | head -20 || yum check-update 2>/dev/null | head -20 || echo 'N/A'", "label": "Pending updates" },
+        { "command": "grep PermitRootLogin /etc/ssh/sshd_config 2>/dev/null || echo 'sshd_config not found'", "label": "SSH root login setting" }
+      ]
+    },
+    {
+      "name": "virus-scan",
+      "description": "Run ClamAV virus scan (installs if missing)",
+      "steps": [
+        { "command": "command -v clamscan >/dev/null || (echo 'Installing ClamAV...' && sudo apt-get install -y clamav 2>/dev/null || sudo yum install -y clamav 2>/dev/null || echo 'Install clamav manually')", "label": "Ensure ClamAV installed" },
+        { "command": "sudo freshclam 2>/dev/null || echo 'Could not update virus definitions'", "label": "Update virus definitions" },
+        { "command": "sudo clamscan -r --bell --max-filesize=100M --max-scansize=500M /home /tmp /var/www 2>/dev/null | tail -20 || echo 'Scan failed'", "label": "Scan /home, /tmp, /var/www" },
+        { "command": "sudo clamscan -r --bell --infected /etc 2>/dev/null | tail -10 || echo 'N/A'", "label": "Scan /etc (infected only)" }
+      ]
+    },
+    {
+      "name": "letsencrypt-setup",
+      "description": "Set up Let's Encrypt SSL certificate with certbot",
+      "steps": [
+        { "command": "command -v certbot >/dev/null || (echo 'Installing certbot...' && sudo apt-get update && sudo apt-get install -y certbot python3-certbot-nginx 2>/dev/null || sudo dnf install -y certbot python3-certbot-nginx 2>/dev/null || echo 'Install certbot manually')", "label": "Ensure certbot installed" },
+        { "command": "certbot --version 2>/dev/null", "label": "Certbot version" },
+        { "command": "ls /etc/letsencrypt/live/ 2>/dev/null || echo 'No existing certificates'", "label": "Existing certificates" },
+        { "command": "echo 'Run: sudo certbot --nginx -d yourdomain.com'", "label": "Next step — run certbot" },
+        { "command": "echo 'Run: sudo certbot renew --dry-run'", "label": "Test renewal" }
+      ]
+    },
+    {
+      "name": "nginx-check",
+      "description": "Nginx configuration check and status",
+      "steps": [
+        { "command": "nginx -v 2>&1", "label": "Nginx version" },
+        { "command": "sudo nginx -t 2>&1", "label": "Config syntax check" },
+        { "command": "systemctl status nginx --no-pager 2>/dev/null || service nginx status", "label": "Service status" },
+        { "command": "ls -la /etc/nginx/sites-enabled/ 2>/dev/null || ls -la /etc/nginx/conf.d/ 2>/dev/null", "label": "Enabled sites/configs" },
+        { "command": "tail -20 /var/log/nginx/error.log 2>/dev/null || echo 'No error log'", "label": "Recent errors" }
+      ]
+    },
+    {
+      "name": "docker-check",
+      "description": "Docker status, containers, images, and disk usage",
+      "steps": [
+        { "command": "docker --version 2>/dev/null || echo 'Docker not installed'", "label": "Docker version" },
+        { "command": "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}' 2>/dev/null", "label": "Running containers" },
+        { "command": "docker ps -a --filter 'status=exited' --format 'table {{.Names}}\\t{{.Status}}' 2>/dev/null | head -10", "label": "Stopped containers" },
+        { "command": "docker images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}' 2>/dev/null | head -15", "label": "Images" },
+        { "command": "docker system df 2>/dev/null", "label": "Disk usage" }
+      ]
+    },
+    {
+      "name": "backup-full",
+      "description": "Full server backup — configs, data, databases",
+      "steps": [
+        { "command": "BACKUP_DIR=/backup/$(hostname)-$(date +%Y%m%d) && mkdir -p $BACKUP_DIR && echo $BACKUP_DIR", "label": "Create backup directory" },
+        { "command": "BACKUP_DIR=/backup/$(hostname)-$(date +%Y%m%d) && tar -czf $BACKUP_DIR/etc.tar.gz /etc/ 2>/dev/null && echo 'OK'", "label": "Backup /etc" },
+        { "command": "BACKUP_DIR=/backup/$(hostname)-$(date +%Y%m%d) && tar -czf $BACKUP_DIR/var-www.tar.gz /var/www/ 2>/dev/null && echo 'OK' || echo 'No /var/www'", "label": "Backup /var/www" },
+        { "command": "BACKUP_DIR=/backup/$(hostname)-$(date +%Y%m%d) && tar -czf $BACKUP_DIR/home.tar.gz /home/ 2>/dev/null && echo 'OK'", "label": "Backup /home" },
+        { "command": "BACKUP_DIR=/backup/$(hostname)-$(date +%Y%m%d) && ls -lh $BACKUP_DIR/", "label": "Backup summary" }
+      ]
+    }
+  ]
+}

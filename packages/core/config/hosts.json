@@ -1,0 +1,14 @@
+{
+  "dev": {
+    "host": "user@dev-server",
+    "description": "Development server"
+  },
+  "staging": {
+    "host": "user@staging-server",
+    "description": "Staging server"
+  },
+  "prod": {
+    "host": "user@prod-server",
+    "description": "Production server"
+  }
+}

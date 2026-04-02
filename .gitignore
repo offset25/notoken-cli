@@ -1,0 +1,9 @@
+node_modules/
+dist/
+logs/
+data/
+*.backup.*
+.heal-prompt.tmp
+.env
+.env.local
+.env.production

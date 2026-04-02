@@ -1,0 +1,15 @@
+src/
+tests/
+docs/
+service.js
+tsconfig.json
+vitest.config.ts
+TESTS.md
+logs/
+data/
+scripts/
+*.backup.*
+.heal-prompt.tmp
+.github/
+.gitignore
+sea-config.json

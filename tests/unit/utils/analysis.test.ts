@@ -1,0 +1,83 @@
+import { describe, it, expect } from "vitest";
+import { analyzeLoad, analyzeDisk, analyzeMemory } from "../../../src/utils/analysis.js";
+
+describe("analyzeLoad", () => {
+  it("detects healthy load", () => {
+    const output = " 15:00:00 up 10 days, load average: 0.5, 0.6, 0.7\n4\n";
+    const analysis = analyzeLoad(output);
+    expect(analysis).toContain("vCPUs");
+    expect(analysis).toContain("4");
+    expect(analysis).toContain("OK");
+    expect(analysis).toContain("Healthy");
+  });
+
+  it("detects overloaded system", () => {
+    const output = " 15:00:00 up 10 days, load average: 12.5, 10.0, 8.0\n4\n";
+    const analysis = analyzeLoad(output);
+    expect(analysis).toContain("CRITICAL");
+  });
+
+  it("detects moderate load", () => {
+    const output = " 15:00:00 up 10 days, load average: 3.2, 3.0, 2.8\n4\n";
+    const analysis = analyzeLoad(output);
+    expect(analysis).toContain("80%");
+  });
+
+  it("detects rising trend", () => {
+    const output = " 15:00:00 up 10 days, load average: 4.0, 2.0, 1.0\n4\n";
+    const analysis = analyzeLoad(output);
+    expect(analysis).toContain("UP");
+  });
+});
+
+describe("analyzeDisk", () => {
+  const SAMPLE_DF = `Filesystem  Size  Used Avail Use% Mounted on
+/dev/sda1   100G   45G   55G  45% /
+/dev/sdb1   500G  480G   20G  96% /data
+tmpfs       16G     0   16G   0% /tmp`;
+
+  it("flags critical partitions", () => {
+    const analysis = analyzeDisk(SAMPLE_DF);
+    expect(analysis).toContain("CRITICAL");
+    expect(analysis).toContain("/data");
+    expect(analysis).toContain("96%");
+  });
+
+  it("shows healthy when all ok", () => {
+    const healthy = `Filesystem  Size  Used Avail Use% Mounted on
+/dev/sda1   100G  30G   70G  30% /`;
+    const analysis = analyzeDisk(healthy);
+    expect(analysis).toContain("healthy");
+  });
+
+  it("finds partition for specific path", () => {
+    const analysis = analyzeDisk(SAMPLE_DF, "/data");
+    expect(analysis).toContain("/data");
+    expect(analysis).toContain("CRITICAL");
+  });
+
+  it("shows usage bars", () => {
+    const analysis = analyzeDisk(SAMPLE_DF);
+    expect(analysis).toContain("█");
+  });
+});
+
+describe("analyzeMemory", () => {
+  it("detects healthy memory", () => {
+    const output = `               total        used        free      shared  buff/cache   available
+Mem:            32Gi        10Gi        15Gi       100Mi       7Gi        20Gi
+Swap:          8.0Gi          0B       8.0Gi`;
+    const analysis = analyzeMemory(output);
+    expect(analysis).toContain("healthy");
+    expect(analysis).toContain("No swap usage");
+  });
+
+  it("detects high memory usage", () => {
+    const output = `               total        used        free      shared  buff/cache   available
+Mem:            32Gi        30Gi       0.5Gi       100Mi       1.5Gi       1.5Gi
+Swap:          8.0Gi       6.0Gi       2.0Gi`;
+    const analysis = analyzeMemory(output);
+    expect(analysis).toContain("HIGH");
+    expect(analysis).toContain("Swap");
+  });
+});

@@ -1,0 +1,10 @@
+{
+  "name": "notoken-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspace=packages/core",
+    "dev": "npm run dev --workspace=packages/cli"
+  }
+}
