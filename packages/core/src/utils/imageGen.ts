@@ -579,6 +579,59 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** Check if a path is a Windows drive accessed through WSL */
+function isWslWindowsPath(path: string): boolean {
+  return path.startsWith("/mnt/") && /^\/mnt\/[a-z]\//.test(path);
+}
+
+/** Convert WSL path to Windows path */
+function toWindowsPath(wslPath: string): string {
+  try {
+    return execSync(`wslpath -w "${wslPath}" 2>/dev/null`, { encoding: "utf-8", timeout: 3000 }).trim();
+  } catch {
+    // Manual conversion: /mnt/d/foo → D:\foo
+    const match = wslPath.match(/^\/mnt\/([a-z])\/(.*)$/);
+    if (match) return `${match[1].toUpperCase()}:\\${match[2].replace(/\//g, "\\")}`;
+    return wslPath;
+  }
+}
+
+/**
+ * Run a command on the Windows side via PowerShell (faster for Windows drives).
+ * Falls back to WSL-native execution if PowerShell not available.
+ */
+async function runOnWindowsSide(cmd: string, cwd: string): Promise<void> {
+  const winCwd = toWindowsPath(cwd);
+  const psCmd = `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`;
+
+  try {
+    const { spawn: spawnAsync } = await import("node:child_process");
+    return new Promise((resolve, reject) => {
+      const child = spawnAsync(psCmd, ["-Command", `cd '${winCwd}'; ${cmd}`], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      child.stdout?.on("data", (d: Buffer) => {
+        const lines = d.toString().split("\n").filter((l: string) => l.trim());
+        for (const line of lines) {
+          process.stderr.write(`  ${c.dim}${line.trim()}${c.reset}\n`);
+        }
+      });
+      child.stderr?.on("data", (d: Buffer) => {
+        const lines = d.toString().split("\n").filter((l: string) => l.trim());
+        for (const line of lines) {
+          process.stderr.write(`  ${c.dim}${line.trim()}${c.reset}\n`);
+        }
+      });
+
+      child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`PowerShell exit ${code}`)));
+      child.on("error", reject);
+    });
+  } catch (err) {
+    throw new Error(`Windows-side execution failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 /** Run a command with streaming output and no timeout (for long pip installs) */
 async function runWithProgress(cmd: string, args: string[], cwd: string): Promise<void> {
   const { spawn: spawnAsync } = await import("node:child_process");
@@ -982,12 +1035,22 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     fooocus: "https://github.com/lllyasviel/Fooocus.git",
   };
 
+  const useWindowsSide = isWSL && isWslWindowsPath(dir);
+  if (useWindowsSide) {
+    console.log(`${c.dim}  Using Windows-native execution for speed (WSL→NTFS bridge is slow)${c.reset}`);
+  }
+
   if (existsSync(dir)) {
     console.log(`${c.cyan}Step 4/${c.reset} ${c.green}Already cloned${c.reset} at ${dir}`);
   } else {
     console.log(`${c.cyan}Step 4/${c.reset} Cloning ${engine}...`);
     try {
-      execSync(`git clone "${repos[engine]}" "${dir}"`, { stdio: "inherit", timeout: 300000 });
+      if (useWindowsSide) {
+        const winDir = toWindowsPath(dir);
+        await runOnWindowsSide(`git clone '${repos[engine]}' '${winDir}'`, resolve(dir, ".."));
+      } else {
+        execSync(`git clone "${repos[engine]}" "${dir}"`, { stdio: "inherit", timeout: 300000 });
+      }
     } catch (err) {
       return { success: false, message: `Clone failed: ${err instanceof Error ? err.message : err}` };
     }
@@ -995,38 +1058,64 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
 
   // Step 5: Create venv and install deps
   console.log(`${c.cyan}Step 5/${c.reset} Setting up virtual environment and dependencies...`);
-  console.log(`${c.dim}  This downloads PyTorch (~190MB for CPU, ~2GB for GPU). May take 5-15 minutes.${c.reset}`);
+  const sizeNote = gpu.hasNvidia ? "~2GB for GPU" : "~190MB for CPU";
+  console.log(`${c.dim}  This downloads PyTorch (${sizeNote}). May take 5-15 minutes.${c.reset}`);
+  if (useWindowsSide) {
+    console.log(`${c.dim}  Running via Windows Python for faster disk I/O on Windows drives.${c.reset}`);
+  }
   const torchExtra = gpu.hasNvidia ? "cu121" : gpu.hasAmd ? "rocm5.7" : "cpu";
 
   try {
-    const venvPip = `${dir}/venv/bin/pip`;
+    if (useWindowsSide) {
+      // Run via Windows Python — much faster for I/O on NTFS drives
+      const winDir = toWindowsPath(dir);
+      console.log(`${c.dim}  Creating virtual environment (Windows Python)...${c.reset}`);
+      await runOnWindowsSide(`python -m venv venv`, dir);
 
-    if (!existsSync(`${dir}/venv`)) {
-      console.log(`${c.dim}  Creating virtual environment...${c.reset}`);
-      execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 120000 });
-    }
+      console.log(`${c.dim}  Upgrading pip...${c.reset}`);
+      await runOnWindowsSide(`venv\\Scripts\\pip install --upgrade pip`, dir);
 
-    console.log(`${c.dim}  Upgrading pip...${c.reset}`);
-    await runWithProgress(venvPip, ["install", "--upgrade", "pip"], dir);
+      console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
+      await runOnWindowsSide(`venv\\Scripts\\pip install torch torchvision --index-url https://download.pytorch.org/whl/${torchExtra}`, dir);
 
-    console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
-    await runWithProgress(venvPip, [
-      "install", "torch", "torchvision",
-      "--index-url", `https://download.pytorch.org/whl/${torchExtra}`,
-    ], dir);
-
-    if (engine === "comfyui" || engine === "fooocus") {
-      const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
-      if (existsSync(resolve(dir, reqFile))) {
-        console.log(`${c.dim}  Installing ${reqFile}...${c.reset}`);
-        await runWithProgress(venvPip, ["install", "-r", resolve(dir, reqFile)], dir);
+      if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
+        console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
+        await runOnWindowsSide(`venv\\Scripts\\pip install -r requirements_versions.txt`, dir);
+      } else if ((engine === "comfyui" || engine === "fooocus")) {
+        const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
+        if (existsSync(resolve(dir, reqFile))) {
+          console.log(`${c.dim}  Installing ${reqFile}...${c.reset}`);
+          await runOnWindowsSide(`venv\\Scripts\\pip install -r ${reqFile}`, dir);
+        }
       }
-    }
+    } else {
+      // Run via WSL Python
+      const venvPip = `${dir}/venv/bin/pip`;
 
-    // Also install the engine's own requirements
-    if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
-      console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
-      await runWithProgress(venvPip, ["install", "-r", resolve(dir, "requirements_versions.txt")], dir);
+      if (!existsSync(`${dir}/venv`)) {
+        console.log(`${c.dim}  Creating virtual environment...${c.reset}`);
+        execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 120000 });
+      }
+
+      console.log(`${c.dim}  Upgrading pip...${c.reset}`);
+      await runWithProgress(venvPip, ["install", "--upgrade", "pip"], dir);
+
+      console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
+      await runWithProgress(venvPip, [
+        "install", "torch", "torchvision",
+        "--index-url", `https://download.pytorch.org/whl/${torchExtra}`,
+      ], dir);
+
+      if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
+        console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "-r", resolve(dir, "requirements_versions.txt")], dir);
+      } else if (engine === "comfyui" || engine === "fooocus") {
+        const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
+        if (existsSync(resolve(dir, reqFile))) {
+          console.log(`${c.dim}  Installing ${reqFile}...${c.reset}`);
+          await runWithProgress(venvPip, ["install", "-r", resolve(dir, reqFile)], dir);
+        }
+      }
     }
 
     console.log(`${c.green}✓${c.reset} Dependencies installed.`);
