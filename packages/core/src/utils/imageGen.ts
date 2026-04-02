@@ -392,6 +392,9 @@ async function waitForReady(url: string, timeoutSeconds: number): Promise<boolea
   }
 
   console.error(`${c.yellow}⚠${c.reset} Timed out waiting for engine after ${timeoutSeconds}s`);
+  console.error(`${c.dim}  First launch downloads the AI model (~4GB) — this can take 5-10 minutes.${c.reset}`);
+  console.error(`${c.dim}  The engine may still be starting in the background.${c.reset}`);
+  console.error(`${c.dim}  Try again in a few minutes, or use cloud API for now.${c.reset}`);
   return false;
 }
 
@@ -762,7 +765,26 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
   // Step 6: Verify
   console.log(`${c.cyan}Step 6/${c.reset} ${c.green}Installation complete${c.reset}`);
   const plan = getInstallPlan(engine);
-  return { success: true, message: `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}\n\n${c.dim}Start: notoken start stable-diffusion\nOr just say "generate a picture of a cat" — it will auto-start.${c.reset}` };
+
+  // Store pending action so user can say "try it"
+  const { suggestAction } = await import("../conversation/pendingActions.js");
+  suggestAction({
+    action: "generate a picture of a cat",
+    description: "Generate a test image to verify the install works",
+    type: "intent",
+  });
+
+  return {
+    success: true,
+    message: [
+      `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}`,
+      ``,
+      `${c.yellow}Note:${c.reset} First launch will download the AI model (~4GB). This takes 5-10 minutes.`,
+      `After that, startup takes about 30-60 seconds.`,
+      ``,
+      `${c.bold}Say "try it" or "generate a picture of a cat" to test.${c.reset}`,
+    ].join("\n"),
+  };
 }
 
 // ─── Windows Native Install ────────────────────────────────────────────────

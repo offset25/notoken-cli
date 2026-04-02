@@ -16,6 +16,7 @@ import { pluginRegistry } from "../plugins/registry.js";
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
+import { suggestAction } from "../conversation/pendingActions.js";
 
 /**
  * Generic command executor.
@@ -215,10 +216,20 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
       console.error(lines.join("\n"));
 
+      // Store as pending action so user can say "try it" / "ok" after install
+      suggestAction({
+        action: "generate a picture of a cat",
+        description: "Generate a test image to verify offline setup works",
+        type: "intent",
+      });
+
       // Actually start the install
       try {
         const installResult = await installImageEngine("auto1111");
         result = installResult.message;
+        if (installResult.success) {
+          result += `\n\n\x1b[1mSay "try it" or "generate a picture of a cat" to test it.\x1b[0m`;
+        }
       } catch {
         // If auto1111 fails (no Python), fall back to showing download links
         result = [

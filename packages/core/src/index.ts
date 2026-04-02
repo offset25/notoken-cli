@@ -97,6 +97,12 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Pending Actions ──
+export {
+  suggestAction, getLastPendingAction, consumePendingAction, isAffirmation, clearPendingActions,
+  type PendingAction,
+} from "./conversation/pendingActions.js";
+
 // ── Multi-Intent ──
 export {
   parseMultiIntent, splitCompoundSentence, formatPlanSteps,
