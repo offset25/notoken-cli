@@ -1286,8 +1286,11 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         const reqPath = resolve(dir, "requirements_versions.txt");
         const reqContent = readFileSync(reqPath, "utf-8");
         const fixedReq = reqContent
-          .replace(/scikit-image==[\d.]+/, "scikit-image>=0.21")  // 0.21.0 has no wheel for py3.12
-          .replace(/numpy==[\d.]+/, "numpy>=1.24")                // relax numpy too
+          .replace(/scikit-image==[\d.]+/, "scikit-image>=0.21")       // 0.21.0 has no wheel for py3.12
+          .replace(/numpy==[\d.]+/, "numpy>=1.24")                     // relax numpy too
+          .replace(/transformers==[\d.]+/, "transformers>=4.30")       // old pin pulls tokenizers that needs Rust build
+          .replace(/tokenizers==[\d.]+/, "tokenizers>=0.14")           // force pre-built wheel version
+          .replace(/Pillow==[\d.]+/, "Pillow>=9.5")                    // relax Pillow too
           ;
         const fixedReqPath = resolve(dir, "requirements_notoken.txt");
         writeFileSync(fixedReqPath, fixedReq);
