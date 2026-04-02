@@ -295,6 +295,171 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n    ${codexOk ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m codex\n\n  \x1b[2mSwitch: "use claude", "use ollama", "use codex"\x1b[0m`;
   }
 
+  // Notoken status — comprehensive overview
+  if (intent.intent === "notoken.status") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}  Notoken — Status${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}\n`);
+
+    // CLI version
+    const cliVer = "1.7.0"; // from package.json
+    lines.push(`  ${cc.bold}CLI:${cc.reset} ${cc.green}✓${cc.reset} notoken v${cliVer}`);
+
+    // Desktop app detection
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+    let appInstalled = false;
+    let appPath = "";
+    if (isWSL) {
+      // Check Windows Program Files for Notoken app
+      const winCheck = await runLocalCommand("cmd.exe /c 'where notoken-app 2>nul || dir /s /b \"C:\\Program Files\\Notoken\\notoken-app.exe\" 2>nul || dir /s /b \"%LOCALAPPDATA%\\Programs\\Notoken\\notoken-app.exe\" 2>nul' 2>/dev/null").catch(() => "");
+      appInstalled = winCheck.includes("notoken");
+      appPath = winCheck.trim().split("\n")[0] || "";
+    } else {
+      // Check Linux — look for AppImage or installed binary
+      const linuxCheck = await runLocalCommand("which notoken-app 2>/dev/null || ls ~/Applications/Notoken*.AppImage 2>/dev/null || ls /opt/notoken/notoken-app 2>/dev/null").catch(() => "");
+      appInstalled = !!linuxCheck.trim();
+      appPath = linuxCheck.trim().split("\n")[0] || "";
+    }
+
+    if (appInstalled) {
+      lines.push(`  ${cc.bold}App:${cc.reset} ${cc.green}✓${cc.reset} Notoken Desktop ${cc.dim}(${appPath})${cc.reset}`);
+    } else {
+      lines.push(`  ${cc.bold}App:${cc.reset} ${cc.dim}○ Notoken Desktop not installed${cc.reset}`);
+      lines.push(`       ${cc.dim}Get it: "install notoken app" or ${cc.cyan}https://notoken.sh/download${cc.reset}`);
+    }
+
+    // LLM Backend
+    const { getLLMBackend } = await import("../nlp/llmFallback.js");
+    const backend = getLLMBackend();
+    lines.push(`  ${cc.bold}LLM:${cc.reset} ${backend ? `${cc.green}✓${cc.reset} ${backend}` : `${cc.yellow}○${cc.reset} none configured`}`);
+
+    // Environment
+    lines.push(`\n  ${cc.bold}Environment:${cc.reset} ${isWSL ? "WSL" : "Linux"}`);
+
+    // Components
+    lines.push(`\n  ${cc.bold}Components:${cc.reset}`);
+
+    const claudeVer = await runLocalCommand("claude --version 2>/dev/null | head -1").catch(() => "");
+    lines.push(`    ${claudeVer ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} Claude Code ${claudeVer ? cc.dim + claudeVer.trim() + cc.reset : ""}`);
+
+    const codexVer = await runLocalCommand("codex --version 2>/dev/null | head -1").catch(() => "");
+    lines.push(`    ${codexVer ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} Codex CLI ${codexVer ? cc.dim + codexVer.trim() + cc.reset : ""}`);
+
+    const ollamaVer = await runLocalCommand("ollama --version 2>/dev/null | head -1").catch(() => "");
+    const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1").catch(() => "");
+    lines.push(`    ${ollamaVer ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} Ollama ${ollamaVer ? (ollamaUp.includes("models") ? cc.green + "running" + cc.reset : cc.yellow + "stopped" + cc.reset) : ""}`);
+
+    const ocVer = await runLocalCommand(`bash -c '${nvmPfx} openclaw --version 2>/dev/null | head -1'`).catch(() => "");
+    const ocUp = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+    lines.push(`    ${ocVer ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} OpenClaw ${ocVer ? (ocUp.includes('"ok"') ? cc.green + "running" + cc.reset : cc.yellow + "stopped" + cc.reset) : ""}`);
+
+    const dockerVer = await runLocalCommand("docker --version 2>/dev/null | head -1").catch(() => "");
+    lines.push(`    ${dockerVer ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} Docker ${dockerVer ? cc.dim + dockerVer.trim().replace("Docker version ", "v") + cc.reset : ""}`);
+
+    // Interfaces
+    lines.push(`\n  ${cc.bold}Interfaces:${cc.reset}`);
+    lines.push(`    ${cc.green}✓${cc.reset} ${cc.bold}CLI${cc.reset} — type commands or natural language in terminal`);
+    lines.push(`    ${appInstalled ? `${cc.green}✓` : `${cc.dim}○`}${cc.reset} ${cc.bold}Desktop App${cc.reset} — point-and-click GUI + chat ${appInstalled ? "" : cc.dim + "(install: \"install notoken app\")" + cc.reset}`);
+    if (ocUp.includes('"ok"')) {
+      lines.push(`    ${cc.green}✓${cc.reset} ${cc.bold}OpenClaw Chat${cc.reset} — messaging via Telegram/Discord/Matrix/TUI`);
+    }
+
+    lines.push(`\n  ${cc.dim}Website: https://notoken.sh${cc.reset}`);
+    lines.push(`  ${cc.dim}Say: "install notoken app", "how to install claude", "ollama status"${cc.reset}`);
+
+    return lines.join("\n");
+  }
+
+  // Notoken desktop app — download and install
+  if (intent.intent === "notoken.install_app") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+    const isWin = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Notoken Desktop App ──${cc.reset}\n`);
+    lines.push(`  ${cc.bold}Notoken${cc.reset} — point-and-click GUI + chat interface`);
+    lines.push(`  Everything the CLI does, but with a visual interface.\n`);
+
+    const baseUrl = "https://notoken.sh/download";
+
+    if (isWSL || isWin) {
+      // Windows — download .exe installer
+      const arch = await runLocalCommand("cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' 2>/dev/null").catch(() => "AMD64");
+      const archLabel = arch.trim().replace(/\r/g, "").includes("ARM") ? "arm64" : "x64";
+      const exeUrl = `${baseUrl}/notoken-setup-win-${archLabel}.exe`;
+
+      lines.push(`  ${cc.bold}Platform:${cc.reset} Windows ${archLabel}`);
+      lines.push(`  ${cc.bold}Download:${cc.reset} ${cc.cyan}${exeUrl}${cc.reset}\n`);
+
+      // Try to download and run
+      const downloadDir = isWSL
+        ? await runLocalCommand("cmd.exe /c 'echo %USERPROFILE%\\Downloads' 2>/dev/null").catch(() => "C:\\Users\\Downloads")
+        : `${process.env.USERPROFILE || "C:\\Users"}\\Downloads`;
+      const downloadPath = downloadDir.trim().replace(/\r/g, "");
+      const installerName = `notoken-setup-win-${archLabel}.exe`;
+
+      lines.push(`  ${cc.bold}Installing...${cc.reset}`);
+      console.log(lines.join("\n"));
+
+      try {
+        if (isWSL) {
+          // Download via PowerShell on Windows host
+          const psCmd = `powershell.exe -Command "Invoke-WebRequest -Uri '${exeUrl}' -OutFile '${downloadPath}\\\\${installerName}' -UseBasicParsing"`;
+          await withSpinner("Downloading...", () => runLocalCommand(psCmd, 120_000));
+          console.log(`\n  ${cc.green}✓${cc.reset} Downloaded to ${cc.bold}${downloadPath}\\${installerName}${cc.reset}`);
+
+          // Launch the installer
+          await runLocalCommand(`cmd.exe /c 'start "" "${downloadPath}\\\\${installerName}"' 2>/dev/null`).catch(() => "");
+          return `\n  ${cc.green}✓${cc.reset} Installer launched. Follow the setup wizard.\n\n  ${cc.dim}After install, you can launch Notoken from the Start menu\n  or run: notoken-app${cc.reset}`;
+        } else {
+          // Native Windows
+          const psCmd = `powershell -Command "Invoke-WebRequest -Uri '${exeUrl}' -OutFile '$env:TEMP\\${installerName}' -UseBasicParsing; Start-Process '$env:TEMP\\${installerName}'"`;
+          await withSpinner("Downloading and launching installer...", () => runLocalCommand(psCmd, 120_000));
+          return `\n  ${cc.green}✓${cc.reset} Installer launched. Follow the setup wizard.`;
+        }
+      } catch (err: unknown) {
+        return `\n  ${cc.yellow}⚠${cc.reset} Auto-download failed. Download manually:\n  ${cc.cyan}${exeUrl}${cc.reset}\n\n  ${cc.dim}Or open in browser: "open ${baseUrl}"${cc.reset}`;
+      }
+    } else if (isMac) {
+      const archOut = await runLocalCommand("uname -m").catch(() => "x86_64");
+      const archLabel = archOut.trim() === "arm64" ? "arm64" : "x64";
+      const dmgUrl = `${baseUrl}/notoken-setup-mac-${archLabel}.dmg`;
+
+      lines.push(`  ${cc.bold}Platform:${cc.reset} macOS ${archLabel}`);
+      lines.push(`  ${cc.bold}Download:${cc.reset} ${cc.cyan}${dmgUrl}${cc.reset}\n`);
+
+      try {
+        await withSpinner("Downloading...", () => runLocalCommand(`curl -fSL -o /tmp/notoken-setup.dmg "${dmgUrl}" 2>&1`, 120_000));
+        await runLocalCommand("open /tmp/notoken-setup.dmg").catch(() => "");
+        return lines.join("\n") + `\n  ${cc.green}✓${cc.reset} Downloaded and opened. Drag Notoken to Applications.`;
+      } catch {
+        return lines.join("\n") + `\n  ${cc.yellow}⚠${cc.reset} Download manually: ${cc.cyan}${dmgUrl}${cc.reset}`;
+      }
+    } else {
+      // Linux — AppImage
+      const archOut = await runLocalCommand("uname -m").catch(() => "x86_64");
+      const archLabel = archOut.trim() === "aarch64" ? "arm64" : "x64";
+      const appImageUrl = `${baseUrl}/notoken-app-linux-${archLabel}.AppImage`;
+
+      lines.push(`  ${cc.bold}Platform:${cc.reset} Linux ${archLabel}`);
+      lines.push(`  ${cc.bold}Download:${cc.reset} ${cc.cyan}${appImageUrl}${cc.reset}\n`);
+
+      try {
+        const appDir = `${process.env.HOME}/Applications`;
+        await runLocalCommand(`mkdir -p "${appDir}"`);
+        await withSpinner("Downloading...", () => runLocalCommand(`curl -fSL -o "${appDir}/Notoken.AppImage" "${appImageUrl}" 2>&1`, 120_000));
+        await runLocalCommand(`chmod +x "${appDir}/Notoken.AppImage"`);
+        return lines.join("\n") + `\n  ${cc.green}✓${cc.reset} Installed to ${cc.bold}${appDir}/Notoken.AppImage${cc.reset}\n\n  ${cc.dim}Run: ~/Applications/Notoken.AppImage${cc.reset}`;
+      } catch {
+        return lines.join("\n") + `\n  ${cc.yellow}⚠${cc.reset} Download manually: ${cc.cyan}${appImageUrl}${cc.reset}`;
+      }
+    }
+  }
+
   // Ollama model management
   if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
@@ -687,6 +852,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     node: { name: "Node.js", install: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash && nvm install --lts", check: "node --version", description: "JavaScript runtime", notes: "Uses nvm for version management. Restart terminal after install." },
     bun: { name: "Bun", install: "curl -fsSL https://bun.sh/install | bash", check: "bun --version", description: "Fast JavaScript runtime and toolkit", notes: "Alternative to Node.js with built-in bundler and test runner." },
     certbot: { name: "Certbot", install: "sudo apt install -y certbot", check: "certbot --version", description: "Let's Encrypt SSL certificate manager", notes: "On RHEL/Fedora: `sudo dnf install certbot`" },
+    "notoken-app": { name: "Notoken Desktop App", install: "echo 'Say: install notoken app'", check: "which notoken-app 2>/dev/null || echo ''", description: "Point-and-click GUI + chat — everything the CLI does, visually", notes: "Download from https://notoken.sh/download or say: \"install notoken app\"" },
   };
 
   const TOOL_ALIASES: Record<string, string> = { "claude-code": "claude", "anthropic": "claude", "openai": "codex", "gpt": "codex", "chatgpt": "codex", "nvm": "node", "nodejs": "node", "claw": "openclaw" };

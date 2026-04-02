@@ -7043,6 +7043,54 @@
       ]
     },
     {
+      "name": "notoken.status",
+      "description": "Show notoken status: CLI version, app status, LLM backend, components",
+      "synonyms": [
+        "notoken status",
+        "status",
+        "what is running",
+        "notoken info",
+        "show status",
+        "system status",
+        "what do i have"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.status handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "notoken status",
+        "status",
+        "what is running"
+      ]
+    },
+    {
+      "name": "notoken.install_app",
+      "description": "Download and install the Notoken desktop app",
+      "synonyms": [
+        "install notoken app",
+        "download notoken app",
+        "get notoken app",
+        "install the app",
+        "notoken desktop",
+        "install notoken desktop",
+        "download the app",
+        "get the app",
+        "install notoken gui"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.install_app handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install notoken app",
+        "download notoken app",
+        "get the desktop app"
+      ]
+    },
+    {
       "name": "openclaw.message",
       "description": "Send a message to the OpenClaw agent and get a response",
       "synonyms": [
