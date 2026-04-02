@@ -3,6 +3,7 @@ import { parseByRules } from "./ruleParser.js";
 import { parseByLLM } from "./llmParser.js";
 import { disambiguate } from "./disambiguate.js";
 import { logFailure } from "../utils/logger.js";
+import { classifyMulti } from "./multiClassifier.js";
 import { lookupUnknownNouns } from "./wikidata.js";
 import { routeByConcepts } from "./conceptRouter.js";
 import { parseMultiIntent, type MultiIntentPlan } from "./multiIntent.js";
@@ -92,6 +93,18 @@ export async function parseIntent(rawText: string): Promise<ParsedCommand & { pl
       rawText,
       confidence: conceptResult.confidence,
       fields: {},
+    });
+  }
+
+  // Stage 2.5: multi-classifier (synonym + semantic + vector + fuzzy voting)
+  const multiResult = classifyMulti(rawText);
+  if (multiResult.best && multiResult.best.score >= 0.6 && !multiResult.ambiguous) {
+    const mFields = ruleResult?.fields ?? {};
+    return disambiguate({
+      intent: multiResult.best.intent,
+      rawText,
+      confidence: Math.min(0.95, multiResult.best.score),
+      fields: mFields,
     });
   }
 

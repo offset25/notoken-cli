@@ -34,6 +34,13 @@ const TOOLS: Record<string, ToolInstaller> = {
     postInstall: "claude --version",
     description: "Anthropic's Claude Code CLI for AI-assisted development",
   },
+  codex: {
+    name: "OpenAI Codex CLI",
+    check: "codex --version",
+    install: "npm install -g @openai/codex",
+    postInstall: "codex --version",
+    description: "OpenAI Codex CLI — coding agent with GPT-4o/5",
+  },
   convex: {
     name: "Convex CLI",
     check: "npx convex --version",

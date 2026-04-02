@@ -1102,9 +1102,12 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     fooocus: "https://github.com/lllyasviel/Fooocus.git",
   };
 
-  const useWindowsSide = isWSL && isWslWindowsPath(dir);
-  if (useWindowsSide) {
-    console.log(`${c.dim}  Using Windows-native execution for speed (WSL→NTFS bridge is slow)${c.reset}`);
+  // Always use WSL Python for pip installs — Windows Python may lack build tools
+  // and PowerShell execution is unreliable for complex pip builds.
+  // The WSL→NTFS bridge is slower but more reliable.
+  const useWindowsSide = false;
+  if (isWSL && isWslWindowsPath(dir)) {
+    console.log(`${c.dim}  Installing to Windows drive via WSL (slower I/O but reliable)${c.reset}`);
   }
 
   if (existsSync(dir)) {

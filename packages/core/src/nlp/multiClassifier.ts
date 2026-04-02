@@ -2,6 +2,9 @@ import type { DynamicIntent, IntentDef } from "../types/intent.js";
 import { loadIntents, loadRules } from "../utils/config.js";
 import { semanticParse, fuzzyMatch, type SemanticParse } from "./semantic.js";
 import { parseByRules } from "./ruleParser.js";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Multi-classifier intent scorer.
@@ -37,6 +40,7 @@ export interface MultiClassifierResult {
 const CLASSIFIER_WEIGHTS: Record<string, number> = {
   synonym: 1.0,
   semantic: 0.8,
+  vector: 0.7,
   context: 0.6,
   fuzzy: 0.5,
 };
@@ -64,21 +68,26 @@ export function classifyMulti(
   // 4. Fuzzy classifier (keyboard distance)
   votes.push(...classifyFuzzy(rawText));
 
-  // Merge votes into weighted scores
-  const scoreMap = new Map<string, { total: number; count: number }>();
+  // 5. Vector classifier (precomputed TF-IDF cosine similarity)
+  votes.push(...classifyVector(rawText));
+
+  // Merge votes: max weighted score + bonus for agreement
+  const scoreMap = new Map<string, { maxWeighted: number; totalWeighted: number; count: number }>();
 
   for (const vote of votes) {
     const weight = CLASSIFIER_WEIGHTS[vote.classifier] ?? 1.0;
-    const existing = scoreMap.get(vote.intent) ?? { total: 0, count: 0 };
-    existing.total += vote.confidence * weight;
+    const weighted = vote.confidence * weight;
+    const existing = scoreMap.get(vote.intent) ?? { maxWeighted: 0, totalWeighted: 0, count: 0 };
+    existing.maxWeighted = Math.max(existing.maxWeighted, weighted);
+    existing.totalWeighted += weighted;
     existing.count += 1;
     scoreMap.set(vote.intent, existing);
   }
 
   const scores = Array.from(scoreMap.entries())
-    .map(([intent, { total, count }]) => ({
+    .map(([intent, { maxWeighted, count }]) => ({
       intent,
-      score: total / count,
+      score: maxWeighted + Math.min(0.15, (count - 1) * 0.05),
       votes: count,
     }))
     .sort((a, b) => b.score - a.score);
@@ -240,4 +249,59 @@ function scoreEntityMatch(parse: SemanticParse, def: IntentDef): number {
   }
 
   return matches / total;
+}
+
+// ─── Vector Classifier (precomputed TF-IDF) ─────────────────────────────────
+
+interface VectorData { vocab: string[]; vectors: Record<string, Record<string, number>>; }
+let _vectorData: VectorData | null = null;
+
+function loadVectors(): VectorData | null {
+  if (_vectorData) return _vectorData;
+  const paths = [
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../config/intent-vectors.json"),
+    resolve(process.cwd(), "config/intent-vectors.json"),
+  ];
+  for (const p of paths) {
+    if (existsSync(p)) {
+      try { _vectorData = JSON.parse(readFileSync(p, "utf-8")); return _vectorData; } catch { /* skip */ }
+    }
+  }
+  return null;
+}
+
+const VECTOR_STOP = new Set(["a","an","the","is","it","in","on","to","for","of","and","or","my","me","i","we","you","do","does","did","be","am","are","was","were","have","has","had","this","that","what","which","who","how","where","when","why","not","no","but","if","so","at","by","with","from","up","out","can","could","would","should","will","may","might","just","about","all","please"]);
+
+function classifyVector(rawText: string): ClassifierVote[] {
+  const data = loadVectors();
+  if (!data) return [];
+  const tokens = rawText.toLowerCase().replace(/[^a-z0-9_.\-\/]/g, " ").split(/\s+/).filter((w) => w.length > 1 && !VECTOR_STOP.has(w));
+  if (tokens.length === 0) return [];
+
+  const vocabIndex = new Map(data.vocab.map((v, i) => [v, i]));
+  const inputVec: Record<number, number> = {};
+  let magnitude = 0;
+  const tf = new Map<string, number>();
+  for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
+  for (const [term, count] of tf) {
+    const idx = vocabIndex.get(term);
+    if (idx !== undefined) { inputVec[idx] = count; magnitude += count * count; }
+  }
+  magnitude = Math.sqrt(magnitude);
+  if (magnitude === 0) return [];
+  for (const idx of Object.keys(inputVec)) inputVec[Number(idx)] /= magnitude;
+
+  const votes: ClassifierVote[] = [];
+  for (const [intentName, intentVec] of Object.entries(data.vectors)) {
+    let dot = 0;
+    for (const [idx, val] of Object.entries(inputVec)) {
+      const iv = intentVec[idx];
+      if (iv) dot += val * iv;
+    }
+    if (dot > 0.1) {
+      votes.push({ classifier: "vector", intent: intentName, confidence: Math.min(0.95, dot), reason: `TF-IDF cosine: ${dot.toFixed(3)}` });
+    }
+  }
+  votes.sort((a, b) => b.confidence - a.confidence);
+  return votes.slice(0, 3);
 }
