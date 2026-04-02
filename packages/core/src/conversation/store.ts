@@ -42,6 +42,8 @@ export interface Conversation {
   turns: ConversationTurn[];
   /** Running knowledge of entities mentioned across turns */
   knowledgeTree: KnowledgeNode[];
+  /** Files loaded into context — content available to LLM and command analysis */
+  contextFiles?: Array<{ path: string; name: string; content: string; loadedAt: string }>;
 }
 
 export interface KnowledgeNode {
@@ -251,6 +253,85 @@ function updateKnowledge(
       node.coOccurrences.push(co);
     }
   }
+}
+
+// ─── Context Files ──────────────────────────────────────────────────────────
+
+/**
+ * Load a file into the conversation context.
+ * Content is stored and available to LLM fallback and analysis.
+ * Max 50KB per file to avoid bloating conversation store.
+ */
+export function loadContextFile(conv: Conversation, filePath: string): string {
+  const absPath = resolve(filePath);
+  if (!existsSync(absPath)) {
+    return `File not found: ${absPath}`;
+  }
+
+  const stat = require("node:fs").statSync(absPath);
+  if (stat.size > 50 * 1024) {
+    return `File too large (${(stat.size / 1024).toFixed(0)} KB). Max 50 KB for context files. Use file.read for large files.`;
+  }
+
+  const content = readFileSync(absPath, "utf-8");
+  const name = basename(absPath);
+
+  if (!conv.contextFiles) conv.contextFiles = [];
+
+  // Replace if already loaded
+  const existing = conv.contextFiles.findIndex((f) => f.path === absPath);
+  if (existing >= 0) {
+    conv.contextFiles[existing] = { path: absPath, name, content, loadedAt: new Date().toISOString() };
+  } else {
+    conv.contextFiles.push({ path: absPath, name, content, loadedAt: new Date().toISOString() });
+  }
+
+  saveConversation(conv);
+  return `Loaded ${name} (${content.split("\n").length} lines, ${(stat.size / 1024).toFixed(1)} KB) into context.`;
+}
+
+/**
+ * Unload a file from context.
+ */
+export function unloadContextFile(conv: Conversation, fileName: string): string {
+  if (!conv.contextFiles?.length) return "No context files loaded.";
+
+  const idx = conv.contextFiles.findIndex(
+    (f) => f.name === fileName || f.path.endsWith(fileName)
+  );
+  if (idx < 0) return `Not in context: ${fileName}`;
+
+  const removed = conv.contextFiles.splice(idx, 1)[0];
+  saveConversation(conv);
+  return `Removed ${removed.name} from context.`;
+}
+
+/**
+ * List loaded context files.
+ */
+export function listContextFiles(conv: Conversation): string {
+  if (!conv.contextFiles?.length) return "No context files loaded.";
+
+  const c = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m" };
+  const lines = [`\n${c.bold}${c.cyan}── Context Files ──${c.reset}\n`];
+  for (const f of conv.contextFiles) {
+    const lineCount = f.content.split("\n").length;
+    const sizeKB = (Buffer.byteLength(f.content) / 1024).toFixed(1);
+    lines.push(`  ${c.green}✓${c.reset} ${c.bold}${f.name}${c.reset}  ${c.dim}(${lineCount} lines, ${sizeKB} KB, loaded ${new Date(f.loadedAt).toLocaleString()})${c.reset}`);
+    lines.push(`    ${c.dim}${f.path}${c.reset}`);
+  }
+  lines.push(`\n${c.dim}To unload: :context unload <filename>${c.reset}`);
+  return lines.join("\n");
+}
+
+/**
+ * Get all context file contents as a single string for LLM prompts.
+ */
+export function getContextFilesContent(conv: Conversation): string {
+  if (!conv.contextFiles?.length) return "";
+  return conv.contextFiles
+    .map((f) => `=== ${f.name} ===\n${f.content}`)
+    .join("\n\n");
 }
 
 /**

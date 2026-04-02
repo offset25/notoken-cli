@@ -45,7 +45,7 @@ export { parseFile, formatParsedFile, detectFileType } from "./parsers/index.js"
 export { findKnownLocations, searchRemoteFile } from "./parsers/fileFinder.js";
 
 // ── Conversation ──
-export { getOrCreateConversation, addUserTurn, addSystemTurn, saveConversation, getLastEntity, getRecentEntities, listConversations } from "./conversation/store.js";
+export { getOrCreateConversation, addUserTurn, addSystemTurn, saveConversation, getLastEntity, getRecentEntities, getRecentTurns, listConversations, loadContextFile, unloadContextFile, listContextFiles } from "./conversation/store.js";
 export type { Conversation, ConversationTurn, KnowledgeNode, UncertaintyReport } from "./conversation/store.js";
 export { resolveCoreferences, extractEntitiesFromFields } from "./conversation/coreference.js";
 export { redactSecrets, listSecrets, clearSecrets, saveSecretsToFile, resolvePlaceholders } from "./conversation/secrets.js";
@@ -111,7 +111,20 @@ export {
 } from "./nlp/multiIntent.js";
 
 // ── Concept Router ──
-export { routeByConcepts, type ConceptRouterResult } from "./nlp/conceptRouter.js";
+export { routeByConcepts, mergeConceptDomains, type ConceptRouterResult } from "./nlp/conceptRouter.js";
+
+// ── Vocabulary Builder ──
+export {
+  enrichVocabularyFromWiki, loadLearnedVocabulary, getEnrichedConcepts,
+  type LearnedVocabulary,
+} from "./nlp/vocabularyBuilder.js";
+
+// ── Install Tracker ──
+export {
+  trackInstall, getInstallHistory, getInstalledByType, getInstalledItem,
+  untrackInstall, formatInstallHistory, getUninstallSteps,
+  type InstalledItem, type InstallHistory,
+} from "./utils/installTracker.js";
 
 // ── Wikidata Knowledge Base ──
 export {

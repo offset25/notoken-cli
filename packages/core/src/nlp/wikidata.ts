@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { USER_HOME } from "../utils/paths.js";
+import { enrichVocabularyFromWiki } from "./vocabularyBuilder.js";
 
 const CACHE_FILE = resolve(USER_HOME, "wikidata-cache.json");
 const CACHE_TTL = 7 * 24 * 3600_000; // 7 days
@@ -129,6 +130,8 @@ export async function searchWikidata(query: string): Promise<WikiLookupResult> {
 
   if (entity) {
     setCache(query, entity);
+    // Enrich vocabulary from this lookup for future NLP matching
+    try { enrichVocabularyFromWiki(entity); } catch {}
     return { found: true, entity, suggestions };
   }
 

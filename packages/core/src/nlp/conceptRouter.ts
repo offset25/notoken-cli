@@ -102,6 +102,28 @@ const CONCEPT_DOMAINS: Record<string, string[]> = {
   "url":          ["browser.open"],
 };
 
+/**
+ * Merge additional concept→domain mappings into the router at runtime.
+ * Used by the vocabulary builder to inject learned concepts.
+ * Existing domains for a concept are preserved; new ones are appended.
+ */
+export function mergeConceptDomains(mappings: Record<string, string[]>): void {
+  for (const [concept, domains] of Object.entries(mappings)) {
+    const existing = CONCEPT_DOMAINS[concept];
+    if (existing) {
+      // Append only new domains
+      const existingSet = new Set(existing);
+      for (const d of domains) {
+        if (!existingSet.has(d)) {
+          existing.push(d);
+        }
+      }
+    } else {
+      CONCEPT_DOMAINS[concept] = [...domains];
+    }
+  }
+}
+
 // Question words that indicate an info/status query (not an action)
 const QUESTION_PATTERNS = [
   "is", "are", "was", "were", "do", "does", "did",

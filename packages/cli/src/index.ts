@@ -82,6 +82,16 @@ async function main() {
         }
         return;
       }
+      case "rollback": {
+        const ver = subArgs[0];
+        if (ver) {
+          const { execSync: esRb } = await import("node:child_process");
+          console.log(`Rolling back to v${ver}...`);
+          try { esRb(`npm install -g notoken@${ver}`, { stdio: "inherit" }); console.log(`\x1b[32m✓\x1b[0m Rolled back to v${ver}`); }
+          catch { console.error(`\x1b[31m✗\x1b[0m Failed. Try: npm install -g notoken@${ver}`); }
+        } else { console.log("Usage: notoken rollback <version>"); }
+        return;
+      }
       case "heal": {
         const { execSync } = await import("node:child_process");
         execSync("npx tsx src/healing/runHealer.ts " + subArgs.join(" "), { stdio: "inherit", cwd: process.cwd() });

@@ -22,9 +22,40 @@ async function askForConfirmation(message: string): Promise<boolean> {
 
 export async function runCli(
   rawText: string,
-  options: { dryRun?: boolean; json?: boolean; yes?: boolean; verbose?: boolean; explain?: boolean } = {}
+  options: { dryRun?: boolean; json?: boolean; yes?: boolean; verbose?: boolean; explain?: boolean; outputFile?: string } = {}
 ): Promise<void> {
+  // Check for retry/decline patterns
+  const retryPattern = /^(try again|try it again|retry|try it now|try now|try it|do it again|run it again|run again|one more time|again|redo|re-?run|go again|let.?s try again|yes|yeah|yep|ok|sure|go ahead|do it|yes please|y|ye|ya|yea|affirmative|proceed)\s*$/i;
+  const declinePattern = /^(n|no|nah|nope|cancel|stop|nevermind|never mind|forget it|skip)\s*$/i;
+
+  if (declinePattern.test(rawText.trim())) {
+    console.log(`\x1b[2mOK, cancelled. What would you like to do instead?\x1b[0m`);
+    return;
+  }
+  if (retryPattern.test(rawText.trim())) {
+    try {
+      const { getOrCreateConversation, getRecentTurns } = await import("notoken-core");
+      const conv = getOrCreateConversation(process.cwd());
+      const recent = getRecentTurns(conv, 5);
+      const lastCmd = recent.reverse().find((t: any) => t.intent && t.intent !== "unknown");
+      if (lastCmd?.rawText) {
+        console.log(`\x1b[1m\x1b[36mOK, trying again:\x1b[0m \x1b[1m${lastCmd.rawText}\x1b[0m \x1b[2m— that's what we did last time. Press Esc to cancel.\x1b[0m`);
+        rawText = lastCmd.rawText;
+      } else {
+        console.log(`\x1b[33mNothing to retry — no previous command found.\x1b[0m`);
+        return;
+      }
+    } catch { /* no conversation store available */ }
+  }
+
   let parsed = await parseIntent(rawText);
+
+  // Record to conversation store (so "try again" works)
+  try {
+    const { getOrCreateConversation, addUserTurn } = await import("notoken-core");
+    const conv = getOrCreateConversation(process.cwd());
+    addUserTurn(conv, rawText, parsed.intent.intent, parsed.intent.confidence, parsed.intent.fields as Record<string, unknown>);
+  } catch { /* conversation store not available */ }
 
   // If unknown and LLM configured, try LLM fallback
   if (parsed.intent.intent === "unknown" && isLLMConfigured()) {
