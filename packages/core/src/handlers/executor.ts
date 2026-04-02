@@ -190,6 +190,50 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   if (intent.intent === "ai.image_status") {
     command = "[image-status]";
     const engines = detectImageEngines();
+    const hasLocal = engines.some(e => e.installed && e.engine !== "docker" && e.running);
+
+    // Detect if user is asking to GO offline, not just checking status
+    const wantsOffline = /\b(can we|can i|how do i|how can i|let'?s|i want to|set up|enable|switch to|go)\b.*\b(offline|local|locally|private)\b/i.test(intent.rawText);
+
+    if (wantsOffline && !hasLocal) {
+      // User wants offline — offer to install
+      const { installImageEngine, detectGpu, getInstallPlan } = await import("../utils/imageGen.js");
+      const gpu = detectGpu();
+
+      const lines: string[] = [];
+      lines.push(`\x1b[1m\x1b[35mSetting up offline image generation\x1b[0m\n`);
+      lines.push(`Currently using cloud API. To generate images offline, we need to install a local engine.\n`);
+
+      if (gpu.hasNvidia) {
+        lines.push(`\x1b[32m✓ GPU detected: ${gpu.gpuName}${gpu.vram ? ` (${gpu.vram})` : ""}\x1b[0m — great for local generation\n`);
+      } else {
+        lines.push(`\x1b[33m⚠ No GPU detected — CPU mode will be slower but works\x1b[0m\n`);
+      }
+
+      lines.push(`\x1b[1mInstalling Stability Matrix\x1b[0m — all-in-one launcher, no technical setup needed`);
+      lines.push(`\x1b[2mCancel anytime with Ctrl+C\x1b[0m\n`);
+
+      console.error(lines.join("\n"));
+
+      // Actually start the install
+      try {
+        const installResult = await installImageEngine("auto1111");
+        result = installResult.message;
+      } catch {
+        // If auto1111 fails (no Python), fall back to showing download links
+        result = [
+          `\x1b[33mAutomatic install needs Python 3.10+.\x1b[0m\n`,
+          `\x1b[1mDownload a standalone installer instead (no Python needed):\x1b[0m`,
+          `  \x1b[1mStability Matrix:\x1b[0m https://lykos.ai`,
+          `  \x1b[1mEasy Diffusion:\x1b[0m  https://easydiffusion.github.io`,
+          `  \x1b[1mFooocus:\x1b[0m         https://github.com/lllyasviel/Fooocus`,
+          `\n\x1b[2mOr: notoken install stability-matrix\x1b[0m`,
+        ].join("\n");
+      }
+      recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+      return result;
+    }
+
     result = formatImageEngineStatus(engines);
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
     return result;
