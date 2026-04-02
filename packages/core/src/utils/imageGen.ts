@@ -925,35 +925,19 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         console.log(`${c.cyan}Step 1b/${c.reset} Docker data: ${dockerRoot} (${dockerDrive.freeGB}GB free)`);
         if (dockerDrive.freeGB < 16) {
           console.log(`${c.yellow}⚠ Only ${dockerDrive.freeGB}GB free where Docker stores data (${dockerRoot}).${c.reset}`);
-          console.log(`${c.yellow}  The SD Docker image needs ~15GB.${c.reset}`);
-
-          // Try to move Docker data to a drive with space
-          const bestDrive = chooseBestInstallDir();
-          if (bestDrive.freeGB >= 20) {
-            const newDockerRoot = resolve(bestDrive.dir, "..", "docker-data");
-            console.log(`${c.cyan}  Moving Docker data root to ${newDockerRoot} (${bestDrive.freeGB}GB free)...${c.reset}`);
-            try {
-              mkdirSync(newDockerRoot, { recursive: true });
-              // Configure Docker daemon to use new data root
-              const daemonConfig = { "data-root": newDockerRoot };
-              const configPath = "/etc/docker/daemon.json";
-              let existingConfig: Record<string, unknown> = {};
-              if (existsSync(configPath)) {
-                try { existingConfig = JSON.parse(readFileSync(configPath, "utf-8")); } catch {}
-              }
-              writeFileSync(configPath, JSON.stringify({ ...existingConfig, ...daemonConfig }, null, 2));
-              // Restart Docker
-              execSync("service docker restart 2>/dev/null || systemctl restart docker 2>/dev/null", { stdio: "inherit", timeout: 30000 });
-              console.log(`${c.green}✓${c.reset} Docker data root moved to ${newDockerRoot}`);
-            } catch (moveErr) {
-              console.log(`${c.yellow}Could not move Docker data: ${moveErr instanceof Error ? moveErr.message : moveErr}${c.reset}`);
-              if (dockerDrive.freeGB < 5) {
-                return { success: false, message: `Not enough space (${dockerDrive.freeGB}GB). Free up C: drive or move Docker data manually:\n  ${c.dim}echo '{"data-root":"/mnt/d/docker-data"}' | sudo tee /etc/docker/daemon.json && sudo service docker restart${c.reset}` };
-              }
-            }
-          } else if (dockerDrive.freeGB < 5) {
-            return { success: false, message: `Not enough space (${dockerDrive.freeGB}GB free, need ~15GB).\nDocker data at: ${dockerRoot}\n${c.dim}Move it: echo '{"data-root":"/mnt/d/docker-data"}' | sudo tee /etc/docker/daemon.json && sudo service docker restart${c.reset}` };
-          }
+          console.log(`${c.yellow}  The SD Docker image needs ~15GB. Not enough space.${c.reset}`);
+          return { success: false, message: [
+            `Not enough space for Docker image (${dockerDrive.freeGB}GB free, need ~15GB).`,
+            `Docker stores data at: ${dockerRoot}`,
+            ``,
+            `${c.bold}Options:${c.reset}`,
+            `  1. Free up space on C: drive`,
+            `  2. Use Python install instead (installs on any drive):`,
+            `     ${c.cyan}notoken install stable-diffusion on D drive${c.reset}`,
+            `  3. Move Docker data root manually:`,
+            `     ${c.dim}echo '{"data-root":"/mnt/d/docker-data"}' | sudo tee /etc/docker/daemon.json${c.reset}`,
+            `     ${c.dim}sudo service docker restart${c.reset}`,
+          ].join("\n") };
         }
       }
     } catch {}

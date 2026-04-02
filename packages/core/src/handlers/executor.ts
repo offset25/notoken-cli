@@ -349,16 +349,29 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         type: "intent",
       });
 
-      // Strategy: try Docker first (fastest, zero deps), then Python, then standalone
+      // Strategy: pick best approach based on what's available and disk space
       let installResult: { success: boolean; message: string } | null = null;
 
+      // Check if Docker data root has enough space (~15GB needed)
+      let dockerHasSpace = false;
       if (hasDocker) {
+        const { getDriveInfo } = await import("../utils/imageGen.js");
+        const dockerRoot = exec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'") ?? "/var/lib/docker";
+        const dockerDrive = getDriveInfo(dockerRoot);
+        dockerHasSpace = (dockerDrive?.freeGB ?? 0) >= 16;
+        if (!dockerHasSpace) {
+          console.error(`\x1b[33m⚠ Docker data root (${dockerRoot}) only has ${dockerDrive?.freeGB ?? 0}GB free — need ~15GB for image\x1b[0m`);
+          console.error(`\x1b[2m  Skipping Docker — using Python install on ${process.env.NOTOKEN_INSTALL_DIR ?? "best available drive"} instead\x1b[0m\n`);
+        }
+      }
+
+      if (hasDocker && dockerHasSpace) {
         console.error(`\x1b[1mStrategy: Using Docker\x1b[0m — fastest, everything pre-built\n`);
         installResult = await installImageEngine("docker");
       }
 
       if ((!installResult || !installResult.success) && hasPython) {
-        console.error(`\x1b[1mStrategy: Using Python + git\x1b[0m — direct install\n`);
+        console.error(`\x1b[1mStrategy: Using Python + git\x1b[0m — installing directly to ${process.env.NOTOKEN_INSTALL_DIR ?? "best drive"}\n`);
         installResult = await installImageEngine("auto1111");
       }
 
