@@ -127,11 +127,14 @@ async function installTool(tool: ToolInstaller, key: string): Promise<void> {
       return "";
     });
 
-    if (tool.postInstall) {
-      const version = getVersion(tool.postInstall);
+    // Verify it actually works
+    if (isInstalled(tool.check)) {
+      const version = getVersion(tool.postInstall ?? tool.check);
       console.log(`${c.green}✓${c.reset} ${tool.name} installed${version ? ` (${version})` : ""}`);
     } else {
-      console.log(`${c.green}✓${c.reset} ${tool.name} installed`);
+      console.error(`${c.yellow}⚠${c.reset} Package installed but ${tool.name} binary not found.`);
+      console.error(`${c.dim}The npm package may be a placeholder or the binary has a different name.${c.reset}`);
+      console.error(`${c.dim}Run: notoken uninstall ${key}${c.reset}`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -175,5 +178,97 @@ function getVersion(checkCmd: string): string | null {
     return execSync(checkCmd, { encoding: "utf-8", stdio: "pipe", timeout: 10_000 }).trim().split("\n")[0];
   } catch {
     return null;
+  }
+}
+
+// ── Uninstall ──
+
+const UNINSTALL_CMDS: Record<string, string> = {
+  claude: "npm uninstall -g @anthropic-ai/claude-code",
+  convex: "npm uninstall -g convex",
+  openclaw: "npm uninstall -g openclaw",
+  bun: "rm -rf ~/.bun",
+  ollama: "sudo rm -f /usr/local/bin/ollama && sudo rm -rf /usr/share/ollama",
+  certbot: "",  // platform-specific
+};
+
+export async function runUninstall(args: string[]): Promise<void> {
+  const toolName = args[0];
+
+  if (!toolName) {
+    console.log(`${c.bold}notoken uninstall${c.reset} <tool>\n`);
+    console.log(`${c.bold}Installed tools:${c.reset}`);
+    for (const [key, tool] of Object.entries(TOOLS)) {
+      if (isInstalled(tool.check)) {
+        const version = getVersion(tool.check);
+        console.log(`  ${c.green}✓${c.reset} ${c.cyan}${key.padEnd(12)}${c.reset} ${version ?? ""}`);
+      }
+    }
+    // Also check npm globals that aren't in TOOLS
+    try {
+      const globals = execSync("npm list -g --depth=0 --json 2>/dev/null", { encoding: "utf-8", timeout: 10_000 });
+      const parsed = JSON.parse(globals);
+      const deps = Object.keys(parsed.dependencies ?? {}).filter((d) => d !== "notoken" && d !== "notoken-core");
+      if (deps.length > 0) {
+        console.log(`\n${c.bold}Other global npm packages:${c.reset}`);
+        for (const dep of deps) {
+          console.log(`  ${c.dim}○${c.reset} ${dep}`);
+        }
+      }
+    } catch {}
+    return;
+  }
+
+  // Known tool uninstall
+  const uninstallCmd = UNINSTALL_CMDS[toolName];
+  if (uninstallCmd !== undefined) {
+    const tool = TOOLS[toolName];
+    const name = tool?.name ?? toolName;
+
+    if (tool && !isInstalled(tool.check)) {
+      // Check if npm package exists even without binary
+      try {
+        execSync(`npm list -g ${toolName} 2>/dev/null`, { stdio: "pipe" });
+      } catch {
+        console.log(`${c.dim}${name} is not installed.${c.reset}`);
+        return;
+      }
+    }
+
+    console.log(`${c.bold}Uninstalling ${name}...${c.reset}`);
+
+    let cmd = uninstallCmd;
+    if (!cmd) {
+      const platform = detectLocalPlatform();
+      if (platform.packageManager === "apt") cmd = `sudo apt-get remove -y ${toolName}`;
+      else if (platform.packageManager === "dnf") cmd = `sudo dnf remove -y ${toolName}`;
+      else cmd = `npm uninstall -g ${toolName}`;
+    }
+
+    try {
+      await withSpinner(`Uninstalling ${name}...`, async () => {
+        execSync(cmd, { stdio: "pipe", timeout: 60_000 });
+        return "";
+      });
+      console.log(`${c.green}✓${c.reset} ${name} uninstalled`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${c.red}✗${c.reset} Failed: ${msg.split("\n")[0]}`);
+    }
+    return;
+  }
+
+  // Generic npm uninstall
+  console.log(`${c.bold}Uninstalling ${toolName}...${c.reset}`);
+  try {
+    await withSpinner(`Uninstalling ${toolName}...`, async () => {
+      execSync(`npm uninstall -g ${toolName}`, { stdio: "pipe", timeout: 60_000 });
+      return "";
+    });
+    console.log(`${c.green}✓${c.reset} ${toolName} uninstalled`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`${c.red}✗${c.reset} Failed: ${msg.split("\n")[0]}`);
+    console.error(`${c.dim}Try: npm uninstall -g ${toolName}${c.reset}`);
   }
 }

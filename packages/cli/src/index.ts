@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "doctor", "fix", "setup", "logs", "heal", "heal:claude"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "fix", "setup", "logs", "heal", "heal:claude"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -24,6 +24,11 @@ async function main() {
       case "install": {
         const { runInstall } = await import("./commands/install.js");
         await runInstall(subArgs);
+        return;
+      }
+      case "uninstall": {
+        const { runUninstall } = await import("./commands/install.js");
+        await runUninstall(subArgs);
         return;
       }
       case "doctor": {
@@ -85,7 +90,8 @@ notoken — NLP-based server operations CLI
 Usage:
   notoken                              Start interactive mode (default)
   notoken "<command>"                   One-shot NLP command
-  notoken install <tool>               Install a tool (claude, convex, openclaw, etc.)
+  notoken install <tool>               Install a tool (claude, convex, openclaw, ollama...)
+  notoken uninstall <tool>             Uninstall a tool
   notoken doctor                       Check system health and tool availability
   notoken fix <target>                 Auto-fix issues (npm, docker, git, permissions)
   notoken setup <env>                  Set up environment (dev, server, docker, node)
