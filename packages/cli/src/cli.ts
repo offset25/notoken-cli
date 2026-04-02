@@ -74,7 +74,7 @@ export async function runCli(
   }
 
   if (parsed.intent.intent === "unknown") {
-    console.error("Could not determine intent. Logged for auto-learning.");
+    console.error("Could not determine intent. Logged for adaptive rules.");
     process.exitCode = 1;
     return;
   }

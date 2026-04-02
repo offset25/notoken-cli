@@ -79,7 +79,7 @@ async function main() {
   // No arguments or "interactive"/"i" → interactive mode (default)
   if (!rawText || subcommand === "interactive" || subcommand === "i") {
     const { runInteractive } = await import("./interactive.js");
-    await runInteractive({ autoLearn: flags.has("--auto-learn") });
+    await runInteractive({ adaptRules: flags.has("--adapt") });
     return;
   }
 
@@ -106,11 +106,12 @@ Usage:
   notoken fix <target>                 Auto-fix issues (npm, docker, git, permissions)
   notoken setup <env>                  Set up environment (dev, server, docker, node)
   notoken logs <service>               Tail service logs (nginx, docker, system, etc.)
-  notoken heal                         Run auto-learning (LLM API mode)
-  notoken heal:claude                  Run Claude-powered auto-learning
+  notoken check                        Check integration health (OpenClaw, Matrix, Ollama)
+  notoken heal                         Improve rules (LLM API mode)
+  notoken heal:claude                  Improve rules via Claude
 
 Options:
-  --auto-learn  Auto-learn from failures via Claude (interactive mode)
+  --adapt      Enable adaptive rules — learns from failures via LLM
   --dry-run    Parse but don't execute
   --json       Output as JSON
   --verbose    Show detailed restatement
@@ -125,7 +126,7 @@ Examples:
   notoken setup dev                               # set up dev environment
   notoken logs nginx                              # tail nginx logs
   notoken "restart nginx on prod" --dry-run       # NLP one-shot
-  MYCLI_LLM_CLI=claude notoken --auto-learn        # interactive + auto-learn
+  MYCLI_LLM_CLI=claude notoken --adapt        # interactive + adapt
 `);
 }
 

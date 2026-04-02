@@ -40,11 +40,11 @@ const c = {
   magenta: "\x1b[35m",
 };
 
-export async function runInteractive(options: { autoLearn?: boolean } = {}): Promise<void> {
+export async function runInteractive(options: { adaptRules?: boolean } = {}): Promise<void> {
   const rl = readline.createInterface({ input, output });
   let dryRun = false;
   let verbose = true;
-  let autoLearn = options.autoLearn ?? false;
+  let adaptRules = options.adaptRules ?? false;
   const pendingNotifications: string[] = [];
 
   // Load or create conversation for current working directory
@@ -122,10 +122,10 @@ export async function runInteractive(options: { autoLearn?: boolean } = {}): Pro
     if (!trimmed) continue;
 
     if (trimmed.startsWith(":")) {
-      await handleMetaCommand(trimmed, conv, dryRun, verbose, autoLearn, pendingNotifications, (k, v) => {
+      await handleMetaCommand(trimmed, conv, dryRun, verbose, adaptRules, pendingNotifications, (k, v) => {
         if (k === "dryRun") dryRun = v as boolean;
         if (k === "verbose") verbose = v as boolean;
-        if (k === "autoLearn") autoLearn = v as boolean;
+        if (k === "adaptRules") adaptRules = v as boolean;
       });
       continue;
     }
@@ -274,7 +274,7 @@ export async function runInteractive(options: { autoLearn?: boolean } = {}): Pro
     }
 
     if (parsed.intent.intent === "unknown") {
-      console.error(`${c.red}Could not determine intent.${c.reset} Logged for auto-learning.`);
+      console.error(`${c.red}Could not determine intent.${c.reset} Logged for adapting.`);
       console.error(`${c.dim}Tip: Try rephrasing, or type :help to see what I can do.${c.reset}`);
       addSystemTurn(conv, "unknown_intent", undefined, "No intent matched");
 
@@ -297,8 +297,8 @@ export async function runInteractive(options: { autoLearn?: boolean } = {}): Pro
           .catch(() => {});
       }
 
-      // Auto-learn: run Claude healer in background to learn from this failure
-      if (autoLearn && isLLMConfigured()) {
+      // Adaptive rules: run Claude healer in background to learn from this failure
+      if (adaptRules && isLLMConfigured()) {
         runAutoHeal(pendingNotifications);
       }
       continue;
@@ -417,7 +417,7 @@ async function handleMetaCommand(
   conv: Conversation,
   dryRun: boolean,
   verbose: boolean,
-  autoLearn: boolean,
+  adaptRules: boolean,
   pendingNotifications: string[],
   set: (key: string, value: unknown) => void
 ): Promise<void> {
@@ -468,9 +468,9 @@ ${c.bold}Secrets:${c.reset}
   ${c.cyan}:save-secrets [file]${c.reset} Save secrets to file (chmod 600)
   ${c.cyan}:clear-secrets${c.reset}       Wipe secrets from memory
 
-${c.bold}Learning:${c.reset}
-  ${c.cyan}:auto-learn${c.reset}           Toggle auto-learn (${autoLearn ? "ON" : "OFF"}) — learns from failures via Claude
-  ${c.cyan}:heal${c.reset}               Run Claude auto-learning now
+${c.bold}Adaptive Rules:${c.reset}
+  ${c.cyan}:adapt${c.reset}              Toggle adaptive rules (${adaptRules ? "ON" : "OFF"})
+  ${c.cyan}:improve${c.reset}            Run rule improvement via Claude now
 
 ${c.bold}Other:${c.reset}
   ${c.cyan}:clear${c.reset}               Clear completed tasks
@@ -488,17 +488,18 @@ ${c.bold}Other:${c.reset}
       console.log(`${c.green}✓${c.reset} Verbose: ${!verbose ? "ON" : "OFF"}`);
       break;
 
-    case ":auto-learn":
-      set("autoLearn", !autoLearn);
-      console.log(`${c.green}✓${c.reset} Auto-learn: ${!autoLearn ? `${c.green}ON${c.reset} — I'll learn new skills from failures automatically` : "OFF"}`);
+    case ":adapt":
+      set("adaptRules", !adaptRules);
+      console.log(`${c.green}✓${c.reset} Adaptive rules: ${!adaptRules ? `${c.green}ON${c.reset} — Rules will adapt and improve from failures` : "OFF"}`);
       break;
 
+    case ":improve":
     case ":heal": {
       if (!isLLMConfigured()) {
         console.log(`${c.red}No LLM configured. Set MYCLI_LLM_CLI=claude to enable.${c.reset}`);
         break;
       }
-      console.log(`${c.dim}Running Claude auto-learning...${c.reset}`);
+      console.log(`${c.dim}Improving rules via Claude...${c.reset}`);
       runAutoHeal(pendingNotifications, true);
       break;
     }
@@ -716,19 +717,19 @@ function isGreeting(text: string): boolean {
   return GREETING_PATTERNS.some((p) => p.test(trimmed));
 }
 
-// ─── Auto-learn ───────────────────────────────────────────────────────────────
+// ─── Adaptive rules ───────────────────────────────────────────────────────────────
 
 let healingInProgress = false;
 
 async function runAutoHeal(notifications: string[], foreground = false): Promise<void> {
   if (healingInProgress) {
-    if (foreground) console.log(`${c.dim}Healing already in progress...${c.reset}`);
+    if (foreground) console.log(`${c.dim}Rule improvement already in progress...${c.reset}`);
     return;
   }
 
   healingInProgress = true;
   if (!foreground) {
-    notifications.push(`${c.dim}Auto-learn: analyzing failures in background...${c.reset}`);
+    notifications.push(`${c.dim}Adaptive rules: analyzing failures in background...${c.reset}`);
   }
 
   const { exec: execCmd } = await import("node:child_process");
@@ -773,7 +774,7 @@ async function runAutoHeal(notifications: string[], foreground = false): Promise
     } else if (foreground) {
       console.log(output);
     } else if (output.includes("No failures")) {
-      notifications.push(`${c.dim}Auto-learn: no failures to fix.${c.reset}`);
+      notifications.push(`${c.dim}Adaptive rules: no failures to fix.${c.reset}`);
     }
   });
 }
