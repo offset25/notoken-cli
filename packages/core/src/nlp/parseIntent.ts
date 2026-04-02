@@ -5,8 +5,27 @@ import { disambiguate } from "./disambiguate.js";
 import { logFailure } from "../utils/logger.js";
 import { lookupUnknownNouns } from "./wikidata.js";
 import { routeByConcepts } from "./conceptRouter.js";
+import { parseMultiIntent, type MultiIntentPlan } from "./multiIntent.js";
 
-export async function parseIntent(rawText: string): Promise<ParsedCommand> {
+/** Result from parseIntent — may contain a multi-step plan */
+export type { MultiIntentPlan };
+
+export async function parseIntent(rawText: string): Promise<ParsedCommand & { plan?: MultiIntentPlan }> {
+  // Stage 0: check for compound sentences (multi-intent)
+  // "check disk and show me containers and list crontabs"
+  const multiPlan = parseMultiIntent(rawText);
+  if (!multiPlan.isSingleIntent && multiPlan.steps.length >= 2) {
+    // Return the first step as the primary intent, attach the full plan
+    const firstStep = multiPlan.steps[0];
+    const result = disambiguate({
+      intent: firstStep.intent,
+      rawText,
+      confidence: firstStep.confidence,
+      fields: {},
+    });
+    return { ...result, plan: multiPlan };
+  }
+
   // Stage 1: deterministic rule parser (synonym matching + spell correction)
   const ruleResult = parseByRules(rawText);
   if (ruleResult && ruleResult.confidence >= 0.7) {

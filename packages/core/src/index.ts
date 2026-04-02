@@ -97,6 +97,12 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Multi-Intent ──
+export {
+  parseMultiIntent, splitCompoundSentence, formatPlanSteps,
+  type MultiIntentPlan, type PlanStep,
+} from "./nlp/multiIntent.js";
+
 // ── Concept Router ──
 export { routeByConcepts, type ConceptRouterResult } from "./nlp/conceptRouter.js";
 

@@ -2,7 +2,8 @@ import {
   parseIntent, executeIntent, validateIntent, isDangerous, getRiskLevel,
   formatParsedCommand, formatVerbose, formatExplain,
   llmFallback, formatLLMFallback, isLLMConfigured, disambiguate,
-  type DynamicIntent,
+  formatPlanSteps,
+  type DynamicIntent, type MultiIntentPlan,
 } from "notoken-core";
 
 // askForConfirmation is CLI-specific, keep local
@@ -91,8 +92,58 @@ export async function runCli(
     return;
   }
 
+  // Multi-step plan execution
+  const plan = (parsed as { plan?: MultiIntentPlan }).plan;
+  if (plan && !plan.isSingleIntent && plan.steps.length >= 2) {
+    console.log(formatPlanSteps(plan));
+    if (options.dryRun) {
+      console.log("\n[dry-run] Would execute all steps above.");
+      return;
+    }
+  }
+
   if (options.dryRun) {
     console.log(`[dry-run] Would execute: ${parsed.intent.intent} (risk: ${getRiskLevel(parsed.intent)})`);
+    return;
+  }
+
+  // Multi-step plan: execute all steps
+  if (plan && !plan.isSingleIntent && plan.steps.length >= 2) {
+    // Check if any steps require confirmation
+    const hasWrite = plan.steps.some(s => s.requiresConfirmation || s.riskLevel !== "low");
+    if (hasWrite && !options.yes) {
+      const ok = await askForConfirmation("\nProceed with this plan?");
+      if (!ok) { console.log("Cancelled."); return; }
+    } else if (!options.yes) {
+      const ok = await askForConfirmation("\nRun all steps?");
+      if (!ok) { console.log("Cancelled."); return; }
+    }
+
+    // Execute each step
+    for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i];
+      console.log(`\n\x1b[36m━━ Step ${i + 1}/${plan.steps.length}: ${step.intent} ━━\x1b[0m`);
+
+      // For dangerous steps, confirm individually
+      if (step.requiresConfirmation && step.riskLevel === "high" && !options.yes) {
+        const ok = await askForConfirmation(`  Execute ${step.intent}? (risk: ${step.riskLevel})`);
+        if (!ok) { console.log("  Skipped."); continue; }
+      }
+
+      try {
+        const stepIntent: DynamicIntent = {
+          intent: step.intent,
+          rawText: step.rawText,
+          confidence: step.confidence,
+          fields: {},
+        };
+        const stepResult = await executeIntent(stepIntent);
+        console.log(stepResult);
+      } catch (err) {
+        console.error(`\x1b[31m✗ Step ${i + 1} failed: ${err instanceof Error ? err.message : err}\x1b[0m`);
+      }
+    }
+    console.log(`\n\x1b[32m✓ Plan complete (${plan.steps.length} steps)\x1b[0m`);
     return;
   }
 
