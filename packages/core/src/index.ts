@@ -74,7 +74,7 @@ export { Spinner, withSpinner, progressBar } from "./utils/spinner.js";
 export { createBackup, rollback, listBackups, cleanExpiredBackups, formatBackupList } from "./utils/autoBackup.js";
 
 // ── Updates ──
-export { checkForUpdate, checkForUpdateSync, runUpdate, formatUpdateBanner, type UpdateInfo } from "./utils/updater.js";
+export { checkForUpdate, checkForUpdateSync, runUpdate, formatUpdateBanner, isNewer, type UpdateInfo } from "./utils/updater.js";
 
 // ── LLM Manager ──
 export {

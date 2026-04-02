@@ -125,7 +125,7 @@ function getInstalledVersion(): string {
   }
 }
 
-function isNewer(latest: string, current: string): boolean {
+export function isNewer(latest: string, current: string): boolean {
   const l = latest.split(".").map(Number);
   const c = current.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
