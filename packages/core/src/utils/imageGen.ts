@@ -641,20 +641,14 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     }
   }
 
-  // ── Windows (no WSL) — use standalone installers ──
+  // ── Windows (no WSL) — frictionless install via PowerShell ──
   if (os === "win32") {
-    console.log(`${c.cyan}Step 1/${c.reset} Windows detected — downloading standalone installer...`);
-    const urls: Record<string, string> = {
-      auto1111: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/latest",
-      comfyui: "https://github.com/comfyanonymous/ComfyUI/releases/latest",
-      fooocus: "https://github.com/lllyasviel/Fooocus/releases/latest",
-    };
-    try {
-      execSync(`start "" "${urls[engine]}"`, { stdio: "ignore", shell: "cmd.exe" });
-      return { success: true, message: `${c.green}✓${c.reset} Download opened in browser. Extract and run the executable.` };
-    } catch {
-      return { success: false, message: `Open manually: ${urls[engine]}` };
-    }
+    return installOnWindows(engine, gpu);
+  }
+
+  // ── WSL — check if better to install on Windows side ──
+  if (isWSL) {
+    console.log(`${c.cyan}Step 0/${c.reset} WSL detected — installing inside WSL (GPU passthrough supported)`);
   }
 
   // ── Linux / WSL / macOS — install prerequisites then engine ──
@@ -769,6 +763,122 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
   console.log(`${c.cyan}Step 6/${c.reset} ${c.green}Installation complete${c.reset}`);
   const plan = getInstallPlan(engine);
   return { success: true, message: `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}\n\n${c.dim}Start: notoken start stable-diffusion\nOr just say "generate a picture of a cat" — it will auto-start.${c.reset}` };
+}
+
+// ─── Windows Native Install ────────────────────────────────────────────────
+
+async function installOnWindows(
+  engine: "auto1111" | "comfyui" | "fooocus",
+  gpu: GpuInfo,
+): Promise<{ success: boolean; message: string }> {
+  const home = process.env.USERPROFILE ?? "C:\\Users\\Default";
+  const installDir = `${home}\\StableDiffusion`;
+
+  // Strategy: try winget for prerequisites, then PowerShell for download
+  console.log(`${c.cyan}Step 1/${c.reset} Windows detected — setting up prerequisites...`);
+
+  // 1. Check/install git via winget
+  if (!tryExec("git --version")) {
+    console.log(`${c.cyan}  1a/${c.reset} Installing git via winget...`);
+    try {
+      execSync("winget install Git.Git --accept-source-agreements --accept-package-agreements -h", { stdio: "inherit", timeout: 120000 });
+      // Refresh PATH
+      console.log(`${c.green}  ✓${c.reset} git installed. You may need to restart terminal for PATH update.`);
+    } catch {
+      console.log(`${c.yellow}  ⚠${c.reset} winget not available — trying direct download...`);
+      try {
+        execSync(`powershell -Command "Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/latest/download/Git-2.47.1-64-bit.exe' -OutFile '%TEMP%\\git-installer.exe'; Start-Process '%TEMP%\\git-installer.exe' -ArgumentList '/VERYSILENT /NORESTART' -Wait"`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+      } catch {
+        return { success: false, message: "Could not install git. Install manually from https://git-scm.com/download/win" };
+      }
+    }
+  } else {
+    console.log(`${c.cyan}  1a/${c.reset} ${c.green}git found${c.reset}`);
+  }
+
+  // 2. Check/install Python via winget
+  const python = tryExec("python --version") ?? tryExec("python3 --version");
+  const pyMatch = python?.match(/(\d+)\.(\d+)/);
+  const pyOk = pyMatch && parseInt(pyMatch[1]) >= 3 && parseInt(pyMatch[2]) >= 10;
+
+  if (!pyOk) {
+    console.log(`${c.cyan}  1b/${c.reset} Installing Python 3.11...`);
+    try {
+      execSync("winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements -h", { stdio: "inherit", timeout: 120000 });
+      console.log(`${c.green}  ✓${c.reset} Python 3.11 installed.`);
+    } catch {
+      try {
+        // Direct download fallback
+        execSync(`powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '%TEMP%\\python-installer.exe'; Start-Process '%TEMP%\\python-installer.exe' -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1' -Wait"`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+      } catch {
+        return { success: false, message: "Could not install Python. Install manually from https://python.org/downloads/" };
+      }
+    }
+  } else {
+    console.log(`${c.cyan}  1b/${c.reset} ${c.green}Python found${c.reset} — ${python}`);
+  }
+
+  // 3. Clone the repo
+  console.log(`${c.cyan}Step 2/${c.reset} Downloading ${engine}...`);
+  const repos: Record<string, string> = {
+    auto1111: "https://github.com/AUTOMATIC1111/stable-diffusion-webui.git",
+    comfyui: "https://github.com/comfyanonymous/ComfyUI.git",
+    fooocus: "https://github.com/lllyasviel/Fooocus.git",
+  };
+  const engineDir = `${installDir}\\${engine}`;
+
+  try {
+    execSync(`if not exist "${installDir}" mkdir "${installDir}"`, { shell: "cmd.exe", stdio: "ignore" });
+    if (tryExec(`if exist "${engineDir}" echo yes`)) {
+      console.log(`${c.green}  ✓${c.reset} Already downloaded at ${engineDir}`);
+    } else {
+      execSync(`git clone "${repos[engine]}" "${engineDir}"`, { stdio: "inherit", timeout: 300000 });
+    }
+  } catch (err) {
+    return { success: false, message: `Download failed: ${err instanceof Error ? err.message : err}` };
+  }
+
+  // 4. Create venv and install deps
+  console.log(`${c.cyan}Step 3/${c.reset} Setting up Python environment and dependencies...`);
+  console.log(`${c.dim}  This may take 5-15 minutes (downloading PyTorch)...${c.reset}`);
+  const torchUrl = gpu.hasNvidia ? "cu121" : "cpu";
+  const pythonExe = "python";
+
+  try {
+    execSync(`cd /d "${engineDir}" && ${pythonExe} -m venv venv`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+    execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install --upgrade pip`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+    execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install torch torchvision --index-url https://download.pytorch.org/whl/${torchUrl}`, { stdio: "inherit", timeout: 600000, shell: "cmd.exe" });
+
+    if (engine === "comfyui") {
+      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements.txt`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+    } else if (engine === "fooocus") {
+      execSync(`cd /d "${engineDir}" && venv\\Scripts\\pip install -r requirements_versions.txt`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+    }
+  } catch (err) {
+    return { success: false, message: `Dependency install failed: ${err instanceof Error ? err.message : err}\n\n${c.dim}Alternative: download Stability Matrix from https://lykos.ai (no Python needed)${c.reset}` };
+  }
+
+  // 5. Create a launcher script
+  console.log(`${c.cyan}Step 4/${c.reset} Creating launcher...`);
+  const launcherPath = `${engineDir}\\start-notoken.bat`;
+  const launcherContent = engine === "auto1111"
+    ? `@echo off\ncd /d "${engineDir}"\ncall venv\\Scripts\\activate\npython webui.py --api --listen\npause`
+    : engine === "comfyui"
+    ? `@echo off\ncd /d "${engineDir}"\ncall venv\\Scripts\\activate\npython main.py --listen\npause`
+    : `@echo off\ncd /d "${engineDir}"\ncall venv\\Scripts\\activate\npython entry_with_update.py\npause`;
+
+  try {
+    writeFileSync(launcherPath, launcherContent);
+  } catch {}
+
+  console.log(`${c.green}✓${c.reset} Installation complete!`);
+  console.log(`  ${c.bold}Location:${c.reset} ${engineDir}`);
+  console.log(`  ${c.bold}Launcher:${c.reset} ${launcherPath}`);
+
+  return {
+    success: true,
+    message: `${c.green}✓${c.reset} ${engine} installed at ${engineDir}\n\n${c.dim}Start: double-click ${launcherPath}\nOr just say "generate a picture of a cat" — it will auto-start.${c.reset}`,
+  };
 }
 
 // ─── Formatting ────────────────────────────────────────────────────────────
