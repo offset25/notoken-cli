@@ -172,79 +172,9 @@ export async function runSetupOpenclaw(): Promise<void> {
         break;
       }
       case "3": {
-        console.log(`\n  ${c.bold}Setting up local Matrix server (Conduit via Docker)...${c.reset}`);
-        const hasDocker = tryExec("docker --version");
-        if (!hasDocker) {
-          console.log(`  ${c.red}✗${c.reset} Docker required. Run: notoken install docker`);
-          break;
-        }
-
-        const matrixPort = await ask(rl, `  Matrix port [8448]: `) || "8448";
-        const serverName = await ask(rl, `  Server name [matrix.local]: `) || "matrix.local";
-        const botPassword = "openclaw-bot-" + Math.random().toString(36).slice(2, 10);
-
-        console.log(`  ${c.dim}Starting Conduit Matrix server...${c.reset}`);
-
-        // Create config
-        tryExec(`mkdir -p /opt/matrix-conduit`);
-        const toml = `[global]\nserver_name = "${serverName}"\ndatabase_backend = "rocksdb"\ndatabase_path = "/var/lib/matrix-conduit"\nport = 6167\nmax_request_size = 20000000\nallow_registration = true\nallow_federation = false\ntrusted_servers = ["matrix.org"]\naddress = "0.0.0.0"`;
-        execSync(`cat > /opt/matrix-conduit/conduit.toml << 'EOF'\n${toml}\nEOF`);
-
-        const compose = `services:\n  conduit:\n    image: matrixconduit/matrix-conduit:latest\n    container_name: matrix-conduit\n    restart: unless-stopped\n    ports:\n      - '${matrixPort}:6167'\n    volumes:\n      - conduit-data:/var/lib/matrix-conduit\n      - ./conduit.toml:/etc/conduit.toml:ro\n    environment:\n      CONDUIT_CONFIG: /etc/conduit.toml\nvolumes:\n  conduit-data:`;
-        execSync(`cat > /opt/matrix-conduit/docker-compose.yml << 'EOF'\n${compose}\nEOF`);
-
-        try {
-          execSync("cd /opt/matrix-conduit && docker compose up -d", { stdio: "inherit", timeout: 120_000 });
-
-          // Wait for server
-          console.log(`  ${c.dim}Waiting for Matrix server...${c.reset}`);
-          let ready = false;
-          for (let i = 0; i < 10; i++) {
-            const check = tryExec(`curl -sf http://localhost:${matrixPort}/_matrix/client/versions`);
-            if (check) { ready = true; break; }
-            execSync("sleep 2");
-          }
-
-          if (!ready) {
-            console.log(`  ${c.red}✗${c.reset} Matrix server didn't start. Check: docker logs matrix-conduit`);
-            break;
-          }
-
-          console.log(`  ${c.green}✓${c.reset} Matrix Conduit running on port ${matrixPort}`);
-
-          // Register bot user
-          const regResult = tryExec(`curl -sf -X POST http://localhost:${matrixPort}/_matrix/client/r0/register -H 'Content-Type: application/json' -d '{"username":"openclaw-bot","password":"${botPassword}","auth":{"type":"m.login.dummy"}}'`);
-
-          if (regResult) {
-            const reg = JSON.parse(regResult);
-            console.log(`  ${c.green}✓${c.reset} Bot registered: ${reg.user_id}`);
-
-            // Connect to OpenClaw
-            tryExec(`openclaw channels add --channel matrix --homeserver http://localhost:${matrixPort} --user-id '${reg.user_id}' --access-token '${reg.access_token}' --device-name 'OpenClaw Bot' 2>/dev/null`);
-            console.log(`  ${c.green}✓${c.reset} OpenClaw connected to Matrix`);
-
-            // Register a user account for the human
-            console.log(`\n  ${c.bold}Create your user account:${c.reset}`);
-            const myUsername = await ask(rl, `  Username: `);
-            const myPassword = await ask(rl, `  Password: `);
-            if (myUsername.trim() && myPassword.trim()) {
-              const userResult = tryExec(`curl -sf -X POST http://localhost:${matrixPort}/_matrix/client/r0/register -H 'Content-Type: application/json' -d '{"username":"${myUsername.trim()}","password":"${myPassword.trim()}","auth":{"type":"m.login.dummy"}}'`);
-              if (userResult) {
-                console.log(`  ${c.green}✓${c.reset} User @${myUsername.trim()}:${serverName} created`);
-                console.log(`\n  ${c.bold}To chat with your bot:${c.reset}`);
-                console.log(`  ${c.dim}1. Use Element (https://app.element.io)${c.reset}`);
-                console.log(`  ${c.dim}2. Homeserver: http://YOUR_SERVER_IP:${matrixPort}${c.reset}`);
-                console.log(`  ${c.dim}3. Log in as ${myUsername.trim()}${c.reset}`);
-                console.log(`  ${c.dim}4. Start a DM with @openclaw-bot:${serverName}${c.reset}`);
-              }
-            }
-          } else {
-            console.log(`  ${c.yellow}⚠${c.reset} Could not register bot. May need manual setup.`);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.log(`  ${c.red}✗${c.reset} Matrix setup failed: ${msg.split("\n")[0]}`);
-        }
+        // Full Matrix provisioner with Docker, nginx, SSL, etc.
+        const { provisionMatrix } = await import("./provision-matrix.js");
+        await provisionMatrix();
         break;
       }
       case "4": {
