@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "fix", "setup", "logs", "heal", "heal:claude"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "heal", "heal:claude"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -34,6 +34,11 @@ async function main() {
       case "doctor": {
         const { runDoctor } = await import("./commands/doctor.js");
         await runDoctor();
+        return;
+      }
+      case "check": {
+        const { runCheckIntegration } = await import("./commands/install.js");
+        await runCheckIntegration();
         return;
       }
       case "fix": {
