@@ -445,7 +445,7 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
     const apiLine = stats.apiKey?.configured
       ? `  ${c.green}✓ API key configured (${stats.apiKey.provider})${c.reset}`
       : `  ${c.dim}Tip: For faster generation, set an API key:${c.reset}\n  ${c.dim}  HuggingFace (free): https://huggingface.co/settings/tokens → export HF_TOKEN=hf_...${c.reset}\n  ${c.dim}  Stability AI: https://platform.stability.ai/account/keys → export STABILITY_API_KEY=sk-...${c.reset}`;
-    const localLine = `  ${c.dim}For offline/private: notoken install stability-matrix${c.reset}`;
+    const localLine = `  ${c.dim}To create images offline for free: notoken install stability-matrix${c.reset}`;
 
     return {
       success: true,

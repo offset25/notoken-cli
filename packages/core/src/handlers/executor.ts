@@ -118,15 +118,42 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    // Extract full prompt from raw text — strip conversational wrapping
-    const prompt = intent.rawText
-      .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
-      .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
-      .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
-      .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
-      .replace(/\s+(please|for me|for us)\s*$/i, "")
-      .trim()
-      || ((fields.prompt as string) ?? "image");
+    // Use NLP tokenizer to extract the subject/object as the prompt
+    let prompt: string;
+    try {
+      const { tokenize, parseDependencies } = await import("../nlp/semantic.js");
+      const tokens = tokenize(intent.rawText, [], []);
+      const deps = parseDependencies(tokens);
+      // The image subject is the object of the verb ("draw [a cat]", "generate [sunset]")
+      const objects = deps.filter(d => d.relation === "object" || d.relation === "subject");
+      if (objects.length > 0) {
+        // Rebuild prompt from all object/subject tokens plus any modifiers
+        const objectTokens = objects.map(d => d.dependent);
+        const modifiers = deps.filter(d => d.relation === "modifier").map(d => d.dependent);
+        const promptTokens = [...objectTokens, ...modifiers].sort((a, b) => a.index - b.index);
+        const PRONOUNS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she"]);
+        prompt = promptTokens.map(t => t.text).filter(w => !PRONOUNS.has(w.toLowerCase())).join(" ");
+      } else {
+        // Fallback: take all nouns and adjectives as the prompt
+        const PRONOUNS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she"]);
+        const nouns = tokens.filter(t => ["NOUN", "ADJ", "PATH"].includes(t.tag) && !PRONOUNS.has(t.text.toLowerCase()));
+        prompt = nouns.map(t => t.text).join(" ");
+      }
+    } catch {
+      prompt = "";
+    }
+
+    // Final fallback: regex strip if NLP produced nothing useful
+    if (!prompt || prompt.length < 2) {
+      prompt = intent.rawText
+        .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
+        .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
+        .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
+        .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
+        .replace(/\s+(please|for me|for us)\s*$/i, "")
+        .trim()
+        || ((fields.prompt as string) ?? "image");
+    }
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";
