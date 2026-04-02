@@ -559,6 +559,43 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** Run a command with streaming output and no timeout (for long pip installs) */
+async function runWithProgress(cmd: string, args: string[], cwd: string): Promise<void> {
+  const { spawn: spawnAsync } = await import("node:child_process");
+
+  return new Promise((resolve, reject) => {
+    const child = spawnAsync(cmd, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+
+    let lastLine = "";
+    const handleData = (data: Buffer) => {
+      const lines = data.toString().split("\n").filter(l => l.trim());
+      for (const line of lines) {
+        lastLine = line;
+        // Show download progress and install lines
+        if (line.includes("Downloading") || line.includes("Installing") ||
+            line.includes("Collecting") || line.includes("Successfully") ||
+            line.includes("━") || line.includes("error") || line.includes("ERROR")) {
+          process.stderr.write(`  ${c.dim}${line.trim()}${c.reset}\n`);
+        }
+      }
+    };
+
+    child.stdout?.on("data", handleData);
+    child.stderr?.on("data", handleData);
+
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Command failed (exit ${code}): ${lastLine}`));
+    });
+
+    child.on("error", (err) => reject(err));
+  });
+}
+
 // ─── Cloud API (free, no install, no auth) ─────────────────────────────────
 
 async function generateViaCloud(prompt: string): Promise<GenerateResult> {
@@ -937,22 +974,31 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
 
   // Step 5: Create venv and install deps
   console.log(`${c.cyan}Step 5/${c.reset} Setting up virtual environment and dependencies...`);
+  console.log(`${c.dim}  This downloads PyTorch (~190MB for CPU, ~2GB for GPU). May take 5-15 minutes.${c.reset}`);
   const torchExtra = gpu.hasNvidia ? "cu121" : gpu.hasAmd ? "rocm5.7" : "cpu";
 
   try {
-    const venvPython = `${dir}/venv/bin/python`;
     const venvPip = `${dir}/venv/bin/pip`;
 
     if (!existsSync(`${dir}/venv`)) {
-      execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 60000 });
+      console.log(`${c.dim}  Creating virtual environment...${c.reset}`);
+      execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 120000 });
     }
-    execSync(`${venvPip} install --upgrade pip`, { stdio: "inherit", timeout: 60000 });
-    execSync(`${venvPip} install torch torchvision --index-url https://download.pytorch.org/whl/${torchExtra}`, { stdio: "inherit", timeout: 600000 });
+
+    console.log(`${c.dim}  Upgrading pip...${c.reset}`);
+    await runWithProgress(venvPip, ["install", "--upgrade", "pip"], dir);
+
+    console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
+    await runWithProgress(venvPip, [
+      "install", "torch", "torchvision",
+      "--index-url", `https://download.pytorch.org/whl/${torchExtra}`,
+    ], dir);
 
     if (engine === "comfyui" || engine === "fooocus") {
       const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
       if (existsSync(resolve(dir, reqFile))) {
-        execSync(`${venvPip} install -r "${resolve(dir, reqFile)}"`, { stdio: "inherit", timeout: 600000 });
+        console.log(`${c.dim}  Installing ${reqFile}...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "-r", resolve(dir, reqFile)], dir);
       }
     }
 
