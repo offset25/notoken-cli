@@ -89,6 +89,40 @@ export function consumePendingAction(): PendingAction | null {
 }
 
 /**
+ * Check if user is giving a directive about the pending action.
+ * E.g. "put it on F drive", "install it on D:", "no use /mnt/f"
+ * Returns the resolved new text if yes, null otherwise.
+ */
+export function isRedirectingPendingAction(text: string): string | null {
+  const pending = getLastPendingAction();
+  if (!pending) return null;
+
+  const normalized = text.toLowerCase().trim();
+
+  // "put it on X", "install it on X", "no put it on X", "use X instead"
+  const redirectPatterns = [
+    /(?:put|install|place|move|set|store)\s+(?:it|that|this)\s+(?:on|in|at|to)\s+(.+)/i,
+    /(?:no|nah|nope)\s*,?\s*(?:put|install|place|use|try)\s+(?:it\s+)?(?:on|in|at)?\s*(.+)/i,
+    /(?:use|try)\s+(.+?)\s+instead/i,
+    /(?:on|in|at)\s+(.+?)\s+(?:drive|folder|directory|instead)/i,
+  ];
+
+  for (const pattern of redirectPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      const location = match[1].trim();
+      // Re-form the pending action with the new location
+      if (pending.action.includes("install") || pending.action.includes("generate")) {
+        return `${pending.action} on ${location}`;
+      }
+      return `install stable diffusion on ${location}`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Check if user input is an affirmation to execute a pending action.
  */
 export function isAffirmation(text: string): boolean {

@@ -6,24 +6,33 @@ import { logFailure } from "../utils/logger.js";
 import { lookupUnknownNouns } from "./wikidata.js";
 import { routeByConcepts } from "./conceptRouter.js";
 import { parseMultiIntent, type MultiIntentPlan } from "./multiIntent.js";
-import { isAffirmation, consumePendingAction } from "../conversation/pendingActions.js";
+import { isAffirmation, consumePendingAction, isRedirectingPendingAction } from "../conversation/pendingActions.js";
 
 /** Result from parseIntent — may contain a multi-step plan */
 export type { MultiIntentPlan };
 
 export async function parseIntent(rawText: string): Promise<ParsedCommand & { plan?: MultiIntentPlan }> {
-  // Stage -1: check if user is affirming a pending action ("ok", "try it", "do it")
+  // Stage -1a: check if user is redirecting a pending action ("put it on F drive")
+  const redirect = isRedirectingPendingAction(rawText);
+  if (redirect) {
+    consumePendingAction();
+    // Re-parse with the new location context
+    const reParsed = parseByRules(redirect);
+    if (reParsed && reParsed.confidence >= 0.5) return disambiguate(reParsed);
+    // Fall through to normal parsing with the redirected text
+    rawText = redirect;
+  }
+
+  // Stage -1b: check if user is affirming a pending action ("ok", "try it", "do it")
   if (isAffirmation(rawText)) {
     const pending = consumePendingAction();
     if (pending) {
       if (pending.type === "intent") {
-        // Re-parse the suggested action
         const reParsed = parseByRules(pending.action);
         if (reParsed && reParsed.confidence >= 0.5) {
           return disambiguate(reParsed);
         }
       }
-      // For command type or failed re-parse, treat as the action text
       return disambiguate({
         intent: pending.action.includes(".") ? pending.action : "unknown",
         rawText: pending.action,

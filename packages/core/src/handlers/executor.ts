@@ -117,6 +117,20 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
+  // Install with user-specified path — "install stable diffusion on F drive"
+  if (intent.intent === "ai.install_sd") {
+    const rawLower = intent.rawText.toLowerCase();
+    const pathMatch = rawLower.match(/\bon\s+([a-z]\s*drive|\/\S+)/i);
+    if (pathMatch) {
+      const { resolveUserPath } = await import("../utils/imageGen.js");
+      const resolved = resolveUserPath(pathMatch[1]);
+      if (resolved) {
+        process.env.NOTOKEN_INSTALL_DIR = resolved;
+        console.error(`\x1b[36mUsing custom install location:\x1b[0m ${resolved}`);
+      }
+    }
+  }
+
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
     // Use NLP tokenizer to extract the subject/object as the prompt

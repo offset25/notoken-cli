@@ -814,7 +814,15 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         };
       }
     }
-    console.log(`${c.dim}To change location: "install stable diffusion on F drive"${c.reset}\n`);
+    console.log(`${c.dim}To change location: "put it on F drive" or "install stable diffusion on F drive"${c.reset}\n`);
+
+    // Store as pending action so user can say "put it on F drive"
+    const { suggestAction: suggest } = await import("../conversation/pendingActions.js");
+    suggest({
+      action: `install stable diffusion`,
+      description: `Install Stable Diffusion at ${actualBase}`,
+      type: "intent",
+    });
   }
 
   // ── Linux / WSL / macOS — install prerequisites then engine ──

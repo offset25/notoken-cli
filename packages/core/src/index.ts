@@ -99,7 +99,8 @@ export {
 
 // ── Pending Actions ──
 export {
-  suggestAction, getLastPendingAction, consumePendingAction, isAffirmation, clearPendingActions,
+  suggestAction, getLastPendingAction, consumePendingAction,
+  isAffirmation, isRedirectingPendingAction, clearPendingActions,
   type PendingAction,
 } from "./conversation/pendingActions.js";
 
