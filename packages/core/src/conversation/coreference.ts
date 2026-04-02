@@ -17,11 +17,11 @@ import type { DynamicIntent } from "../types/intent.js";
 
 // Patterns that signal a reference to a previous turn
 const REPEAT_PATTERNS = [
-  /^(do it|do that|run it|run that|same thing|again|repeat|redo|re-?run)\b/i,
+  /^(do it|do that|run it|run that|same thing|again|repeat|redo|re-?run|try again|retry|one more time|run again|do it again|try that again|go again|try it now|try now|try it|let.?s try|give it another|another try)\b/i,
   /^same\b/i,
 ];
 
-const PRONOUN_PATTERNS: Array<{ pattern: RegExp; refType: "service" | "environment" | "path" | "any" }> = [
+const PRONOUN_PATTERNS: Array<{ pattern: RegExp; refType: "service" | "environment" | "path" | "any"; offset?: number }> = [
   { pattern: /\bit\b/i, refType: "any" },
   { pattern: /\bthat service\b/i, refType: "service" },
   { pattern: /\bthat server\b/i, refType: "service" },
@@ -29,6 +29,18 @@ const PRONOUN_PATTERNS: Array<{ pattern: RegExp; refType: "service" | "environme
   { pattern: /\bthat (file|path|directory)\b/i, refType: "path" },
   { pattern: /\bthere\b/i, refType: "environment" },
   { pattern: /\bthat (env|environment|box|machine)\b/i, refType: "environment" },
+  // "the other" — refers to the second-most-recent entity (not the one we just acted on)
+  { pattern: /\bthe other (one|service|server|thing)\b/i, refType: "service", offset: 1 },
+  { pattern: /\bthe other (env|environment|box|machine|server)\b/i, refType: "environment", offset: 1 },
+  { pattern: /\bthe other\b/i, refType: "any", offset: 1 },
+  { pattern: /\bnot that one\b/i, refType: "any", offset: 1 },
+  { pattern: /\bnot this one\b/i, refType: "any", offset: 1 },
+  { pattern: /\bno not this one\b/i, refType: "any", offset: 1 },
+  { pattern: /\bno not that one\b/i, refType: "any", offset: 1 },
+  { pattern: /\bnot that\b/i, refType: "any", offset: 1 },
+  { pattern: /\bthe previous one\b/i, refType: "any", offset: 1 },
+  { pattern: /\bthe one before\b/i, refType: "any", offset: 1 },
+  { pattern: /\bthe first one\b/i, refType: "any", offset: 1 },
 ];
 
 const OVERRIDE_PATTERNS: Array<{ pattern: RegExp; field: string }> = [
@@ -69,6 +81,28 @@ export function resolveCoreferences(
   const recentTurns = getRecentTurns(conv, 5);
   const lastUserTurn = recentTurns[recentTurns.length - 1];
 
+  // 0. Check for "the other thing" / "try the other thing" — second-to-last command
+  const otherThingPattern = /^(?:try |do |run )?the other (?:thing|one|command)\b/i;
+  if (otherThingPattern.test(rawText.trim())) {
+    isReference = true;
+    const prevTurn = recentTurns[recentTurns.length - 2];
+    if (prevTurn?.intent && prevTurn.fields) {
+      resolvedIntent = {
+        intent: prevTurn.intent,
+        confidence: 0.8,
+        rawText,
+        fields: { ...prevTurn.fields },
+      };
+      resolvedText = prevTurn.rawText;
+      resolutions.push({
+        original: rawText,
+        resolved: prevTurn.rawText,
+        source: "last_turn",
+      });
+    }
+    return { resolvedText, isReference, resolvedIntent, resolutions };
+  }
+
   // 1. Check for full repeat patterns ("do it again", "same thing")
   for (const pattern of REPEAT_PATTERNS) {
     if (pattern.test(rawText.trim())) {
@@ -106,14 +140,20 @@ export function resolveCoreferences(
     }
   }
 
-  // 2. Resolve pronouns ("restart it", "check that service")
-  for (const { pattern, refType } of PRONOUN_PATTERNS) {
+  // 2. Resolve pronouns ("restart it", "check that service", "the other one")
+  for (const { pattern, refType, offset } of PRONOUN_PATTERNS) {
     const match = rawText.match(pattern);
     if (!match) continue;
 
     let resolved: KnowledgeNode | undefined;
 
-    if (refType === "any") {
+    if (offset && offset > 0) {
+      // "the other" — get the Nth entity (skip the most recent)
+      const candidates = refType === "any"
+        ? [...conv.knowledgeTree].sort((a, b) => b.lastMentioned - a.lastMentioned)
+        : conv.knowledgeTree.filter(n => n.type === refType).sort((a, b) => b.lastMentioned - a.lastMentioned);
+      resolved = candidates[offset]; // offset=1 means second-most-recent
+    } else if (refType === "any") {
       // "it" → most recent service, then most recent entity
       resolved = getLastEntity(conv, "service")
         ?? getLastEntity(conv, "path")

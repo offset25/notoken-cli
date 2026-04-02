@@ -9,6 +9,7 @@
  */
 
 import { analyzeDirectory as analyzeDirectoryImpl } from "./dirAnalysis.js";
+import { detectLocalPlatform } from "./platform.js";
 
 function analyzeDirectoryOutput(output: string): string {
   return analyzeDirectoryImpl(output);
@@ -148,7 +149,21 @@ export function analyzeDisk(output: string, specificPath?: string): string {
     if (warningCount > 0) {
       lines.push(`  ${c.yellow}  ${warningCount} partition(s) approaching full.${c.reset}`);
     }
-    lines.push(`  ${c.dim}  Tip: Run "disk analysis" playbook for detailed breakdown.${c.reset}`);
+    if (criticalCount > 0) {
+      lines.push(`  ${c.yellow}${c.bold}  → Try "free up space" or "disk cleanup" to scan for reclaimable space.${c.reset}`);
+      // WSL-specific: warn about I/O errors and need to restart WSL
+      const platform = detectLocalPlatform();
+      if (platform.isWSL) {
+        const windowsDriveFull = realPartitions.some((p) => p.mountPoint.startsWith("/mnt/") && p.usePercent >= 95);
+        if (windowsDriveFull) {
+          lines.push(`\n  ${c.red}${c.bold}  ⚠ WSL WARNING:${c.reset} Windows drive is critically full.`);
+          lines.push(`  ${c.yellow}  WSL shares disk with Windows — I/O errors and instability are likely.${c.reset}`);
+          lines.push(`  ${c.yellow}  Run "free up space" to clean and optionally restart WSL.${c.reset}`);
+        }
+      }
+    } else {
+      lines.push(`  ${c.dim}  Tip: Run "disk analysis" playbook for detailed breakdown.${c.reset}`);
+    }
   }
 
   // Highlight largest partitions
@@ -201,10 +216,10 @@ function findPartitionForPath(partitions: DiskPartition[], path: string): DiskPa
     "var": ["/var"],
     "log": ["/var/log", "/var"],
     "www": ["/var/www"],
-    "c drive": ["/mnt/c"],
-    "d drive": ["/mnt/d"],
-    "e drive": ["/mnt/e"],
-    "f drive": ["/mnt/f"],
+    "c drive": ["/mnt/c", "C:\\"],
+    "d drive": ["/mnt/d", "D:\\"],
+    "e drive": ["/mnt/e", "E:\\"],
+    "f drive": ["/mnt/f", "F:\\"],
   };
 
   // Check aliases first
@@ -318,132 +333,6 @@ function parseSize(str: string): number {
   return num;
 }
 
-// ─── Cron Analysis ──────────────────────────────────────────────────────────
-
-export function analyzeCron(output: string): string {
-  const lines: string[] = [];
-
-  // Count user cron entries
-  const userCronSection = output.split("System Crons")[0] ?? output;
-  const cronLines = userCronSection.split("\n").filter(l =>
-    l.trim() && !l.startsWith("#") && !l.startsWith("===") && !l.startsWith("(no")
-    && /^[\d*\/,\-]/.test(l.trim())
-  );
-
-  // Count system cron files
-  const sysCronSection = output.split("System Crons")[1]?.split("Cron Directories")[0] ?? "";
-  const sysCronFiles = sysCronSection.split("\n").filter(l =>
-    l.trim() && !l.startsWith("total") && !l.startsWith("===") && !l.startsWith("(")
-    && /^[d-]/.test(l.trim())
-  );
-
-  // Count systemd timers
-  const timerSection = output.split("Systemd Timers")[1] ?? "";
-  const timers = timerSection.split("\n").filter(l =>
-    l.trim() && l.includes(".timer") && !l.startsWith("===")
-  );
-
-  lines.push(`\n${c.bold}${c.cyan}── Analysis ──${c.reset}`);
-  lines.push(`  User cron jobs: ${c.bold}${cronLines.length}${c.reset}`);
-  if (sysCronFiles.length > 0) lines.push(`  System cron files: ${c.bold}${sysCronFiles.length}${c.reset}`);
-  if (timers.length > 0) lines.push(`  Systemd timers: ${c.bold}${timers.length}${c.reset}`);
-
-  // Analyze frequency of cron jobs
-  const frequencies: Record<string, number> = { "every minute": 0, "hourly": 0, "daily": 0, "weekly": 0, "monthly": 0, "custom": 0 };
-  for (const line of cronLines) {
-    const parts = line.trim().split(/\s+/);
-    if (parts.length < 5) continue;
-    const [min, hour, dom, mon, dow] = parts;
-    if (min === "*" && hour === "*") frequencies["every minute"]++;
-    else if (min !== "*" && hour === "*") frequencies["hourly"]++;
-    else if (min !== "*" && hour !== "*" && dom === "*" && dow === "*") frequencies["daily"]++;
-    else if (dow !== "*" && dow !== "0-6") frequencies["weekly"]++;
-    else if (dom !== "*") frequencies["monthly"]++;
-    else frequencies["custom"]++;
-  }
-
-  const active = Object.entries(frequencies).filter(([, v]) => v > 0);
-  if (active.length > 0) {
-    lines.push(`\n  ${c.bold}Schedule breakdown:${c.reset}`);
-    for (const [freq, count] of active) {
-      const warn = freq === "every minute" ? ` ${c.yellow}⚠ high frequency${c.reset}` : "";
-      lines.push(`    ${count}x ${freq}${warn}`);
-    }
-  }
-
-  if (cronLines.length === 0 && timers.length === 0) {
-    lines.push(`  ${c.dim}No scheduled tasks found.${c.reset}`);
-  }
-
-  return lines.join("\n");
-}
-
-// ─── Uptime Analysis ────────────────────────────────────────────────────────
-
-export function analyzeUptime(output: string): string {
-  const lines: string[] = [];
-
-  // Parse uptime string: "up 45 days, 3:22" or "up 3 min"
-  const uptimeMatch = output.match(/up\s+(.+?)(?:,\s*\d+\s*user|$)/m);
-  if (uptimeMatch) {
-    const uptimeStr = uptimeMatch[1].trim().replace(/,$/, "");
-    lines.push(`\n${c.bold}${c.cyan}── Uptime Analysis ──${c.reset}`);
-    lines.push(`  Running for: ${c.bold}${uptimeStr}${c.reset}`);
-
-    // Parse days
-    const daysMatch = uptimeStr.match(/(\d+)\s*days?/);
-    const days = daysMatch ? parseInt(daysMatch[1]) : 0;
-
-    if (days > 365) {
-      lines.push(`  ${c.yellow}⚠ Server has been up ${days} days — consider security patches and kernel updates.${c.reset}`);
-    } else if (days > 90) {
-      lines.push(`  ${c.dim}Long uptime (${days} days) — check if pending updates need a reboot.${c.reset}`);
-    } else if (days < 1) {
-      lines.push(`  ${c.yellow}⚠ Recently rebooted — check if this was intentional.${c.reset}`);
-    } else {
-      lines.push(`  ${c.green}✓ Normal uptime.${c.reset}`);
-    }
-  }
-
-  // Include load analysis
-  const loadAnalysis = analyzeLoad(output);
-  if (loadAnalysis) lines.push(loadAnalysis);
-
-  // Parse memory from free -h output
-  const memMatch = output.match(/Mem:\s+(\S+)\s+(\S+)\s+(\S+)/);
-  if (memMatch) {
-    const [, total, used, free] = memMatch;
-    lines.push(`\n  ${c.bold}Memory:${c.reset} ${used} used / ${total} total (${free} free)`);
-
-    const totalGb = parseMemoryValue(total);
-    const usedGb = parseMemoryValue(used);
-    if (totalGb > 0) {
-      const pct = (usedGb / totalGb) * 100;
-      if (pct > 90) {
-        lines.push(`  ${c.red}⚠ CRITICAL: ${pct.toFixed(0)}% memory used!${c.reset}`);
-      } else if (pct > 75) {
-        lines.push(`  ${c.yellow}⚠ HIGH: ${pct.toFixed(0)}% memory used.${c.reset}`);
-      } else {
-        lines.push(`  ${c.green}✓ Memory OK (${pct.toFixed(0)}% used).${c.reset}`);
-      }
-    }
-  }
-
-  return lines.join("\n");
-}
-
-function parseMemoryValue(str: string): number {
-  const match = str.match(/([\d.]+)([KMGT]?i?)/i);
-  if (!match) return 0;
-  const val = parseFloat(match[1]);
-  const unit = (match[2] || "").toUpperCase();
-  if (unit.startsWith("T")) return val * 1024;
-  if (unit.startsWith("G")) return val;
-  if (unit.startsWith("M")) return val / 1024;
-  if (unit.startsWith("K")) return val / (1024 * 1024);
-  return val;
-}
-
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 /**
@@ -457,9 +346,7 @@ export function analyzeOutput(intent: string, output: string, fields: Record<str
     case "server.check_memory":
       return analyzeMemory(output);
     case "server.uptime":
-      return analyzeUptime(output);
-    case "cron.list":
-      return analyzeCron(output);
+      return analyzeLoad(output);
     case "files.list":
       return analyzeDirectoryOutput(output);
     default:

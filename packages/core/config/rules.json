@@ -95,6 +95,37 @@
       "clamav",
       "clamscan",
       "freshclam"
+    ],
+    "openclaw-gateway": [
+      "openclaw",
+      "openclaw gateway",
+      "openclaw-gateway",
+      "claw"
+    ],
+    "matrix-synapse": [
+      "matrix",
+      "synapse",
+      "matrix server",
+      "chat server",
+      "matrix-synapse"
+    ],
+    "mautrix-telegram": [
+      "telegram",
+      "telegram bridge",
+      "mautrix-telegram",
+      "telegram bot"
+    ],
+    "mautrix-discord": [
+      "discord",
+      "discord bridge",
+      "mautrix-discord",
+      "discord bot"
+    ],
+    "element-web": [
+      "element",
+      "element web",
+      "matrix client",
+      "chat client"
     ]
   }
 }

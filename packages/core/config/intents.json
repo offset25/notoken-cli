@@ -8,7 +8,12 @@
         "bounce",
         "reload",
         "recycle",
-        "kick"
+        "kick",
+        "reboot service",
+        "cycle service",
+        "bring up",
+        "reset service",
+        "refresh service"
       ],
       "fields": {
         "service": {
@@ -36,7 +41,8 @@
         "restart nginx on prod",
         "bounce redis in production",
         "restart api service in staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Restart-Service {{service}} -Force; Get-Service {{service}}\""
     },
     {
       "name": "service.status",
@@ -45,7 +51,21 @@
         "status",
         "check service",
         "is running",
-        "service health"
+        "service health",
+        "is it up",
+        "is it running",
+        "is service up",
+        "service state",
+        "sc query",
+        "get-service",
+        "service info",
+        "windows service",
+        "running on",
+        "gateway running",
+        "server running",
+        "service running",
+        "process running",
+        "is up"
       ],
       "fields": {
         "service": {
@@ -73,7 +93,8 @@
         "status of nginx on prod",
         "is redis running on staging",
         "check api service health"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"$svc = Get-Service {{service}} -ErrorAction SilentlyContinue; if($svc) { $svc | Format-List Name,Status,StartType } else { $proc = Get-Process -Name '*{{service}}*' -ErrorAction SilentlyContinue; if($proc) { $proc | Format-Table Id,ProcessName,CPU,WorkingSet -AutoSize; Write-Host 'Process is running (not a Windows service)' } else { Write-Host '{{service}} is NOT running' } }\""
     },
     {
       "name": "server.check_disk",
@@ -89,7 +110,15 @@
         "how much space",
         "free space",
         "space on",
-        "check space"
+        "check space",
+        "how much storage left",
+        "storage available",
+        "disk available",
+        "available space",
+        "is disk running low",
+        "low disk space",
+        "how full is my disk",
+        "check storage"
       ],
       "fields": {
         "target": {
@@ -114,7 +143,8 @@
         "disk space on /home",
         "free space on downloads",
         "what is eating space on staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Write-Host 'Filesystem      Size  Used Avail Use% Mounted on'; Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { $s=[math]::Round($_.Size/1GB,1); $f=[math]::Round($_.FreeSpace/1GB,1); $u=[math]::Round(($_.Size-$_.FreeSpace)/1GB,1); $p=if($_.Size -gt 0){[math]::Round(($_.Size-$_.FreeSpace)/$_.Size*100)}else{0}; '{0,-15} {1}G {2}G {3}G {4}% {5}' -f $_.DeviceID,$s,$u,$f,$p,($_.DeviceID+'\\') }\""
     },
     {
       "name": "server.check_memory",
@@ -126,7 +156,15 @@
         "free",
         "htop",
         "memory usage",
-        "memory free"
+        "memory free",
+        "how much memory",
+        "how much ram",
+        "available memory",
+        "memory available",
+        "is memory running low",
+        "low memory",
+        "ram usage",
+        "memory stats"
       ],
       "fields": {
         "target": {
@@ -172,7 +210,13 @@
         "system load",
         "how busy is the server",
         "server health",
-        "check my server"
+        "check my server",
+        "how long has server been up",
+        "cpu load",
+        "cpu usage",
+        "average load",
+        "server stats",
+        "is server overloaded"
       ],
       "fields": {
         "environment": {
@@ -238,7 +282,12 @@
         "show errors",
         "recent errors",
         "any errors",
-        "check for errors"
+        "check for errors",
+        "what failed",
+        "crash log",
+        "fatal errors",
+        "what went wrong",
+        "failure log"
       ],
       "fields": {
         "service": {
@@ -305,7 +354,12 @@
         "logs",
         "log",
         "watch logs",
-        "show logs"
+        "show logs",
+        "follow logs",
+        "live logs",
+        "stream logs",
+        "real time logs",
+        "continuous logs"
       ],
       "fields": {
         "service": {
@@ -460,7 +514,11 @@
         "containers",
         "list containers",
         "show containers",
-        "docker list"
+        "docker list",
+        "running containers",
+        "active containers",
+        "which containers",
+        "what containers are running"
       ],
       "fields": {
         "environment": {
@@ -520,7 +578,10 @@
       "synonyms": [
         "docker stop",
         "stop container",
-        "stop docker"
+        "stop docker",
+        "kill container",
+        "stop all containers",
+        "bring down container"
       ],
       "fields": {
         "container": {
@@ -575,7 +636,11 @@
       "synonyms": [
         "docker logs",
         "container logs",
-        "show container logs"
+        "show container logs",
+        "follow container logs",
+        "tail container",
+        "watch container logs",
+        "container output"
       ],
       "fields": {
         "container": {
@@ -934,7 +999,13 @@
         "listening",
         "netstat",
         "open ports",
-        "ss"
+        "ss",
+        "what ports are open",
+        "listening ports",
+        "which ports",
+        "port status",
+        "what is running on port",
+        "process on port"
       ],
       "fields": {
         "environment": {
@@ -959,7 +1030,10 @@
       "synonyms": [
         "ping",
         "check connectivity",
-        "is reachable"
+        "is reachable",
+        "can i reach",
+        "connectivity test",
+        "is host up"
       ],
       "fields": {
         "target": {
@@ -992,7 +1066,11 @@
         "find directory",
         "where is",
         "search file",
-        "find config"
+        "find config",
+        "search for file",
+        "look for file",
+        "where is file",
+        "locate file"
       ],
       "fields": {
         "pattern": {
@@ -1025,18 +1103,48 @@
       "name": "files.find_media",
       "description": "Find media files — videos, images, music, documents",
       "synonyms": [
-        "find media", "find my media", "media files", "where are my media files",
-        "find movies", "find my movies", "where are my movies",
-        "find videos", "find my videos", "where are my videos",
-        "find images", "find my images", "find my photos", "where are my photos", "find photos", "find pictures",
-        "find music", "find my music", "where is my music", "find audio",
-        "find documents", "find my documents", "where are my documents",
-        "find pdfs", "find my pdfs"
+        "find media",
+        "find my media",
+        "media files",
+        "where are my media files",
+        "find movies",
+        "find my movies",
+        "where are my movies",
+        "find videos",
+        "find my videos",
+        "where are my videos",
+        "find images",
+        "find my images",
+        "find my photos",
+        "where are my photos",
+        "find photos",
+        "find pictures",
+        "find music",
+        "find my music",
+        "where is my music",
+        "find audio",
+        "find documents",
+        "find my documents",
+        "where are my documents",
+        "find pdfs",
+        "find my pdfs"
       ],
       "fields": {
-        "type": { "type": "string", "required": false, "default": "all" },
-        "path": { "type": "string", "required": false, "default": "." },
-        "environment": { "type": "environment", "required": false, "default": "local" }
+        "type": {
+          "type": "string",
+          "required": false,
+          "default": "all"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
       },
       "command": "echo '=== Media Files ===' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.wmv' -o -iname '*.flv' -o -iname '*.webm' -o -iname '*.mp3' -o -iname '*.flac' -o -iname '*.wav' -o -iname '*.aac' -o -iname '*.ogg' -o -iname '*.m4a' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' -o -iname '*.svg' -o -iname '*.tiff' -o -iname '*.pdf' -o -iname '*.doc' -o -iname '*.docx' -o -iname '*.ppt' -o -iname '*.pptx' -o -iname '*.xls' -o -iname '*.xlsx' \\) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | sort && echo '' && echo '=== Summary ===' && echo 'Videos:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.webm' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Images:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.webp' -o -iname '*.svg' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Audio:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.wav' -o -iname '*.aac' -o -iname '*.ogg' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l && echo 'Documents:' && find {{path}} -maxdepth 4 -type f \\( -iname '*.pdf' -o -iname '*.doc' -o -iname '*.docx' -o -iname '*.ppt' -o -iname '*.pptx' -o -iname '*.xls' -o -iname '*.xlsx' \\) -not -path '*/node_modules/*' 2>/dev/null | wc -l",
       "execution": "local",
@@ -1055,16 +1163,38 @@
       "name": "files.send",
       "description": "Archive a folder and send it to a remote server",
       "synonyms": [
-        "send to remote", "send to server", "zip and send", "tar and send",
-        "zip up and send", "archive and send", "send folder", "send project",
-        "zip up my project and send", "zip up my project folder and send",
-        "send files to", "transfer to", "upload to", "push to server",
-        "copy folder to remote", "send directory"
+        "send to remote",
+        "send to server",
+        "zip and send",
+        "tar and send",
+        "zip up and send",
+        "archive and send",
+        "send folder",
+        "send project",
+        "zip up my project and send",
+        "zip up my project folder and send",
+        "send files to",
+        "transfer to",
+        "upload to",
+        "push to server",
+        "copy folder to remote",
+        "send directory"
       ],
       "fields": {
-        "source": { "type": "string", "required": true },
-        "destination": { "type": "string", "required": false, "default": "/root" },
-        "environment": { "type": "environment", "required": false, "default": "dev" }
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "destination": {
+          "type": "string",
+          "required": false,
+          "default": "/root"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "dev"
+        }
       },
       "command": "ARCHIVE=$(basename {{source}})-$(date +%Y%m%d-%H%M%S).tar.gz && tar -czf /tmp/$ARCHIVE -C $(dirname {{source}}) $(basename {{source}}) && echo \"Created /tmp/$ARCHIVE ($(du -sh /tmp/$ARCHIVE | cut -f1))\" && scp /tmp/$ARCHIVE {{environment}}:{{destination}}/$ARCHIVE && echo \"Sent to {{environment}}:{{destination}}/$ARCHIVE\" && rm /tmp/$ARCHIVE",
       "execution": "local",
@@ -1085,7 +1215,11 @@
         "search for text",
         "find text",
         "search in files",
-        "look for"
+        "look for",
+        "search text",
+        "find string",
+        "search for string",
+        "look for text"
       ],
       "fields": {
         "query": {
@@ -1125,7 +1259,13 @@
         "do an ls",
         "what is in this folder",
         "what's here",
-        "show directory"
+        "show directory",
+        "dir",
+        "what is in this directory",
+        "directory contents",
+        "show contents",
+        "whats here",
+        "show folder"
       ],
       "fields": {
         "path": {
@@ -1192,7 +1332,13 @@
         "show processes",
         "what is running",
         "top processes",
-        "process list"
+        "process list",
+        "tasklist",
+        "task manager",
+        "running processes",
+        "what processes",
+        "active processes",
+        "htop"
       ],
       "fields": {
         "filter": {
@@ -1223,7 +1369,11 @@
         "kill process",
         "stop process",
         "kill pid",
-        "terminate"
+        "terminate",
+        "taskkill",
+        "end task",
+        "force kill",
+        "terminate process"
       ],
       "fields": {
         "target": {
@@ -1244,7 +1394,8 @@
         "kill process node on staging",
         "stop process java on dev",
         "terminate worker on prod"
-      ]
+      ],
+      "commandWindows": "taskkill /F /PID {{target}}"
     },
     {
       "name": "ssh.connect",
@@ -1430,7 +1581,13 @@
         "delete file",
         "remove file",
         "rm",
-        "delete this"
+        "delete this",
+        "erase",
+        "delete folder",
+        "delete directory",
+        "remove folder",
+        "remove directory",
+        "erase file"
       ],
       "fields": {
         "target": {
@@ -1496,7 +1653,11 @@
         "git state",
         "what changed",
         "uncommitted changes",
-        "working tree"
+        "working tree",
+        "any changes",
+        "modified files",
+        "untracked files",
+        "what needs to be committed"
       ],
       "fields": {
         "path": {
@@ -1528,7 +1689,11 @@
         "last commits",
         "show last",
         "last 5 commits",
-        "last 10 commits"
+        "last 10 commits",
+        "who committed",
+        "when was this changed",
+        "commit messages",
+        "recent changes"
       ],
       "fields": {
         "count": {
@@ -2109,7 +2274,15 @@
         "compress folder",
         "compress directory",
         "tar this folder",
-        "tar my project"
+        "tar my project",
+        "archive project",
+        "zip up",
+        "pack up",
+        "bundle up",
+        "backup folder",
+        "backup directory",
+        "backup project",
+        "archive this"
       ],
       "fields": {
         "source": {
@@ -2487,7 +2660,12 @@
         "apt install",
         "yum install",
         "dnf install",
-        "install"
+        "install",
+        "brew install",
+        "choco install",
+        "install software",
+        "install tool",
+        "install program"
       ],
       "fields": {
         "package": {
@@ -2522,7 +2700,11 @@
         "command exists",
         "is zip installed",
         "is nginx installed",
-        "is certbot installed"
+        "is certbot installed",
+        "is it installed",
+        "do i have",
+        "check if installed",
+        "find package"
       ],
       "fields": {
         "package": {
@@ -3114,7 +3296,13 @@
         "neofetch",
         "what os",
         "system health",
-        "os are we running"
+        "os are we running",
+        "os version",
+        "kernel version",
+        "cpu info",
+        "cpu model",
+        "architecture",
+        "server details"
       ],
       "fields": {
         "environment": {
@@ -3164,7 +3352,8 @@
       "examples": [
         "enable nginx on boot on prod",
         "systemctl enable redis on staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Set-Service {{service}} -StartupType Automatic; Get-Service {{service}}\""
     },
     {
       "name": "systemd.disable",
@@ -3193,7 +3382,8 @@
       "examples": [
         "disable nginx on boot on prod",
         "systemctl disable redis on staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Set-Service {{service}} -StartupType Disabled; Get-Service {{service}}\""
     },
     {
       "name": "systemd.start",
@@ -3201,7 +3391,13 @@
       "synonyms": [
         "start service",
         "systemctl start",
-        "service start"
+        "service start",
+        "bring up service",
+        "turn on",
+        "power up",
+        "spin up",
+        "net start",
+        "sc start"
       ],
       "fields": {
         "service": {
@@ -3221,7 +3417,8 @@
       "examples": [
         "start nginx on prod",
         "start redis on staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Start-Service {{service}}; Get-Service {{service}}\""
     },
     {
       "name": "systemd.stop",
@@ -3233,7 +3430,13 @@
         "stop",
         "stop redis",
         "stop nginx",
-        "stop api"
+        "stop api",
+        "bring down",
+        "shut down service",
+        "turn off",
+        "kill service",
+        "net stop",
+        "sc stop"
       ],
       "fields": {
         "service": {
@@ -3253,7 +3456,8 @@
       "examples": [
         "stop nginx on prod",
         "stop redis on staging"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Stop-Service {{service}} -Force; Get-Service {{service}}\""
     },
     {
       "name": "logs.journal",
@@ -3403,7 +3607,8 @@
         "list disks on prod",
         "lsblk on staging",
         "show partitions on prod"
-      ]
+      ],
+      "commandWindows": "powershell -Command \"Get-CimInstance Win32_LogicalDisk | Format-Table DeviceID, VolumeName, FileSystem, @{N='Size(GB)';E={[math]::Round($_.Size/1GB,1)}}, @{N='Free(GB)';E={[math]::Round($_.FreeSpace/1GB,1)}}, DriveType -AutoSize; Write-Host ''; Get-CimInstance Win32_DiskDrive | Format-Table Caption, Model, @{N='Size(GB)';E={[math]::Round($_.Size/1GB,1)}}, Partitions -AutoSize\""
     },
     {
       "name": "cron.add",
@@ -3886,7 +4091,28 @@
         "scp to",
         "scp from",
         "copy to remote",
-        "copy from remote"
+        "copy from remote",
+        "upload to server",
+        "upload files to",
+        "upload file to",
+        "send files to",
+        "send to server",
+        "transfer files to",
+        "transfer to server",
+        "push files to",
+        "put files on server",
+        "copy files to server",
+        "download from server",
+        "download files from",
+        "download file from",
+        "get files from server",
+        "pull files from",
+        "copy from server",
+        "fetch from server",
+        "sftp",
+        "copy my pictures",
+        "copy my documents",
+        "copy my files to"
       ],
       "fields": {
         "source": {
@@ -4017,13 +4243,31 @@
         "convex run"
       ]
     },
-
     {
       "name": "project.scan",
       "description": "Scan for software projects in a directory — detects type, version, deps, scripts",
-      "synonyms": ["scan projects", "what projects", "find projects", "check what projects", "scan for projects", "check projects", "project scan", "what projects do i have", "list projects", "show projects", "my projects", "projects here", "what repos", "what apps"],
+      "synonyms": [
+        "scan projects",
+        "what projects",
+        "find projects",
+        "check what projects",
+        "scan for projects",
+        "check projects",
+        "project scan",
+        "what projects do i have",
+        "list projects",
+        "show projects",
+        "my projects",
+        "projects here",
+        "what repos",
+        "what apps"
+      ],
       "fields": {
-        "path": { "type": "string", "required": false, "default": "." }
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
       },
       "command": "notoken:project-scan:{{path}}",
       "execution": "local",
@@ -4042,9 +4286,36 @@
     {
       "name": "dir.list",
       "description": "Show directory contents with file types, sizes, and project detection",
-      "synonyms": ["where are my files", "what files", "what is here", "whats here", "whats in this folder", "whats in this directory", "show files", "list files", "show directory", "directory listing", "folder contents", "what do i have here", "show me whats here", "where is everything", "show this folder", "list directory", "list this folder", "what is in this folder", "what is in this directory", "show me this folder", "what have i got here", "what have i got"],
+      "synonyms": [
+        "where are my files",
+        "what files",
+        "what is here",
+        "whats here",
+        "whats in this folder",
+        "whats in this directory",
+        "show files",
+        "list files",
+        "show directory",
+        "directory listing",
+        "folder contents",
+        "what do i have here",
+        "show me whats here",
+        "where is everything",
+        "show this folder",
+        "list directory",
+        "list this folder",
+        "what is in this folder",
+        "what is in this directory",
+        "show me this folder",
+        "what have i got here",
+        "what have i got"
+      ],
       "fields": {
-        "path": { "type": "string", "required": false, "default": "." }
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
       },
       "command": "notoken:dir-list:{{path}}",
       "execution": "local",
@@ -4062,9 +4333,20 @@
     {
       "name": "project.info",
       "description": "Show info about the current project (type, deps, scripts)",
-      "synonyms": ["project info", "what project is this", "what kind of project", "project type", "what framework", "what stack"],
+      "synonyms": [
+        "project info",
+        "what project is this",
+        "what kind of project",
+        "project type",
+        "what framework",
+        "what stack"
+      ],
       "fields": {
-        "path": { "type": "string", "required": false, "default": "." }
+        "path": {
+          "type": "string",
+          "required": false,
+          "default": "."
+        }
       },
       "command": "echo '=== Project Info ===' && ls {{path}}/package.json 2>/dev/null && echo 'Node.js project' && cat {{path}}/package.json 2>/dev/null | head -20 || ls {{path}}/Cargo.toml 2>/dev/null && echo 'Rust project' || ls {{path}}/go.mod 2>/dev/null && echo 'Go project' || ls {{path}}/requirements.txt 2>/dev/null && echo 'Python project' || ls {{path}}/composer.json 2>/dev/null && echo 'PHP project' || echo 'Unknown project type'",
       "execution": "local",
@@ -4079,198 +4361,3046 @@
     {
       "name": "openclaw.start",
       "description": "Start the OpenClaw gateway",
-      "synonyms": ["start openclaw", "openclaw start", "start gateway", "openclaw gateway", "run openclaw"],
+      "synonyms": [
+        "start openclaw",
+        "openclaw start",
+        "start gateway",
+        "openclaw gateway",
+        "run openclaw"
+      ],
       "fields": {},
       "command": "openclaw gateway --verbose",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["start openclaw", "run the gateway", "openclaw start"]
+      "examples": [
+        "start openclaw",
+        "run the gateway",
+        "openclaw start"
+      ]
     },
     {
       "name": "openclaw.stop",
       "description": "Stop the OpenClaw gateway",
-      "synonyms": ["stop openclaw", "openclaw stop", "stop gateway", "kill openclaw"],
+      "synonyms": [
+        "stop openclaw",
+        "openclaw stop",
+        "stop gateway",
+        "kill openclaw"
+      ],
       "fields": {},
       "command": "pkill -f 'openclaw gateway' 2>/dev/null && echo 'Gateway stopped' || echo 'Gateway not running'",
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "medium",
-      "examples": ["stop openclaw", "stop the gateway"]
+      "examples": [
+        "stop openclaw",
+        "stop the gateway"
+      ]
     },
     {
       "name": "openclaw.restart",
       "description": "Restart the OpenClaw gateway",
-      "synonyms": ["restart openclaw", "openclaw restart", "restart gateway", "bounce openclaw"],
+      "synonyms": [
+        "restart openclaw",
+        "openclaw restart",
+        "restart gateway",
+        "bounce openclaw"
+      ],
       "fields": {},
       "command": "pkill -f 'openclaw gateway' 2>/dev/null; sleep 1; openclaw gateway --verbose &",
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "medium",
-      "examples": ["restart openclaw", "restart the gateway"]
+      "examples": [
+        "restart openclaw",
+        "restart the gateway"
+      ]
     },
     {
       "name": "openclaw.status",
       "description": "Check OpenClaw gateway status and channels",
-      "synonyms": ["openclaw status", "openclaw check", "is openclaw running", "check openclaw", "gateway status"],
+      "synonyms": [
+        "openclaw status",
+        "openclaw check",
+        "is openclaw running",
+        "check openclaw",
+        "gateway status",
+        "claw status",
+        "openclaw health",
+        "claw health",
+        "is openclaw healthy",
+        "openclaw info",
+        "openclaw overview",
+        "communicate with openclaw",
+        "communicate to openclaw",
+        "can you reach openclaw",
+        "talk to openclaw",
+        "say hi to openclaw",
+        "connect to openclaw",
+        "openclaw reachable",
+        "ping openclaw",
+        "reach openclaw",
+        "contact openclaw"
+      ],
       "fields": {},
       "command": "echo '=== OpenClaw Status ===' && openclaw --version 2>&1 && echo '' && openclaw channels status 2>&1 && echo '' && openclaw channels list 2>&1 || echo 'OpenClaw not available'",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["openclaw status", "is openclaw running", "check openclaw"]
+      "examples": [
+        "openclaw status",
+        "is openclaw running",
+        "check openclaw"
+      ]
     },
     {
       "name": "openclaw.doctor",
       "description": "Run OpenClaw doctor to diagnose and fix issues",
-      "synonyms": ["openclaw doctor", "fix openclaw", "diagnose openclaw", "openclaw fix"],
+      "synonyms": [
+        "openclaw doctor",
+        "fix openclaw",
+        "diagnose openclaw",
+        "openclaw fix",
+        "claw doctor",
+        "openclaw problems"
+      ],
       "fields": {},
       "command": "openclaw doctor --fix 2>&1 || echo 'OpenClaw not available — run: notoken setup openclaw'",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["openclaw doctor", "fix openclaw", "diagnose openclaw"]
+      "examples": [
+        "openclaw doctor",
+        "fix openclaw",
+        "diagnose openclaw"
+      ]
     },
-
     {
       "name": "browser.open",
       "description": "Open a URL in a browser",
-      "synonyms": ["open", "browse", "navigate", "visit", "go to", "load", "launch browser", "open browser", "open url", "open website", "open page", "open site"],
+      "synonyms": [
+        "open",
+        "browse",
+        "navigate",
+        "visit",
+        "go to",
+        "load",
+        "launch browser",
+        "open browser",
+        "open url",
+        "open website",
+        "open page",
+        "open site"
+      ],
       "fields": {
-        "url": { "type": "string", "required": true }
+        "url": {
+          "type": "string",
+          "required": true
+        }
       },
       "command": "notoken:browse:{{url}}",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["open google.com", "browse to localhost:3000", "visit example.com", "go to github.com", "navigate to notoken.sh"]
+      "examples": [
+        "open google.com",
+        "browse to localhost:3000",
+        "visit example.com",
+        "go to github.com",
+        "navigate to notoken.sh"
+      ]
     },
     {
       "name": "browser.screenshot",
       "description": "Take a screenshot of a webpage",
-      "synonyms": ["screenshot", "capture", "snap", "screencap", "screen grab", "take screenshot", "capture page", "save page"],
+      "synonyms": [
+        "screenshot",
+        "capture",
+        "snap",
+        "screencap",
+        "screen grab",
+        "take screenshot",
+        "capture page",
+        "save page"
+      ],
       "fields": {
-        "url": { "type": "string", "required": true }
+        "url": {
+          "type": "string",
+          "required": true
+        }
       },
       "command": "notoken:browse:screenshot:{{url}}",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["take screenshot of google.com", "screenshot example.com", "capture localhost:3000", "screencap notoken.sh"]
+      "examples": [
+        "take screenshot of google.com",
+        "screenshot example.com",
+        "capture localhost:3000",
+        "screencap notoken.sh"
+      ]
     },
     {
       "name": "browser.status",
       "description": "Show browser engine status",
-      "synonyms": ["browser status", "browser engines", "check browser", "which browser", "browser info"],
+      "synonyms": [
+        "browser status",
+        "browser engines",
+        "check browser",
+        "which browser",
+        "browser info"
+      ],
       "fields": {},
       "command": "notoken:browse:status",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["browser status", "check browser", "which browser engines", "show browser info"]
+      "examples": [
+        "browser status",
+        "check browser",
+        "which browser engines",
+        "show browser info"
+      ]
     },
     {
       "name": "browser.install",
       "description": "Install a browser engine for automation",
-      "synonyms": ["install browser", "install patchright", "install playwright", "setup browser", "install chromium"],
+      "synonyms": [
+        "install browser",
+        "install patchright",
+        "install playwright",
+        "setup browser",
+        "install chromium"
+      ],
       "fields": {
-        "engine": { "type": "string", "required": false, "default": "patchright" }
+        "engine": {
+          "type": "string",
+          "required": false,
+          "default": "patchright"
+        }
       },
       "command": "notoken:browse:install:{{engine}}",
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "medium",
-      "examples": ["install browser", "install patchright", "install playwright", "setup browser engine"]
+      "examples": [
+        "install browser",
+        "install patchright",
+        "install playwright",
+        "setup browser engine"
+      ]
     },
-
-
-    {"name":"knowledge.lookup","description":"Look up a topic, concept, or entity on Wikidata","synonyms":["what is","who is","tell me about","define","lookup","look up","wiki","wikipedia","explain","info about","information about","facts about","learn about","whats a","what are"],"fields":{"topic":{"type":"string","required":true}},"command":"notoken:wiki-lookup:{{topic}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what is kubernetes","who is linus torvalds","tell me about nginx","define websocket","what is docker compose","lookup react hooks"]},
-
-    {"name":"ai.where_installed","description":"Show where AI tools, Docker images, and downloads are stored","synonyms":["where did you install","where is it installed","where is the docker image","where did you download","where are the files","where is stable diffusion","where is the model","where did it go","what did you download","show install location","install location","where did notoken put","where are ai files"],"fields":{},"command":"notoken:ai-where","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["where did you install that","where is the docker image","where did you download the model","where is stable diffusion installed"]},
-
-    {"name":"ai.generate_image","description":"Generate an image from a text prompt using local Stable Diffusion or suggest online services","synonyms":["generate image","generate a picture","create image","create a picture","make an image","make a picture","draw","paint","generate art","ai image","create art","make me an image","make me a picture","draw me","paint me","generate photo","create a photo","imagine","generate a picture of","picture of","image of","draw a","paint a","create artwork"],"fields":{"prompt":{"type":"string","required":true}},"command":"notoken:image-gen:{{prompt}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["generate a picture of a cat","create an image of a sunset","draw a robot","make me a picture of a mountain","paint a landscape"]},
-
-    {"name":"ai.image_status","description":"Check status of image generation engines — what we use to make images","synonyms":["image status","stable diffusion status","sd status","check image generator","image engine status","is stable diffusion running","check sd","what are we using to generate","what generates images","how are images generated","image generation status","what engine","which image generator","what model are we using","what are we using for images","how do we generate images","is this happening offline","is this local","are images free","is image generation free","using cloud for images","are we using cloud","is this offline or cloud","is image generation local","where are images generated","how is image generation working"],"fields":{},"command":"notoken:image-status","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["image status","check stable diffusion","is sd running","image engine status"]},
-
-    {"name":"ai.install_sd","description":"Install Stable Diffusion or other image generation software","synonyms":["install stable diffusion","install sd","install image generator","install comfyui","install fooocus","setup stable diffusion","setup image generation","install ai art","install diffusion"],"fields":{"engine":{"type":"string","required":false,"default":"auto1111"}},"command":"notoken:install-sd:{{engine}}","execution":"local","requiresConfirmation":true,"riskLevel":"medium","examples":["install stable diffusion","install comfyui","install fooocus","setup image generation"]},
-
-    {"name":"ai.start_sd","description":"Start the Stable Diffusion web UI","synonyms":["start stable diffusion","start sd","launch sd","run stable diffusion","start image generator","start sd webui"],"fields":{},"command":"cd ~/stable-diffusion-webui && bash webui.sh --api --listen &","execution":"local","requiresConfirmation":true,"riskLevel":"low","examples":["start stable diffusion","launch sd","run the image generator"]},
-
-    {"name":"ai.stop_sd","description":"Stop the Stable Diffusion web UI","synonyms":["stop stable diffusion","stop sd","kill sd","shutdown sd","stop image generator"],"fields":{},"command":"pkill -f 'webui.py\\|stable-diffusion' 2>/dev/null && echo 'Stable Diffusion stopped' || echo 'Not running'","execution":"local","requiresConfirmation":true,"riskLevel":"medium","examples":["stop stable diffusion","stop sd","kill the image generator"]},
-
-    {"name":"dns.lookup","description":"Look up DNS records for a domain","synonyms":["dns lookup","check dns","nslookup","dig","dns records","check my dns","resolve domain","dns query","whats the dns for","dns for"],"fields":{"domain":{"type":"string","required":true},"type":{"type":"string","required":false,"default":"A"}},"command":"echo '=== DNS Records ===' && dig {{domain}} {{type}} +short && echo '' && echo '=== All Records ===' && dig {{domain}} ANY +noall +answer 2>/dev/null && echo '' && echo '=== Nameservers ===' && dig {{domain}} NS +short","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["check dns for google.com","nslookup notoken.sh","dig example.com","what are the dns records for notoken.sh"]},
-
-    {"name":"dns.update","description":"Update a DNS record (via provider CLI or /etc/hosts)","synonyms":["update dns","change dns","add dns record","add A record","add CNAME","set dns","modify dns","point domain"],"fields":{"domain":{"type":"string","required":true},"type":{"type":"string","required":false,"default":"A"},"value":{"type":"string","required":true}},"command":"echo '{{domain}} → {{value}} ({{type}})' && echo 'To update /etc/hosts:' && echo '{{value}} {{domain}}' && echo '' && echo 'For cloud DNS, use your provider CLI:' && echo '  aws route53 change-resource-record-sets ...' && echo '  gcloud dns record-sets update ...' && echo '  doctl compute domain records create ...'","execution":"local","requiresConfirmation":true,"riskLevel":"high","examples":["add A record for api.example.com pointing to 1.2.3.4","update dns for mysite.com","point domain to new IP"]},
-
-    {"name":"firewall.list","description":"Show firewall rules (ufw, iptables, firewalld)","synonyms":["firewall rules","show firewall","list firewall","iptables","ufw status","firewall status","check firewall","what ports are open","firewall list"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== UFW ===' && ufw status verbose 2>/dev/null || echo '(ufw not active)' && echo '' && echo '=== iptables ===' && iptables -L -n --line-numbers 2>/dev/null | head -30 || echo '(no iptables access)' && echo '' && echo '=== firewalld ===' && firewall-cmd --list-all 2>/dev/null || echo '(firewalld not active)'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["show firewall rules","ufw status","what ports are open","check firewall"]},
-
-    {"name":"firewall.open","description":"Open a port in the firewall","synonyms":["open port","allow port","ufw allow","firewall open","unblock port","permit port"],"fields":{"port":{"type":"string","required":true},"protocol":{"type":"string","required":false,"default":"tcp"},"environment":{"type":"environment","required":false,"default":"local"}},"command":"ufw allow {{port}}/{{protocol}} 2>/dev/null && ufw status || firewall-cmd --add-port={{port}}/{{protocol}} --permanent 2>/dev/null && firewall-cmd --reload || iptables -A INPUT -p {{protocol}} --dport {{port}} -j ACCEPT","execution":"local","requiresConfirmation":true,"riskLevel":"high","examples":["open port 8080","allow port 443","ufw allow 3000"]},
-
-    {"name":"firewall.close","description":"Close/block a port in the firewall","synonyms":["close port","block port","ufw deny","firewall close","deny port","block ip"],"fields":{"port":{"type":"string","required":true},"protocol":{"type":"string","required":false,"default":"tcp"},"environment":{"type":"environment","required":false,"default":"local"}},"command":"ufw deny {{port}}/{{protocol}} 2>/dev/null && ufw status || firewall-cmd --remove-port={{port}}/{{protocol}} --permanent 2>/dev/null && firewall-cmd --reload || iptables -A INPUT -p {{protocol}} --dport {{port}} -j DROP","execution":"local","requiresConfirmation":true,"riskLevel":"high","examples":["close port 8080","block port 22","deny port 3306"]},
-
-    {"name":"firewall.block_ip","description":"Block an IP address","synonyms":["block ip","ban ip","blacklist ip","deny ip","firewall block"],"fields":{"ip":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"ufw deny from {{ip}} 2>/dev/null && ufw status || iptables -A INPUT -s {{ip}} -j DROP","execution":"local","requiresConfirmation":true,"riskLevel":"high","examples":["block ip 1.2.3.4","ban ip 10.0.0.5","blacklist 192.168.1.100"]},
-
-    {"name":"systemd.create","description":"Create a systemd service unit for an application","synonyms":["create systemd service","make service","create service","run on boot","make this run on boot","autostart","systemd unit","create unit file","register service"],"fields":{"name":{"type":"string","required":true},"command":{"type":"string","required":true},"user":{"type":"string","required":false,"default":"root"},"workdir":{"type":"string","required":false}},"command":"cat > /etc/systemd/system/{{name}}.service << 'UNIT'\n[Unit]\nDescription={{name}} service\nAfter=network.target\n\n[Service]\nType=simple\nUser={{user}}\nWorkingDirectory={{workdir}}\nExecStart={{command}}\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload && systemctl enable {{name}} && systemctl start {{name}} && echo 'Service created and started' && systemctl status {{name}} --no-pager","execution":"local","requiresConfirmation":true,"riskLevel":"high","examples":["create systemd service for my node app","make my api run on boot","register service myapp"]},
-
-    {"name":"package.audit","description":"Check for outdated or vulnerable packages","synonyms":["package audit","npm audit","check vulnerabilities","outdated packages","security audit","vulnerable packages","check outdated","what packages are outdated","check for vulnerabilities","dependency check"],"fields":{"manager":{"type":"string","required":false,"default":"auto"},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Outdated Packages ===' && (npm outdated 2>/dev/null || pip list --outdated 2>/dev/null || echo '(no package manager detected)') && echo '' && echo '=== Security Audit ===' && (npm audit 2>/dev/null || pip-audit 2>/dev/null || echo '(no audit tool available)')","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["npm audit","check for vulnerabilities","what packages are outdated","security audit"]},
-
-    {"name":"package.update_all","description":"Update all packages to latest versions","synonyms":["update all packages","upgrade packages","npm update","pip upgrade","update dependencies","upgrade all","update everything"],"fields":{"manager":{"type":"string","required":false,"default":"auto"},"environment":{"type":"environment","required":false,"default":"local"}},"command":"if [ -f package.json ]; then npm update && echo 'npm packages updated'; elif [ -f requirements.txt ]; then pip install --upgrade -r requirements.txt && echo 'pip packages updated'; elif [ -f Gemfile ]; then bundle update && echo 'gems updated'; else echo 'No package manager detected'; fi","execution":"local","requiresConfirmation":true,"riskLevel":"medium","examples":["update all packages","npm update","upgrade all dependencies"]},
-
-    {"name":"runtime.install","description":"Install or switch to a specific runtime version","synonyms":["install node","install python","install java","switch to node","set up node","install runtime","use node","use python","set up python","install go","install rust","switch node version","switch python version"],"fields":{"runtime":{"type":"string","required":true},"version":{"type":"string","required":false}},"command":"echo 'Installing {{runtime}} {{version}}...' && if echo '{{runtime}}' | grep -qi 'node'; then nvm install {{version}} 2>/dev/null && nvm use {{version}} || echo 'Install nvm first: notoken fix nvm'; elif echo '{{runtime}}' | grep -qi 'python'; then pyenv install {{version}} 2>/dev/null && pyenv global {{version}} || apt-get install -y python{{version}} 2>/dev/null || echo 'Use pyenv or apt'; elif echo '{{runtime}}' | grep -qi 'go'; then curl -sSL https://go.dev/dl/go{{version}}.linux-amd64.tar.gz | tar -C /usr/local -xz; elif echo '{{runtime}}' | grep -qi 'rust'; then curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; else echo 'Unknown runtime: {{runtime}}'; fi","execution":"local","requiresConfirmation":true,"riskLevel":"medium","examples":["install node 22","set up python 3.12","switch to node 20","install go 1.22","install rust"]},
-
-    {"name":"cloud.aws","description":"Run AWS CLI commands","synonyms":["aws","aws s3","aws ec2","aws lambda","s3 list","s3 ls","aws iam","check aws","aws status"],"fields":{"action":{"type":"string","required":true},"resource":{"type":"string","required":false}},"command":"aws {{action}} {{resource}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["aws s3 ls","aws ec2 describe-instances","aws lambda list-functions","check aws s3 buckets"]},
-
-    {"name":"cloud.gcloud","description":"Run Google Cloud CLI commands","synonyms":["gcloud","gcp","google cloud","gcloud compute","gcloud run","gcloud functions"],"fields":{"action":{"type":"string","required":true},"resource":{"type":"string","required":false}},"command":"gcloud {{action}} {{resource}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["gcloud compute instances list","gcloud run services list","gcloud functions list"]},
-
-    {"name":"cloud.az","description":"Run Azure CLI commands","synonyms":["az","azure","az vm","az webapp","az storage","azure cli"],"fields":{"action":{"type":"string","required":true},"resource":{"type":"string","required":false}},"command":"az {{action}} {{resource}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["az vm list","az webapp list","az storage account list"]},
-
-    {"name":"cloud.do","description":"Run DigitalOcean CLI commands","synonyms":["doctl","digitalocean","do droplets","do spaces"],"fields":{"action":{"type":"string","required":true},"resource":{"type":"string","required":false}},"command":"doctl {{action}} {{resource}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["doctl compute droplet list","doctl apps list"]},
-
-    {"name":"monitor.watch_log","description":"Watch a log file in real-time with optional filter","synonyms":["watch log","monitor log","tail log","follow log","watch for errors","monitor for","alert me if","stream log"],"fields":{"path":{"type":"string","required":true},"filter":{"type":"string","required":false},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo 'Watching {{path}}...' && if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then tail -f {{path}} | grep --line-buffered '{{filter}}'; else tail -f {{path}}; fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["watch /var/log/nginx/error.log","monitor log for errors","tail syslog","follow /var/log/app.log"]},
-
-    {"name":"monitor.disk_alert","description":"Check if disk usage exceeds a threshold","synonyms":["alert disk","disk threshold","warn if disk","check disk threshold","monitor disk","disk alert"],"fields":{"threshold":{"type":"string","required":false,"default":"80"},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Disk Usage Check (threshold: {{threshold}}%) ===' && df -h --output=target,pcent,size,avail | tail -n +2 | while read mount pct size avail; do num=$(echo $pct | tr -d '%'); if [ \"$num\" -ge {{threshold}} ] 2>/dev/null; then echo \"⚠ $mount: $pct used ($avail free of $size)\"; fi; done && echo '' && echo '=== All mounts ===' && df -h | head -15","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["alert me if disk hits 90%","check disk threshold 80","monitor disk usage"]},
-
-    {"name":"monitor.process","description":"Monitor a specific process — CPU, memory, uptime","synonyms":["monitor process","watch process","check process","process info","what is using cpu","what is eating memory","top process","ps aux","process status"],"fields":{"name":{"type":"string","required":false},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Top by CPU ===' && ps aux --sort=-%cpu | head -10 && echo '' && echo '=== Top by Memory ===' && ps aux --sort=-%mem | head -10 && echo '' && echo '=== Process Tree ===' && pstree -p 2>/dev/null | head -20 || ps -ef --forest | head -20","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what is using cpu","what is eating memory","check process nginx","top processes"]},
-
-    {"name":"network.traceroute","description":"Trace the network path to a host","synonyms":["traceroute","tracepath","trace route","network path","hops to","mtr","trace"],"fields":{"target":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"traceroute -m 20 {{target}} 2>/dev/null || tracepath {{target}} 2>/dev/null || echo 'traceroute not installed — install with: apt install traceroute'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["traceroute to google.com","trace route to 8.8.8.8","network path to prod"]},
-
-    {"name":"network.dig","description":"Detailed DNS query with dig","synonyms":["dig domain","dns dig","detailed dns","reverse dns","reverse lookup","ptr record"],"fields":{"target":{"type":"string","required":true},"type":{"type":"string","required":false,"default":"A"}},"command":"dig {{target}} {{type}} +noall +answer +comments && echo '' && echo '=== Reverse DNS ===' && dig -x {{target}} +short 2>/dev/null || echo '(not an IP)'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["dig google.com","reverse dns 8.8.8.8","dig notoken.sh MX"]},
-
-    {"name":"network.speedtest","description":"Test network speed and latency","synonyms":["speedtest","network speed","bandwidth test","internet speed","how fast is my connection","speed test","check speed"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"if command -v speedtest-cli &>/dev/null; then speedtest-cli --simple; elif command -v curl &>/dev/null; then echo 'Download speed:' && curl -s -o /dev/null -w 'Speed: %{speed_download} bytes/sec\\nTime: %{time_total}s\\n' https://speed.cloudflare.com/__down?bytes=10000000 && echo '' && echo 'Latency:' && ping -c 3 1.1.1.1 | tail -1; else echo 'Install speedtest-cli: pip install speedtest-cli'; fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["speedtest","check internet speed","how fast is my connection","bandwidth test"]},
-
-    {"name":"network.connections","description":"Show active network connections","synonyms":["active connections","netstat","ss","who is connected","network connections","established connections","open connections","tcp connections"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Listening Ports ===' && ss -tlnp 2>/dev/null | head -20 || netstat -tlnp 2>/dev/null | head -20 && echo '' && echo '=== Established Connections ===' && ss -tnp state established 2>/dev/null | head -20 || netstat -tnp 2>/dev/null | grep ESTABLISHED | head -20 && echo '' && echo '=== Connection Count by State ===' && ss -s 2>/dev/null || netstat -s 2>/dev/null | head -15","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["show active connections","who is connected","netstat","list open connections"]},
-
-    {"name":"text.count","description":"Count lines, words, or characters in a file","synonyms":["count lines","count words","line count","word count","wc","how many lines","how big is this file","file size","count characters"],"fields":{"path":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== File Stats ===' && wc -l -w -c {{path}} | awk '{print \"Lines: \" $1 \"\\nWords: \" $2 \"\\nBytes: \" $3 \"\\nFile:  \" $4}' && echo '' && ls -lh {{path}} | awk '{print \"Size: \" $5}' && echo '' && echo '=== First 5 lines ===' && head -5 {{path}} && echo '' && echo '=== Last 5 lines ===' && tail -5 {{path}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["count lines in /var/log/syslog","how many lines in package.json","wc my-file.txt"]},
-
-    {"name":"text.sort","description":"Sort a file's contents","synonyms":["sort file","sort lines","sort this file","alphabetize","sort by","order file"],"fields":{"path":{"type":"string","required":true},"flags":{"type":"string","required":false,"default":""},"environment":{"type":"environment","required":false,"default":"local"}},"command":"sort {{flags}} {{path}}","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["sort file /tmp/list.txt","sort this file alphabetically","sort -n numbers.txt"]},
-
-    {"name":"text.unique","description":"Remove duplicate lines from a file","synonyms":["remove duplicates","unique lines","deduplicate","dedup","uniq","distinct lines"],"fields":{"path":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Unique lines ===' && sort {{path}} | uniq && echo '' && echo '=== Duplicate summary ===' && sort {{path}} | uniq -c | sort -rn | head -10","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["remove duplicates from list.txt","unique lines in hosts.txt","dedup /tmp/ips.txt"]},
-
-    {"name":"text.diff","description":"Compare two files and show differences","synonyms":["diff files","compare files","difference between","what changed","diff","compare"],"fields":{"file1":{"type":"string","required":true},"file2":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"diff --color {{file1}} {{file2}} || echo '(files differ)'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["diff config.old config.new","compare /etc/nginx/nginx.conf /tmp/nginx.conf.bak"]},
-
-    {"name":"text.replace","description":"Find and replace text in a file","synonyms":["find and replace","replace text","sed replace","search and replace","substitute","change text in file"],"fields":{"find":{"type":"string","required":true},"replace":{"type":"string","required":true},"path":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo 'Replacing \"{{find}}\" with \"{{replace}}\" in {{path}}' && sed -i 's/{{find}}/{{replace}}/g' {{path}} && echo 'Done. Preview:' && grep -n '{{replace}}' {{path}} | head -5","execution":"local","requiresConfirmation":true,"riskLevel":"medium","examples":["replace localhost with 0.0.0.0 in config.js","find and replace foo with bar in settings.json"]},
-
-    {"name":"clipboard.copy","description":"Copy text or file contents to clipboard","synonyms":["copy to clipboard","clipboard","copy output","copy that","yank","pbcopy","xclip"],"fields":{"source":{"type":"string","required":false}},"command":"if [ -n '{{source}}' ]; then cat {{source}} | (xclip -selection clipboard 2>/dev/null || pbcopy 2>/dev/null || clip.exe 2>/dev/null || echo 'No clipboard tool found'); echo 'Copied to clipboard'; else echo 'Pipe output to: | xclip -sel clip (Linux) or | pbcopy (macOS) or | clip.exe (WSL)'; fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["copy to clipboard","copy output of last command","copy /etc/hosts to clipboard"]},
-
-    {"name":"output.save","description":"Save command output to a file","synonyms":["save output","save to file","redirect to file","output to file","write output","export output","pipe to file"],"fields":{"command":{"type":"string","required":true},"path":{"type":"string","required":true},"environment":{"type":"environment","required":false,"default":"local"}},"command":"{{command}} > {{path}} 2>&1 && echo 'Output saved to {{path}} ('$(wc -l < {{path}})' lines)'","execution":"local","requiresConfirmation":true,"riskLevel":"low","examples":["save output to /tmp/results.txt","redirect to file /root/log.txt"]},
-
-    {"name":"system.hostname","description":"Show or set the system hostname","synonyms":["hostname","what is my hostname","system name","machine name","set hostname","change hostname"],"fields":{"name":{"type":"string","required":false},"environment":{"type":"environment","required":false,"default":"local"}},"command":"if [ -n '{{name}}' ] && [ '{{name}}' != '{{name}}' ]; then hostnamectl set-hostname {{name}} && echo 'Hostname set to {{name}}'; else hostname && echo '' && hostnamectl 2>/dev/null; fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what is my hostname","hostname","set hostname to webserver-01"]},
-
-    {"name":"system.timezone","description":"Show or set the system timezone","synonyms":["timezone","what timezone","check timezone","set timezone","change timezone","timedatectl","current time"],"fields":{"tz":{"type":"string","required":false},"environment":{"type":"environment","required":false,"default":"local"}},"command":"if [ -n '{{tz}}' ] && [ '{{tz}}' != '{{tz}}' ]; then timedatectl set-timezone {{tz}} && echo 'Timezone set to {{tz}}'; else timedatectl 2>/dev/null || (date && cat /etc/timezone 2>/dev/null); fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what timezone am I in","check timezone","set timezone to America/New_York"]},
-
-    {"name":"system.reboot_history","description":"Show system reboot history","synonyms":["reboot history","when was last reboot","boot history","restart history","last reboot","system restarts"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Reboot History ===' && last reboot | head -15 && echo '' && echo '=== Last Shutdown ===' && last -x shutdown | head -5 2>/dev/null","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["when was the last reboot","reboot history","show restart history"]},
-
-    {"name":"system.kernel","description":"Show kernel and OS information","synonyms":["kernel version","kernel info","os version","linux version","uname","what os","what linux","distro info","release info"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Kernel ===' && uname -a && echo '' && echo '=== OS Release ===' && cat /etc/os-release 2>/dev/null && echo '' && echo '=== Hardware ===' && lscpu 2>/dev/null | head -10","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["kernel version","what os am I running","uname","what linux distro"]},
-
-    {"name":"system.env","description":"Show environment variables","synonyms":["environment variables","env vars","show env","printenv","list env","what are my env vars","PATH","show PATH"],"fields":{"filter":{"type":"string","required":false},"environment":{"type":"environment","required":false,"default":"local"}},"command":"if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then env | grep -i '{{filter}}' | sort; else env | sort | head -50 && echo '' && echo '(showing first 50 — use filter to narrow)'; fi","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["show env vars","printenv","show PATH","env vars matching NODE"]},
-
-    {"name":"system.resource_summary","description":"Full system resource summary — CPU, memory, disk, load, processes","synonyms":["system summary","resource summary","system resources","how is my system","system overview","machine status","server overview","full system check","system report"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== System ===' && uname -n && uptime && echo '' && echo '=== CPU ===' && nproc && cat /proc/loadavg && echo '' && echo '=== Memory ===' && free -h && echo '' && echo '=== Disk ===' && df -h --total | tail -5 && echo '' && echo '=== Top Processes ===' && ps aux --sort=-%cpu | head -6 && echo '' && echo '=== Network ===' && ip addr show 2>/dev/null | grep 'inet ' | head -5 || ifconfig 2>/dev/null | grep 'inet ' | head -5","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["system summary","how is my system","full system check","server overview","resource summary"]},
-
-    {"name":"network.ip","description":"Show IP addresses and network interfaces","synonyms":["my ip","ip address","what is my ip","show ip","network interfaces","ifconfig","ip addr","public ip","external ip","local ip"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Local IPs ===' && ip addr show 2>/dev/null | grep 'inet ' || ifconfig 2>/dev/null | grep 'inet ' && echo '' && echo '=== Public IP ===' && curl -sf --max-time 3 https://api.ipify.org && echo '' || echo '(could not determine)'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what is my ip","show ip address","my public ip","network interfaces"]},
-
-    {"name":"network.bandwidth","description":"Show network bandwidth usage per interface","synonyms":["bandwidth usage","network usage","traffic","network traffic","interface stats","bytes sent","bytes received","network stats"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== Interface Statistics ===' && cat /proc/net/dev 2>/dev/null | awk 'NR>2{print $1, \"RX:\", $2, \"TX:\", $10}' || ifconfig 2>/dev/null && echo '' && echo '=== Active Connections ===' && ss -s 2>/dev/null","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["network bandwidth","traffic stats","bytes sent and received","network usage"]},
-
-    {"name":"hardware.info","description":"Show hardware information — CPU, RAM, GPU, storage","synonyms":["hardware info","cpu info","ram info","gpu info","lshw","lspci","what hardware","machine specs","system specs","how much ram","how many cores","cpu model"],"fields":{"environment":{"type":"environment","required":false,"default":"local"}},"command":"echo '=== CPU ===' && lscpu 2>/dev/null | head -15 || cat /proc/cpuinfo | head -20 && echo '' && echo '=== Memory ===' && free -h && echo '' && echo '=== Storage ===' && lsblk 2>/dev/null | head -15 || fdisk -l 2>/dev/null | head -15 && echo '' && echo '=== GPU ===' && lspci 2>/dev/null | grep -i vga || echo '(no GPU detected)'","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["hardware info","how much ram do I have","cpu info","how many cores","machine specs"]}
-
+    {
+      "name": "knowledge.lookup",
+      "description": "Look up a topic, concept, or entity on Wikidata",
+      "synonyms": [
+        "what is",
+        "who is",
+        "tell me about",
+        "define",
+        "lookup",
+        "look up",
+        "wiki",
+        "wikipedia",
+        "explain",
+        "info about",
+        "information about",
+        "facts about",
+        "learn about",
+        "whats a",
+        "what are"
+      ],
+      "fields": {
+        "topic": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "notoken:wiki-lookup:{{topic}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what is kubernetes",
+        "who is linus torvalds",
+        "tell me about nginx",
+        "define websocket",
+        "what is docker compose",
+        "lookup react hooks"
+      ]
+    },
+    {
+      "name": "ai.where_installed",
+      "description": "Show where AI tools, Docker images, and downloads are stored",
+      "synonyms": [
+        "where did you install",
+        "where is it installed",
+        "where is the docker image",
+        "where did you download",
+        "where are the files",
+        "where is stable diffusion",
+        "where is the model",
+        "where did it go",
+        "what did you download",
+        "show install location",
+        "install location",
+        "where did notoken put",
+        "where are ai files"
+      ],
+      "fields": {},
+      "command": "notoken:ai-where",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "where did you install that",
+        "where is the docker image",
+        "where did you download the model",
+        "where is stable diffusion installed"
+      ]
+    },
+    {
+      "name": "ai.generate_image",
+      "description": "Generate an image from a text prompt using local Stable Diffusion or suggest online services",
+      "synonyms": [
+        "generate image",
+        "generate a picture",
+        "create image",
+        "create a picture",
+        "make an image",
+        "make a picture",
+        "draw",
+        "paint",
+        "generate art",
+        "ai image",
+        "create art",
+        "make me an image",
+        "make me a picture",
+        "draw me",
+        "paint me",
+        "generate photo",
+        "create a photo",
+        "imagine",
+        "generate a picture of",
+        "picture of",
+        "image of",
+        "draw a",
+        "paint a",
+        "create artwork"
+      ],
+      "fields": {
+        "prompt": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "notoken:image-gen:{{prompt}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "generate a picture of a cat",
+        "create an image of a sunset",
+        "draw a robot",
+        "make me a picture of a mountain",
+        "paint a landscape"
+      ]
+    },
+    {
+      "name": "ai.image_status",
+      "description": "Check status of image generation engines — what we use to make images",
+      "synonyms": [
+        "image status",
+        "stable diffusion status",
+        "sd status",
+        "check image generator",
+        "image engine status",
+        "is stable diffusion running",
+        "check sd",
+        "what are we using to generate",
+        "what generates images",
+        "how are images generated",
+        "image generation status",
+        "what engine",
+        "which image generator",
+        "what model are we using",
+        "what are we using for images",
+        "how do we generate images",
+        "is this happening offline",
+        "is this local",
+        "are images free",
+        "is image generation free",
+        "using cloud for images",
+        "are we using cloud",
+        "is this offline or cloud",
+        "is image generation local",
+        "where are images generated",
+        "how is image generation working"
+      ],
+      "fields": {},
+      "command": "notoken:image-status",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "image status",
+        "check stable diffusion",
+        "is sd running",
+        "image engine status"
+      ]
+    },
+    {
+      "name": "ai.install_sd",
+      "description": "Install Stable Diffusion or other image generation software",
+      "synonyms": [
+        "install stable diffusion",
+        "install sd",
+        "install image generator",
+        "install comfyui",
+        "install fooocus",
+        "setup stable diffusion",
+        "setup image generation",
+        "install ai art",
+        "install diffusion"
+      ],
+      "fields": {
+        "engine": {
+          "type": "string",
+          "required": false,
+          "default": "auto1111"
+        }
+      },
+      "command": "notoken:install-sd:{{engine}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install stable diffusion",
+        "install comfyui",
+        "install fooocus",
+        "setup image generation"
+      ]
+    },
+    {
+      "name": "ai.start_sd",
+      "description": "Start the Stable Diffusion web UI",
+      "synonyms": [
+        "start stable diffusion",
+        "start sd",
+        "launch sd",
+        "run stable diffusion",
+        "start image generator",
+        "start sd webui"
+      ],
+      "fields": {},
+      "command": "cd ~/stable-diffusion-webui && bash webui.sh --api --listen &",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "low",
+      "examples": [
+        "start stable diffusion",
+        "launch sd",
+        "run the image generator"
+      ]
+    },
+    {
+      "name": "ai.stop_sd",
+      "description": "Stop the Stable Diffusion web UI",
+      "synonyms": [
+        "stop stable diffusion",
+        "stop sd",
+        "kill sd",
+        "shutdown sd",
+        "stop image generator"
+      ],
+      "fields": {},
+      "command": "pkill -f 'webui.py\\|stable-diffusion' 2>/dev/null && echo 'Stable Diffusion stopped' || echo 'Not running'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "stop stable diffusion",
+        "stop sd",
+        "kill the image generator"
+      ]
+    },
+    {
+      "name": "dns.lookup",
+      "description": "Look up DNS records for a domain",
+      "synonyms": [
+        "dns lookup",
+        "check dns",
+        "nslookup",
+        "dig",
+        "dns records",
+        "check my dns",
+        "resolve domain",
+        "dns query",
+        "whats the dns for",
+        "dns for"
+      ],
+      "fields": {
+        "domain": {
+          "type": "string",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "default": "A"
+        }
+      },
+      "command": "echo '=== DNS Records ===' && dig {{domain}} {{type}} +short && echo '' && echo '=== All Records ===' && dig {{domain}} ANY +noall +answer 2>/dev/null && echo '' && echo '=== Nameservers ===' && dig {{domain}} NS +short",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check dns for google.com",
+        "nslookup notoken.sh",
+        "dig example.com",
+        "what are the dns records for notoken.sh"
+      ]
+    },
+    {
+      "name": "dns.update",
+      "description": "Update a DNS record (via provider CLI or /etc/hosts)",
+      "synonyms": [
+        "update dns",
+        "change dns",
+        "add dns record",
+        "add A record",
+        "add CNAME",
+        "set dns",
+        "modify dns",
+        "point domain"
+      ],
+      "fields": {
+        "domain": {
+          "type": "string",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "default": "A"
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "echo '{{domain}} → {{value}} ({{type}})' && echo 'To update /etc/hosts:' && echo '{{value}} {{domain}}' && echo '' && echo 'For cloud DNS, use your provider CLI:' && echo '  aws route53 change-resource-record-sets ...' && echo '  gcloud dns record-sets update ...' && echo '  doctl compute domain records create ...'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "add A record for api.example.com pointing to 1.2.3.4",
+        "update dns for mysite.com",
+        "point domain to new IP"
+      ]
+    },
+    {
+      "name": "firewall.list",
+      "description": "Show firewall rules (ufw, iptables, firewalld)",
+      "synonyms": [
+        "firewall rules",
+        "show firewall",
+        "list firewall",
+        "iptables",
+        "ufw status",
+        "firewall status",
+        "check firewall",
+        "what ports are open",
+        "firewall list"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== UFW ===' && ufw status verbose 2>/dev/null || echo '(ufw not active)' && echo '' && echo '=== iptables ===' && iptables -L -n --line-numbers 2>/dev/null | head -30 || echo '(no iptables access)' && echo '' && echo '=== firewalld ===' && firewall-cmd --list-all 2>/dev/null || echo '(firewalld not active)'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show firewall rules",
+        "ufw status",
+        "what ports are open",
+        "check firewall"
+      ]
+    },
+    {
+      "name": "firewall.open",
+      "description": "Open a port in the firewall",
+      "synonyms": [
+        "open port",
+        "allow port",
+        "ufw allow",
+        "firewall open",
+        "unblock port",
+        "permit port"
+      ],
+      "fields": {
+        "port": {
+          "type": "string",
+          "required": true
+        },
+        "protocol": {
+          "type": "string",
+          "required": false,
+          "default": "tcp"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "ufw allow {{port}}/{{protocol}} 2>/dev/null && ufw status || firewall-cmd --add-port={{port}}/{{protocol}} --permanent 2>/dev/null && firewall-cmd --reload || iptables -A INPUT -p {{protocol}} --dport {{port}} -j ACCEPT",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "open port 8080",
+        "allow port 443",
+        "ufw allow 3000"
+      ]
+    },
+    {
+      "name": "firewall.close",
+      "description": "Close/block a port in the firewall",
+      "synonyms": [
+        "close port",
+        "block port",
+        "ufw deny",
+        "firewall close",
+        "deny port",
+        "block ip"
+      ],
+      "fields": {
+        "port": {
+          "type": "string",
+          "required": true
+        },
+        "protocol": {
+          "type": "string",
+          "required": false,
+          "default": "tcp"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "ufw deny {{port}}/{{protocol}} 2>/dev/null && ufw status || firewall-cmd --remove-port={{port}}/{{protocol}} --permanent 2>/dev/null && firewall-cmd --reload || iptables -A INPUT -p {{protocol}} --dport {{port}} -j DROP",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "close port 8080",
+        "block port 22",
+        "deny port 3306"
+      ]
+    },
+    {
+      "name": "firewall.block_ip",
+      "description": "Block an IP address",
+      "synonyms": [
+        "block ip",
+        "ban ip",
+        "blacklist ip",
+        "deny ip",
+        "firewall block"
+      ],
+      "fields": {
+        "ip": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "ufw deny from {{ip}} 2>/dev/null && ufw status || iptables -A INPUT -s {{ip}} -j DROP",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "block ip 1.2.3.4",
+        "ban ip 10.0.0.5",
+        "blacklist 192.168.1.100"
+      ]
+    },
+    {
+      "name": "systemd.create",
+      "description": "Create a systemd service unit for an application",
+      "synonyms": [
+        "create systemd service",
+        "make service",
+        "create service",
+        "run on boot",
+        "make this run on boot",
+        "autostart",
+        "systemd unit",
+        "create unit file",
+        "register service"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "command": {
+          "type": "string",
+          "required": true
+        },
+        "user": {
+          "type": "string",
+          "required": false,
+          "default": "root"
+        },
+        "workdir": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "cat > /etc/systemd/system/{{name}}.service << 'UNIT'\n[Unit]\nDescription={{name}} service\nAfter=network.target\n\n[Service]\nType=simple\nUser={{user}}\nWorkingDirectory={{workdir}}\nExecStart={{command}}\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload && systemctl enable {{name}} && systemctl start {{name}} && echo 'Service created and started' && systemctl status {{name}} --no-pager",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "create systemd service for my node app",
+        "make my api run on boot",
+        "register service myapp"
+      ]
+    },
+    {
+      "name": "package.audit",
+      "description": "Check for outdated or vulnerable packages",
+      "synonyms": [
+        "package audit",
+        "npm audit",
+        "check vulnerabilities",
+        "outdated packages",
+        "security audit",
+        "vulnerable packages",
+        "check outdated",
+        "what packages are outdated",
+        "check for vulnerabilities",
+        "dependency check"
+      ],
+      "fields": {
+        "manager": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Outdated Packages ===' && (npm outdated 2>/dev/null || pip list --outdated 2>/dev/null || echo '(no package manager detected)') && echo '' && echo '=== Security Audit ===' && (npm audit 2>/dev/null || pip-audit 2>/dev/null || echo '(no audit tool available)')",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "npm audit",
+        "check for vulnerabilities",
+        "what packages are outdated",
+        "security audit"
+      ]
+    },
+    {
+      "name": "package.update_all",
+      "description": "Update all packages to latest versions",
+      "synonyms": [
+        "update all packages",
+        "upgrade packages",
+        "npm update",
+        "pip upgrade",
+        "update dependencies",
+        "upgrade all",
+        "update everything"
+      ],
+      "fields": {
+        "manager": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "if [ -f package.json ]; then npm update && echo 'npm packages updated'; elif [ -f requirements.txt ]; then pip install --upgrade -r requirements.txt && echo 'pip packages updated'; elif [ -f Gemfile ]; then bundle update && echo 'gems updated'; else echo 'No package manager detected'; fi",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "update all packages",
+        "npm update",
+        "upgrade all dependencies"
+      ]
+    },
+    {
+      "name": "runtime.install",
+      "description": "Install or switch to a specific runtime version",
+      "synonyms": [
+        "install node",
+        "install python",
+        "install java",
+        "switch to node",
+        "set up node",
+        "install runtime",
+        "use node",
+        "use python",
+        "set up python",
+        "install go",
+        "install rust",
+        "switch node version",
+        "switch python version"
+      ],
+      "fields": {
+        "runtime": {
+          "type": "string",
+          "required": true
+        },
+        "version": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "echo 'Installing {{runtime}} {{version}}...' && if echo '{{runtime}}' | grep -qi 'node'; then nvm install {{version}} 2>/dev/null && nvm use {{version}} || echo 'Install nvm first: notoken fix nvm'; elif echo '{{runtime}}' | grep -qi 'python'; then pyenv install {{version}} 2>/dev/null && pyenv global {{version}} || apt-get install -y python{{version}} 2>/dev/null || echo 'Use pyenv or apt'; elif echo '{{runtime}}' | grep -qi 'go'; then curl -sSL https://go.dev/dl/go{{version}}.linux-amd64.tar.gz | tar -C /usr/local -xz; elif echo '{{runtime}}' | grep -qi 'rust'; then curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; else echo 'Unknown runtime: {{runtime}}'; fi",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install node 22",
+        "set up python 3.12",
+        "switch to node 20",
+        "install go 1.22",
+        "install rust"
+      ]
+    },
+    {
+      "name": "cloud.aws",
+      "description": "Run AWS CLI commands",
+      "synonyms": [
+        "aws",
+        "aws s3",
+        "aws ec2",
+        "aws lambda",
+        "s3 list",
+        "s3 ls",
+        "aws iam",
+        "check aws",
+        "aws status"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "resource": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "aws {{action}} {{resource}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "aws s3 ls",
+        "aws ec2 describe-instances",
+        "aws lambda list-functions",
+        "check aws s3 buckets"
+      ]
+    },
+    {
+      "name": "cloud.gcloud",
+      "description": "Run Google Cloud CLI commands",
+      "synonyms": [
+        "gcloud",
+        "gcp",
+        "google cloud",
+        "gcloud compute",
+        "gcloud run",
+        "gcloud functions"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "resource": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "gcloud {{action}} {{resource}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "gcloud compute instances list",
+        "gcloud run services list",
+        "gcloud functions list"
+      ]
+    },
+    {
+      "name": "cloud.az",
+      "description": "Run Azure CLI commands",
+      "synonyms": [
+        "az",
+        "azure",
+        "az vm",
+        "az webapp",
+        "az storage",
+        "azure cli"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "resource": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "az {{action}} {{resource}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "az vm list",
+        "az webapp list",
+        "az storage account list"
+      ]
+    },
+    {
+      "name": "cloud.do",
+      "description": "Run DigitalOcean CLI commands",
+      "synonyms": [
+        "doctl",
+        "digitalocean",
+        "do droplets",
+        "do spaces"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "resource": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "doctl {{action}} {{resource}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "doctl compute droplet list",
+        "doctl apps list"
+      ]
+    },
+    {
+      "name": "monitor.watch_log",
+      "description": "Watch a log file in real-time with optional filter",
+      "synonyms": [
+        "watch log",
+        "monitor log",
+        "tail log",
+        "follow log",
+        "watch for errors",
+        "monitor for",
+        "alert me if",
+        "stream log"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "filter": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo 'Watching {{path}}...' && if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then tail -f {{path}} | grep --line-buffered '{{filter}}'; else tail -f {{path}}; fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "watch /var/log/nginx/error.log",
+        "monitor log for errors",
+        "tail syslog",
+        "follow /var/log/app.log"
+      ]
+    },
+    {
+      "name": "monitor.disk_alert",
+      "description": "Check if disk usage exceeds a threshold",
+      "synonyms": [
+        "alert disk",
+        "disk threshold",
+        "warn if disk",
+        "check disk threshold",
+        "monitor disk",
+        "disk alert"
+      ],
+      "fields": {
+        "threshold": {
+          "type": "string",
+          "required": false,
+          "default": "80"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Disk Usage Check (threshold: {{threshold}}%) ===' && df -h --output=target,pcent,size,avail | tail -n +2 | while read mount pct size avail; do num=$(echo $pct | tr -d '%'); if [ \"$num\" -ge {{threshold}} ] 2>/dev/null; then echo \"⚠ $mount: $pct used ($avail free of $size)\"; fi; done && echo '' && echo '=== All mounts ===' && df -h | head -15",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "alert me if disk hits 90%",
+        "check disk threshold 80",
+        "monitor disk usage"
+      ]
+    },
+    {
+      "name": "monitor.process",
+      "description": "Monitor a specific process — CPU, memory, uptime",
+      "synonyms": [
+        "monitor process",
+        "watch process",
+        "check process",
+        "process info",
+        "what is using cpu",
+        "what is eating memory",
+        "top process",
+        "ps aux",
+        "process status"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Top by CPU ===' && ps aux --sort=-%cpu | head -10 && echo '' && echo '=== Top by Memory ===' && ps aux --sort=-%mem | head -10 && echo '' && echo '=== Process Tree ===' && pstree -p 2>/dev/null | head -20 || ps -ef --forest | head -20",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what is using cpu",
+        "what is eating memory",
+        "check process nginx",
+        "top processes"
+      ]
+    },
+    {
+      "name": "network.traceroute",
+      "description": "Trace the network path to a host",
+      "synonyms": [
+        "traceroute",
+        "tracepath",
+        "trace route",
+        "network path",
+        "hops to",
+        "mtr",
+        "trace",
+        "trace network"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "traceroute -m 20 {{target}} 2>/dev/null || tracepath {{target}} 2>/dev/null || echo 'traceroute not installed — install with: apt install traceroute'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "traceroute to google.com",
+        "trace route to 8.8.8.8",
+        "network path to prod"
+      ]
+    },
+    {
+      "name": "network.dig",
+      "description": "Detailed DNS query with dig",
+      "synonyms": [
+        "dig domain",
+        "dns dig",
+        "detailed dns",
+        "reverse dns",
+        "reverse lookup",
+        "ptr record",
+        "dig",
+        "dns lookup",
+        "nslookup",
+        "resolve dns",
+        "dns records",
+        "lookup dns"
+      ],
+      "fields": {
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "default": "A"
+        }
+      },
+      "command": "dig {{target}} {{type}} +noall +answer +comments && echo '' && echo '=== Reverse DNS ===' && dig -x {{target}} +short 2>/dev/null || echo '(not an IP)'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "dig google.com",
+        "reverse dns 8.8.8.8",
+        "dig notoken.sh MX"
+      ]
+    },
+    {
+      "name": "network.speedtest",
+      "description": "Test network speed and latency",
+      "synonyms": [
+        "speedtest",
+        "network speed",
+        "bandwidth test",
+        "internet speed",
+        "how fast is my connection",
+        "speed test",
+        "check speed"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "if command -v speedtest-cli &>/dev/null; then speedtest-cli --simple; elif command -v curl &>/dev/null; then echo 'Download speed:' && curl -s -o /dev/null -w 'Speed: %{speed_download} bytes/sec\\nTime: %{time_total}s\\n' https://speed.cloudflare.com/__down?bytes=10000000 && echo '' && echo 'Latency:' && ping -c 3 1.1.1.1 | tail -1; else echo 'Install speedtest-cli: pip install speedtest-cli'; fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "speedtest",
+        "check internet speed",
+        "how fast is my connection",
+        "bandwidth test"
+      ]
+    },
+    {
+      "name": "network.connections",
+      "description": "Show active network connections",
+      "synonyms": [
+        "active connections",
+        "netstat",
+        "ss",
+        "who is connected",
+        "network connections",
+        "established connections",
+        "open connections",
+        "tcp connections",
+        "connections"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Listening Ports ===' && ss -tlnp 2>/dev/null | head -20 || netstat -tlnp 2>/dev/null | head -20 && echo '' && echo '=== Established Connections ===' && ss -tnp state established 2>/dev/null | head -20 || netstat -tnp 2>/dev/null | grep ESTABLISHED | head -20 && echo '' && echo '=== Connection Count by State ===' && ss -s 2>/dev/null || netstat -s 2>/dev/null | head -15",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show active connections",
+        "who is connected",
+        "netstat",
+        "list open connections"
+      ]
+    },
+    {
+      "name": "text.count",
+      "description": "Count lines, words, or characters in a file",
+      "synonyms": [
+        "count lines",
+        "count words",
+        "line count",
+        "word count",
+        "wc",
+        "how many lines",
+        "how big is this file",
+        "file size",
+        "count characters"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== File Stats ===' && wc -l -w -c {{path}} | awk '{print \"Lines: \" $1 \"\\nWords: \" $2 \"\\nBytes: \" $3 \"\\nFile:  \" $4}' && echo '' && ls -lh {{path}} | awk '{print \"Size: \" $5}' && echo '' && echo '=== First 5 lines ===' && head -5 {{path}} && echo '' && echo '=== Last 5 lines ===' && tail -5 {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "count lines in /var/log/syslog",
+        "how many lines in package.json",
+        "wc my-file.txt"
+      ]
+    },
+    {
+      "name": "text.sort",
+      "description": "Sort a file's contents",
+      "synonyms": [
+        "sort file",
+        "sort lines",
+        "sort this file",
+        "alphabetize",
+        "sort by",
+        "order file"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "flags": {
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "sort {{flags}} {{path}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "sort file /tmp/list.txt",
+        "sort this file alphabetically",
+        "sort -n numbers.txt"
+      ]
+    },
+    {
+      "name": "text.unique",
+      "description": "Remove duplicate lines from a file",
+      "synonyms": [
+        "remove duplicates",
+        "unique lines",
+        "deduplicate",
+        "dedup",
+        "uniq",
+        "distinct lines"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Unique lines ===' && sort {{path}} | uniq && echo '' && echo '=== Duplicate summary ===' && sort {{path}} | uniq -c | sort -rn | head -10",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "remove duplicates from list.txt",
+        "unique lines in hosts.txt",
+        "dedup /tmp/ips.txt"
+      ]
+    },
+    {
+      "name": "text.diff",
+      "description": "Compare two files and show differences",
+      "synonyms": [
+        "diff files",
+        "compare files",
+        "difference between",
+        "what changed",
+        "diff",
+        "compare"
+      ],
+      "fields": {
+        "file1": {
+          "type": "string",
+          "required": true
+        },
+        "file2": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "diff --color {{file1}} {{file2}} || echo '(files differ)'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "diff config.old config.new",
+        "compare /etc/nginx/nginx.conf /tmp/nginx.conf.bak"
+      ]
+    },
+    {
+      "name": "text.replace",
+      "description": "Find and replace text in a file",
+      "synonyms": [
+        "find and replace",
+        "replace text",
+        "sed replace",
+        "search and replace",
+        "substitute",
+        "change text in file"
+      ],
+      "fields": {
+        "find": {
+          "type": "string",
+          "required": true
+        },
+        "replace": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo 'Replacing \"{{find}}\" with \"{{replace}}\" in {{path}}' && sed -i 's/{{find}}/{{replace}}/g' {{path}} && echo 'Done. Preview:' && grep -n '{{replace}}' {{path}} | head -5",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "replace localhost with 0.0.0.0 in config.js",
+        "find and replace foo with bar in settings.json"
+      ]
+    },
+    {
+      "name": "clipboard.copy",
+      "description": "Copy text or file contents to clipboard",
+      "synonyms": [
+        "copy to clipboard",
+        "clipboard",
+        "copy output",
+        "copy that",
+        "yank",
+        "pbcopy",
+        "xclip"
+      ],
+      "fields": {
+        "source": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "if [ -n '{{source}}' ]; then cat {{source}} | (xclip -selection clipboard 2>/dev/null || pbcopy 2>/dev/null || clip.exe 2>/dev/null || echo 'No clipboard tool found'); echo 'Copied to clipboard'; else echo 'Pipe output to: | xclip -sel clip (Linux) or | pbcopy (macOS) or | clip.exe (WSL)'; fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "copy to clipboard",
+        "copy output of last command",
+        "copy /etc/hosts to clipboard"
+      ]
+    },
+    {
+      "name": "output.save",
+      "description": "Save command output to a file",
+      "synonyms": [
+        "save output",
+        "save to file",
+        "redirect to file",
+        "output to file",
+        "write output",
+        "export output",
+        "pipe to file"
+      ],
+      "fields": {
+        "command": {
+          "type": "string",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "{{command}} > {{path}} 2>&1 && echo 'Output saved to {{path}} ('$(wc -l < {{path}})' lines)'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "low",
+      "examples": [
+        "save output to /tmp/results.txt",
+        "redirect to file /root/log.txt"
+      ]
+    },
+    {
+      "name": "system.hostname",
+      "description": "Show or set the system hostname",
+      "synonyms": [
+        "hostname",
+        "what is my hostname",
+        "system name",
+        "machine name",
+        "set hostname",
+        "change hostname",
+        "show hostname",
+        "what is the hostname"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "if [ -n '{{name}}' ] && [ '{{name}}' != '{{name}}' ]; then hostnamectl set-hostname {{name}} && echo 'Hostname set to {{name}}'; else hostname && echo '' && hostnamectl 2>/dev/null; fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what is my hostname",
+        "hostname",
+        "set hostname to webserver-01"
+      ]
+    },
+    {
+      "name": "system.timezone",
+      "description": "Show or set the system timezone",
+      "synonyms": [
+        "timezone",
+        "what timezone",
+        "check timezone",
+        "set timezone",
+        "change timezone",
+        "timedatectl",
+        "current time"
+      ],
+      "fields": {
+        "tz": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "if [ -n '{{tz}}' ] && [ '{{tz}}' != '{{tz}}' ]; then timedatectl set-timezone {{tz}} && echo 'Timezone set to {{tz}}'; else timedatectl 2>/dev/null || (date && cat /etc/timezone 2>/dev/null); fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what timezone am I in",
+        "check timezone",
+        "set timezone to America/New_York"
+      ]
+    },
+    {
+      "name": "system.reboot_history",
+      "description": "Show system reboot history",
+      "synonyms": [
+        "reboot history",
+        "when was last reboot",
+        "boot history",
+        "restart history",
+        "last reboot",
+        "system restarts"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Reboot History ===' && last reboot | head -15 && echo '' && echo '=== Last Shutdown ===' && last -x shutdown | head -5 2>/dev/null",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "when was the last reboot",
+        "reboot history",
+        "show restart history"
+      ]
+    },
+    {
+      "name": "system.kernel",
+      "description": "Show kernel and OS information",
+      "synonyms": [
+        "kernel version",
+        "kernel info",
+        "os version",
+        "linux version",
+        "uname",
+        "what os",
+        "what linux",
+        "distro info",
+        "release info"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Kernel ===' && uname -a && echo '' && echo '=== OS Release ===' && cat /etc/os-release 2>/dev/null && echo '' && echo '=== Hardware ===' && lscpu 2>/dev/null | head -10",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "kernel version",
+        "what os am I running",
+        "uname",
+        "what linux distro"
+      ]
+    },
+    {
+      "name": "system.env",
+      "description": "Show environment variables",
+      "synonyms": [
+        "environment variables",
+        "env vars",
+        "show env",
+        "printenv",
+        "list env",
+        "what are my env vars",
+        "PATH",
+        "show PATH"
+      ],
+      "fields": {
+        "filter": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then env | grep -i '{{filter}}' | sort; else env | sort | head -50 && echo '' && echo '(showing first 50 — use filter to narrow)'; fi",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show env vars",
+        "printenv",
+        "show PATH",
+        "env vars matching NODE"
+      ]
+    },
+    {
+      "name": "system.resource_summary",
+      "description": "Full system resource summary — CPU, memory, disk, load, processes",
+      "synonyms": [
+        "system summary",
+        "resource summary",
+        "system resources",
+        "how is my system",
+        "system overview",
+        "machine status",
+        "server overview",
+        "full system check",
+        "system report"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== System ===' && uname -n && uptime && echo '' && echo '=== CPU ===' && nproc && cat /proc/loadavg && echo '' && echo '=== Memory ===' && free -h && echo '' && echo '=== Disk ===' && df -h --total | tail -5 && echo '' && echo '=== Top Processes ===' && ps aux --sort=-%cpu | head -6 && echo '' && echo '=== Network ===' && ip addr show 2>/dev/null | grep 'inet ' | head -5 || ifconfig 2>/dev/null | grep 'inet ' | head -5",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "system summary",
+        "how is my system",
+        "full system check",
+        "server overview",
+        "resource summary"
+      ]
+    },
+    {
+      "name": "network.ip",
+      "description": "Show IP addresses and network interfaces",
+      "synonyms": [
+        "my ip",
+        "ip address",
+        "what is my ip",
+        "show ip",
+        "network interfaces",
+        "ifconfig",
+        "ip addr",
+        "public ip",
+        "external ip",
+        "local ip",
+        "ipconfig",
+        "get my ip",
+        "private ip"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Local IPs ===' && ip addr show 2>/dev/null | grep 'inet ' || ifconfig 2>/dev/null | grep 'inet ' && echo '' && echo '=== Public IP ===' && curl -sf --max-time 3 https://api.ipify.org && echo '' || echo '(could not determine)'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what is my ip",
+        "show ip address",
+        "my public ip",
+        "network interfaces"
+      ]
+    },
+    {
+      "name": "network.bandwidth",
+      "description": "Show network bandwidth usage per interface",
+      "synonyms": [
+        "bandwidth usage",
+        "network usage",
+        "traffic",
+        "network traffic",
+        "interface stats",
+        "bytes sent",
+        "bytes received",
+        "network stats",
+        "bandwidth",
+        "nethogs",
+        "iftop",
+        "network speed"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== Interface Statistics ===' && cat /proc/net/dev 2>/dev/null | awk 'NR>2{print $1, \"RX:\", $2, \"TX:\", $10}' || ifconfig 2>/dev/null && echo '' && echo '=== Active Connections ===' && ss -s 2>/dev/null",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "network bandwidth",
+        "traffic stats",
+        "bytes sent and received",
+        "network usage"
+      ]
+    },
+    {
+      "name": "hardware.info",
+      "description": "Show hardware information — CPU, RAM, GPU, storage",
+      "synonyms": [
+        "hardware info",
+        "cpu info",
+        "ram info",
+        "gpu info",
+        "lshw",
+        "lspci",
+        "what hardware",
+        "machine specs",
+        "system specs",
+        "how much ram",
+        "how many cores",
+        "cpu model"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== CPU ===' && lscpu 2>/dev/null | head -15 || cat /proc/cpuinfo | head -20 && echo '' && echo '=== Memory ===' && free -h && echo '' && echo '=== Storage ===' && lsblk 2>/dev/null | head -15 || fdisk -l 2>/dev/null | head -15 && echo '' && echo '=== GPU ===' && lspci 2>/dev/null | grep -i vga || echo '(no GPU detected)'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "hardware info",
+        "how much ram do I have",
+        "cpu info",
+        "how many cores",
+        "machine specs"
+      ]
+    },
+    {
+      "name": "ssh.test",
+      "description": "Test SSH connectivity to a configured environment",
+      "synonyms": [
+        "test ssh",
+        "test connection",
+        "test connectivity",
+        "can i connect",
+        "ssh test",
+        "check ssh",
+        "ping server",
+        "is server reachable",
+        "can i reach",
+        "test remote"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": true,
+          "default": "dev"
+        }
+      },
+      "command": "[ssh-test]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "test ssh to prod",
+        "can i connect to staging",
+        "check ssh to dev",
+        "test connection to prod"
+      ]
+    },
+    {
+      "name": "docker.exec",
+      "description": "Run a command inside a Docker container",
+      "synonyms": [
+        "docker exec",
+        "exec in container",
+        "run in container",
+        "run inside container",
+        "container shell",
+        "container exec",
+        "shell into container",
+        "command in container",
+        "execute in container"
+      ],
+      "fields": {
+        "container": {
+          "type": "string",
+          "required": true
+        },
+        "command": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "docker exec {{container}} sh -c '{{command}}'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "medium",
+      "examples": [
+        "exec ls in container myapp",
+        "run whoami in container nginx",
+        "shell into container redis",
+        "run command in container api"
+      ]
+    },
+    {
+      "name": "disk.scan",
+      "description": "Smart scan of all drives with analysis, labels, usage bars, and top space consumers",
+      "synonyms": [
+        "scan drives",
+        "scan all drives",
+        "scan disks",
+        "scan all disks",
+        "analyze drives",
+        "analyze disks",
+        "drive analysis",
+        "disk analysis",
+        "show all drives",
+        "show drives",
+        "drive scan",
+        "smart scan",
+        "what is using space",
+        "where is space going",
+        "what is eating space",
+        "space hogs",
+        "biggest folders"
+      ],
+      "fields": {
+        "deep": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[disk-scan]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "scan all drives",
+        "analyze my disks",
+        "what is eating space",
+        "show all drives",
+        "where is space going",
+        "smart scan drives"
+      ]
+    },
+    {
+      "name": "disk.cleanup",
+      "description": "Scan for reclaimable disk space and clean up with user confirmation",
+      "synonyms": [
+        "free up space",
+        "free space",
+        "clean disk",
+        "cleanup disk",
+        "disk cleanup",
+        "reclaim space",
+        "clear space",
+        "make space",
+        "out of space",
+        "running out of space",
+        "no space left",
+        "disk full",
+        "drive full",
+        "c drive full",
+        "clean up",
+        "clear cache",
+        "clear caches",
+        "clean caches",
+        "clean temp",
+        "clear temp files"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[disk-cleanup]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "medium",
+      "examples": [
+        "free up space",
+        "my disk is full",
+        "running out of space on c drive",
+        "clean up disk space",
+        "clear caches",
+        "reclaim disk space",
+        "out of space"
+      ]
+    },
+    {
+      "name": "db.query",
+      "description": "Query a database — search, list, count rows in PostgreSQL or MySQL",
+      "synonyms": [
+        "query database",
+        "query db",
+        "run query",
+        "sql query",
+        "select from",
+        "search database",
+        "search db",
+        "look in database",
+        "look in db",
+        "find in database",
+        "find in db",
+        "show me from database",
+        "database search",
+        "database find",
+        "look up in database",
+        "check database",
+        "check db"
+      ],
+      "fields": {
+        "table": {
+          "type": "string",
+          "required": false
+        },
+        "search": {
+          "type": "string",
+          "required": false
+        },
+        "database": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[db-query]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "find sally in the users table",
+        "look at my items and find sally",
+        "show me all orders",
+        "count users in the database",
+        "search database for sally",
+        "show tables",
+        "describe users table",
+        "query orders where total > 100"
+      ]
+    },
+    {
+      "name": "db.tables",
+      "description": "List all tables in a PostgreSQL or MySQL database",
+      "synonyms": [
+        "show tables",
+        "list tables",
+        "what tables",
+        "which tables",
+        "database tables",
+        "db tables",
+        "show schema",
+        "list schema",
+        "database schema"
+      ],
+      "fields": {
+        "database": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[db-tables]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show tables",
+        "what tables are in the database",
+        "list all tables on prod",
+        "show database schema"
+      ]
+    },
+    {
+      "name": "db.describe",
+      "description": "Describe a table's structure — columns, types, constraints",
+      "synonyms": [
+        "describe table",
+        "table structure",
+        "table schema",
+        "table columns",
+        "what columns",
+        "column types",
+        "show columns"
+      ],
+      "fields": {
+        "table": {
+          "type": "string",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[db-describe]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "describe users table",
+        "what columns in orders",
+        "show columns of products table",
+        "table structure for customers"
+      ]
+    },
+    {
+      "name": "llm.find_claude",
+      "description": "Find Claude CLI installation and configure notoken to use it",
+      "synonyms": [
+        "find claude",
+        "where is claude",
+        "locate claude",
+        "detect claude",
+        "configure claude",
+        "setup claude",
+        "connect claude",
+        "enable claude",
+        "can you find claude",
+        "is claude installed"
+      ],
+      "fields": {},
+      "command": "[find-claude]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "find claude",
+        "can you find claude",
+        "where is claude installed",
+        "configure claude for notoken",
+        "is claude installed",
+        "detect claude"
+      ]
+    },
+    {
+      "name": "package.update",
+      "description": "Update package lists and upgrade installed packages",
+      "synonyms": [
+        "update packages",
+        "apt update",
+        "upgrade packages",
+        "apt upgrade",
+        "system update",
+        "update system",
+        "check for updates",
+        "install updates",
+        "security updates",
+        "patch system",
+        "upgrade system",
+        "full upgrade",
+        "update all",
+        "upgrade all"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "sudo apt-get update && sudo apt-get upgrade -y",
+      "commandWindows": "powershell -Command \"Write-Host 'Checking for Windows updates...'; Get-WindowsUpdate -Install -AcceptAll -AutoReboot 2>$null; if($?) { Write-Host 'Updates installed' } else { Write-Host 'Use Settings > Windows Update to check for updates' }\"",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "update packages",
+        "check for updates",
+        "upgrade system",
+        "install security updates"
+      ]
+    },
+    {
+      "name": "system.health",
+      "description": "Quick health check — disk, memory, load, and services",
+      "synonyms": [
+        "health check",
+        "is server healthy",
+        "is the server ok",
+        "server health",
+        "server diagnostic",
+        "quick check",
+        "system status",
+        "server status",
+        "how is the server",
+        "is everything ok",
+        "all systems",
+        "system diagnostic",
+        "run diagnostic",
+        "system report"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "echo '=== UPTIME ===' && uptime && echo '\\n=== MEMORY ===' && free -h && echo '\\n=== DISK ===' && df -h / && echo '\\n=== LOAD ===' && cat /proc/loadavg",
+      "commandWindows": "powershell -Command \"Write-Host '=== SYSTEM ==='; systeminfo | Select-String 'OS Name|OS Version|System Boot Time|Total Physical Memory|Available Physical Memory'; Write-Host '\\n=== DISK ==='; Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { '{0} {1:N1}GB free of {2:N1}GB ({3}%)' -f $_.DeviceID, ($_.FreeSpace/1GB), ($_.Size/1GB), [math]::Round(($_.Size-$_.FreeSpace)/$_.Size*100) }\"",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "health check",
+        "is the server healthy",
+        "system status",
+        "quick diagnostic",
+        "how is the server"
+      ]
+    },
+    {
+      "name": "process.top",
+      "description": "Show top processes by CPU or memory usage",
+      "synonyms": [
+        "top",
+        "top processes",
+        "process by cpu",
+        "process by memory",
+        "cpu hogs",
+        "memory hogs",
+        "resource hogs",
+        "what is using cpu",
+        "what is using memory",
+        "what is using resources",
+        "heaviest processes",
+        "resource usage",
+        "who is using cpu",
+        "who is using memory"
+      ],
+      "fields": {
+        "sort": {
+          "type": "string",
+          "required": false,
+          "default": "cpu"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "ps aux --sort=-%{{sort}} | head -15",
+      "commandWindows": "powershell -Command \"Get-Process | Sort-Object -Property CPU -Descending | Select-Object -First 15 Name, Id, @{N='CPU(s)';E={[math]::Round($_.CPU,1)}}, @{N='Mem(MB)';E={[math]::Round($_.WorkingSet64/1MB,0)}} | Format-Table -AutoSize\"",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "top processes",
+        "what is using cpu",
+        "show top by memory",
+        "resource hogs",
+        "heaviest processes"
+      ]
+    },
+    {
+      "name": "notoken.rollback",
+      "description": "Roll back notoken to a previous version",
+      "synonyms": [
+        "rollback",
+        "roll back",
+        "revert version",
+        "go back to previous version",
+        "previous version",
+        "downgrade",
+        "undo upgrade",
+        "undo the upgrade",
+        "undo update",
+        "undo the update",
+        "revert notoken",
+        "notoken rollback",
+        "it was working before",
+        "go back",
+        "last version"
+      ],
+      "fields": {
+        "version": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[notoken-rollback]",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "rollback to previous version",
+        "it was working before, go back",
+        "revert notoken",
+        "undo the upgrade",
+        "downgrade to 1.0.1"
+      ]
+    },
+    {
+      "name": "notoken.versions",
+      "description": "Show notoken version history and available versions",
+      "synonyms": [
+        "version history",
+        "show versions",
+        "notoken versions",
+        "what version",
+        "which version",
+        "current version",
+        "notoken version"
+      ],
+      "fields": {},
+      "command": "[notoken-versions]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what version am i on",
+        "show version history",
+        "which version is installed"
+      ]
+    },
+    {
+      "name": "entity.define",
+      "description": "Define a named entity — server, database, or service alias",
+      "synonyms": [
+        "define entity",
+        "define server",
+        "define database",
+        "add entity",
+        "remember server",
+        "remember host",
+        "is the server",
+        "is server",
+        "is a server",
+        "is a database",
+        "is the database",
+        "call it",
+        "name it",
+        "save as"
+      ],
+      "fields": {
+        "definition": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "[entity-define]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "metroplex is 66.94.115.165",
+        "astrotrain is the 197 server",
+        "maindb is a postgres database at localhost",
+        "define server omega as 10.0.0.5"
+      ]
+    },
+    {
+      "name": "entity.list",
+      "description": "List all defined entities — servers, databases, services",
+      "synonyms": [
+        "list entities",
+        "show entities",
+        "what entities",
+        "defined servers",
+        "known servers",
+        "show servers",
+        "my servers",
+        "server list"
+      ],
+      "fields": {},
+      "command": "[entity-list]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "list entities",
+        "show my servers",
+        "what servers do I have"
+      ]
+    },
+    {
+      "name": "openclaw.setup_convex",
+      "description": "Install Convex and configure OpenClaw to work with it",
+      "synonyms": [
+        "get openclaw working with convex",
+        "get openclaw to work with convex",
+        "openclaw convex",
+        "setup convex for openclaw",
+        "install convex for openclaw",
+        "connect openclaw to convex",
+        "convex openclaw",
+        "openclaw work with convex",
+        "openclaw and convex",
+        "is convex installed",
+        "install convex",
+        "setup convex",
+        "check convex"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[openclaw-setup-convex]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is convex installed",
+        "get openclaw working with convex",
+        "setup convex for openclaw",
+        "install convex"
+      ]
+    },
+    {
+      "name": "llm.message",
+      "description": "Send a message to an AI — Claude, ChatGPT, or Ollama and get a response",
+      "synonyms": [
+        "talk to claude",
+        "ask claude",
+        "tell claude",
+        "say to claude",
+        "message claude",
+        "talk to chatgpt",
+        "ask chatgpt",
+        "tell chatgpt",
+        "talk to ollama",
+        "ask ollama",
+        "ask ai",
+        "talk to ai"
+      ],
+      "fields": {
+        "message": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "[llm-message]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ask claude what is the meaning of life",
+        "tell claude to explain docker",
+        "talk to chatgpt about kubernetes",
+        "ask ai how to fix this error"
+      ]
+    },
+    {
+      "name": "convex.projects",
+      "description": "List Convex projects, deployments, functions, and tables",
+      "synonyms": [
+        "convex projects",
+        "my convex projects",
+        "what projects do i have on convex",
+        "what projects on convex",
+        "list convex projects",
+        "show convex projects",
+        "convex deployments",
+        "convex functions",
+        "what convex functions",
+        "convex tables",
+        "what tables on convex",
+        "convex status",
+        "convex info"
+      ],
+      "fields": {},
+      "command": "[convex-projects]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what projects do i have on convex",
+        "show convex projects",
+        "list convex functions",
+        "convex tables"
+      ]
+    },
+    {
+      "name": "convex.message",
+      "description": "Run a Convex function or query the Convex deployment",
+      "synonyms": [
+        "talk to convex",
+        "ask convex",
+        "tell convex",
+        "message convex",
+        "convex run",
+        "run convex function",
+        "query convex",
+        "convex query"
+      ],
+      "fields": {
+        "message": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "[convex-message]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "talk to convex hello",
+        "ask convex list my tables",
+        "convex run myFunction"
+      ]
+    },
+    {
+      "name": "openclaw.configure",
+      "description": "Run OpenClaw interactive configuration for a specific section",
+      "synonyms": [
+        "configure openclaw",
+        "openclaw configure",
+        "setup openclaw config",
+        "openclaw settings",
+        "configure openclaw channels",
+        "configure openclaw model",
+        "configure openclaw gateway",
+        "configure openclaw workspace",
+        "openclaw setup wizard"
+      ],
+      "fields": {
+        "section": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[openclaw-configure]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "configure openclaw",
+        "configure openclaw channels",
+        "setup openclaw model",
+        "openclaw setup wizard"
+      ]
+    },
+    {
+      "name": "openclaw.auth",
+      "description": "Add, remove, or list OpenClaw auth providers and API keys",
+      "synonyms": [
+        "openclaw auth",
+        "openclaw api key",
+        "openclaw add key",
+        "openclaw add api key",
+        "openclaw remove key",
+        "openclaw credentials",
+        "add api key to openclaw",
+        "add key to openclaw",
+        "remove api key from openclaw",
+        "openclaw login provider",
+        "openclaw auth providers",
+        "list openclaw keys"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false
+        },
+        "provider": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[openclaw-auth]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "add openai key to openclaw",
+        "openclaw auth providers",
+        "remove api key from openclaw",
+        "list openclaw keys"
+      ]
+    },
+    {
+      "name": "openclaw.add_channel",
+      "description": "Add a chat channel to OpenClaw — Telegram, Discord, Matrix, Slack, WhatsApp",
+      "synonyms": [
+        "add telegram to openclaw",
+        "add discord to openclaw",
+        "add matrix to openclaw",
+        "add slack to openclaw",
+        "add whatsapp to openclaw",
+        "connect telegram",
+        "connect discord",
+        "connect matrix",
+        "connect slack",
+        "connect whatsapp",
+        "setup telegram for openclaw",
+        "setup discord for openclaw",
+        "openclaw add channel",
+        "openclaw connect channel"
+      ],
+      "fields": {
+        "channel": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[openclaw-add-channel]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "add telegram to openclaw",
+        "connect discord to openclaw",
+        "setup matrix for openclaw",
+        "openclaw add slack channel"
+      ]
+    },
+    {
+      "name": "openclaw.model",
+      "description": "Check or switch which LLM model OpenClaw is using",
+      "synonyms": [
+        "which llm is openclaw using",
+        "what model is openclaw using",
+        "openclaw model",
+        "openclaw llm",
+        "switch openclaw model",
+        "switch openclaw to",
+        "switch openclaw llm",
+        "change openclaw model",
+        "change openclaw to",
+        "set openclaw model",
+        "set openclaw to",
+        "openclaw use claude",
+        "openclaw use gpt",
+        "openclaw use sonnet",
+        "openclaw use opus",
+        "openclaw models",
+        "openclaw model status"
+      ],
+      "fields": {
+        "model": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[openclaw-model]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "which llm is openclaw using",
+        "switch openclaw to sonnet",
+        "openclaw use gpt-4o",
+        "what model is openclaw on"
+      ]
+    },
+    {
+      "name": "notoken.model",
+      "description": "Check or switch which LLM notoken uses for fallback parsing",
+      "synonyms": [
+        "which llm is notoken using",
+        "what model is notoken using",
+        "notoken model",
+        "notoken llm",
+        "switch notoken model",
+        "change notoken model",
+        "notoken use claude",
+        "notoken use ollama",
+        "which llm am i using",
+        "what llm",
+        "current model",
+        "switch model",
+        "change model",
+        "use claude",
+        "use ollama",
+        "use chatgpt"
+      ],
+      "fields": {
+        "model": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[notoken-model]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "which llm is notoken using",
+        "switch to ollama",
+        "use claude for notoken",
+        "what model am i using"
+      ]
+    },
+    {
+      "name": "openclaw.message",
+      "description": "Send a message to the OpenClaw agent and get a response",
+      "synonyms": [
+        "tell openclaw",
+        "ask openclaw",
+        "message openclaw",
+        "send to openclaw",
+        "say to openclaw",
+        "openclaw tell me",
+        "openclaw ask",
+        "talk to openclaw about",
+        "send openclaw a message",
+        "ask claw"
+      ],
+      "fields": {
+        "message": {
+          "type": "string",
+          "required": true
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[openclaw-message]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "tell openclaw how are you doing",
+        "ask openclaw what time is it",
+        "message openclaw check the server status",
+        "say to openclaw hello how is your day"
+      ]
+    },
+    {
+      "name": "openclaw.diagnose",
+      "description": "Full OpenClaw diagnostic — checks gateway, connectivity, channels, config, and services",
+      "synonyms": [
+        "openclaw diagnose",
+        "diagnose openclaw",
+        "openclaw troubleshoot",
+        "troubleshoot openclaw",
+        "openclaw full check",
+        "openclaw deep check",
+        "why is openclaw not working",
+        "openclaw not working",
+        "debug openclaw",
+        "openclaw debug"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[openclaw-diagnose]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "diagnose openclaw",
+        "troubleshoot openclaw",
+        "why is openclaw not working",
+        "openclaw full check"
+      ]
+    },
+    {
+      "name": "openclaw.config",
+      "description": "Show or manage OpenClaw configuration",
+      "synonyms": [
+        "openclaw config",
+        "claw config",
+        "openclaw configuration",
+        "openclaw settings",
+        "openclaw setup",
+        "configure openclaw",
+        "show openclaw config"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": false
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "openclaw config file 2>&1 && echo '---' && cat $(openclaw config file 2>/dev/null) 2>&1",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show openclaw config",
+        "openclaw settings",
+        "what is openclaw configured for"
+      ]
+    },
+    {
+      "name": "openclaw.channels",
+      "description": "List OpenClaw connected channels — Telegram, Discord, WhatsApp, etc.",
+      "synonyms": [
+        "openclaw channels",
+        "claw channels",
+        "openclaw connections",
+        "connected channels",
+        "what channels",
+        "which channels connected",
+        "openclaw telegram",
+        "openclaw discord",
+        "openclaw whatsapp"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "[openclaw-channels]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "openclaw channels",
+        "which channels are connected",
+        "show connected channels"
+      ]
+    },
+    {
+      "name": "openclaw.logs",
+      "description": "Tail OpenClaw gateway logs",
+      "synonyms": [
+        "openclaw logs",
+        "claw logs",
+        "openclaw gateway logs",
+        "tail openclaw",
+        "openclaw log"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "openclaw logs 2>&1 | tail -50",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "openclaw logs",
+        "show openclaw logs",
+        "tail openclaw logs"
+      ]
+    },
+    {
+      "name": "openclaw.gateway",
+      "description": "Start, stop, or restart the OpenClaw gateway",
+      "synonyms": [
+        "openclaw gateway",
+        "start openclaw",
+        "stop openclaw",
+        "restart openclaw",
+        "openclaw restart",
+        "openclaw start",
+        "get openclaw running",
+        "want openclaw running",
+        "openclaw running",
+        "openclaw needs to be running",
+        "make openclaw run",
+        "launch openclaw",
+        "bring up openclaw",
+        "openclaw not running",
+        "openclaw is down",
+        "openclaw stop",
+        "start claw",
+        "restart claw"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": false,
+          "default": "start"
+        },
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "openclaw gateway 2>&1",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "start openclaw gateway",
+        "restart openclaw",
+        "openclaw gateway"
+      ]
+    },
+    {
+      "name": "openclaw.agents",
+      "description": "List and manage OpenClaw agents",
+      "synonyms": [
+        "openclaw agents",
+        "claw agents",
+        "list agents",
+        "show agents",
+        "openclaw sessions",
+        "claw sessions"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "openclaw agents list 2>&1",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "openclaw agents",
+        "list openclaw agents",
+        "show openclaw sessions"
+      ]
+    },
+    {
+      "name": "openclaw.update",
+      "description": "Update OpenClaw to the latest version",
+      "synonyms": [
+        "update openclaw",
+        "upgrade openclaw",
+        "openclaw update",
+        "openclaw upgrade"
+      ],
+      "fields": {
+        "environment": {
+          "type": "environment",
+          "required": false,
+          "default": "local"
+        }
+      },
+      "command": "openclaw update check 2>&1",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "update openclaw",
+        "is there an openclaw update"
+      ]
+    },
+    {
+      "name": "context.load",
+      "description": "Load a file into conversation context so it can be referenced in future commands",
+      "synonyms": [
+        "read and remember",
+        "load into context",
+        "remember this file",
+        "store in context",
+        "load context from",
+        "read this and remember it",
+        "keep this file in mind",
+        "add file to context",
+        "read context file",
+        "load file into context",
+        "context load",
+        "read and store",
+        "load and remember"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "[context-load]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "read CLAUDE.md and remember it",
+        "load README.md into context",
+        "remember this file config.yml",
+        "keep .env.example in mind",
+        "add ARCHITECTURE.md to context"
+      ]
+    },
+    {
+      "name": "project.detect",
+      "description": "Detect project type and show available scripts, dependencies, and commands",
+      "synonyms": [
+        "what project is this",
+        "detect project",
+        "project info",
+        "project type",
+        "show scripts",
+        "available scripts",
+        "what scripts",
+        "what can i run",
+        "npm scripts",
+        "composer scripts",
+        "package scripts",
+        "show commands",
+        "project commands",
+        "whats in package json",
+        "whats in package.json",
+        "read package json",
+        "read package.json",
+        "show package.json",
+        "show composer.json"
+      ],
+      "fields": {},
+      "command": "[project-detect]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what project is this",
+        "show scripts",
+        "what can i run",
+        "whats in package.json"
+      ]
+    },
+    {
+      "name": "project.install",
+      "description": "Install project dependencies — auto-detects npm/yarn/pnpm/bun/composer/pip/cargo",
+      "synonyms": [
+        "npm install",
+        "yarn install",
+        "pnpm install",
+        "bun install",
+        "composer install",
+        "pip install",
+        "install dependencies",
+        "install deps",
+        "install packages",
+        "project install",
+        "install project",
+        "setup project",
+        "install node modules"
+      ],
+      "fields": {},
+      "command": "[project-install]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "npm install",
+        "install dependencies",
+        "composer install",
+        "install packages"
+      ]
+    },
+    {
+      "name": "project.update",
+      "description": "Update project dependencies — auto-detects package manager",
+      "synonyms": [
+        "npm update",
+        "yarn upgrade",
+        "pnpm update",
+        "bun update",
+        "composer update",
+        "pip update",
+        "update dependencies",
+        "update deps",
+        "update packages",
+        "upgrade dependencies",
+        "upgrade deps",
+        "upgrade packages",
+        "project update"
+      ],
+      "fields": {},
+      "command": "[project-update]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "npm update",
+        "update dependencies",
+        "composer update",
+        "upgrade packages"
+      ]
+    },
+    {
+      "name": "project.run",
+      "description": "Run a project script — auto-detects package manager and available scripts",
+      "synonyms": [
+        "run script",
+        "run dev",
+        "run build",
+        "run start",
+        "run test",
+        "run lint",
+        "npm run",
+        "yarn run",
+        "pnpm run",
+        "composer run",
+        "run this",
+        "start dev server",
+        "start server",
+        "run project",
+        "dev mode",
+        "development mode",
+        "start dev"
+      ],
+      "fields": {
+        "script": {
+          "type": "string",
+          "required": false,
+          "default": "dev"
+        }
+      },
+      "command": "[project-run]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "run dev",
+        "run build",
+        "npm run start",
+        "run test",
+        "start dev server"
+      ]
+    }
   ]
 }
