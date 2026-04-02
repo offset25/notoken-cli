@@ -72,10 +72,23 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   const llmBackend = getLLMBackend();
   const llmTag = llmBackend ? ` ${c.green}LLM:${llmBackend}${c.reset}` : "";
 
-  console.log(`${c.bold}${c.cyan}notoken${c.reset}`);
+  // Check for updates (non-blocking, cache only on startup)
+  const { checkForUpdate, checkForUpdateSync, formatUpdateBanner } = await import("notoken-core");
+  const cachedUpdate = checkForUpdateSync();
+  const updateTag = cachedUpdate?.updateAvailable ? ` ${c.yellow}⬆ ${cachedUpdate.latest}${c.reset}` : "";
+
+  console.log(`${c.bold}${c.cyan}notoken${c.reset}${updateTag}`);
   console.log(`${c.dim}${platform.distro}${wslTag} | ${platform.shell} | ${platform.packageManager} | ${platform.arch}${llmTag}${c.reset}`);
   console.log(`${c.dim}Conversation: ${conv.id} (${conv.turns.length} prior turns)${c.reset}`);
-  console.log(`${c.dim}Append & for background. Ctrl+C twice to quit. :help for commands.${c.reset}\n`);
+  console.log(`${c.dim}Append & for background. Ctrl+C twice to quit. :help for commands.${c.reset}`);
+
+  if (cachedUpdate?.updateAvailable) {
+    console.log(formatUpdateBanner(cachedUpdate));
+  }
+  console.log();
+
+  // Refresh update cache in background (non-blocking)
+  checkForUpdate().catch(() => {});
 
   // ── Ctrl+C handling: once warns, twice saves and quits ──
   let ctrlCCount = 0;
@@ -471,6 +484,7 @@ ${c.bold}Secrets:${c.reset}
 ${c.bold}Adaptive Rules:${c.reset}
   ${c.cyan}:adapt${c.reset}              Toggle adaptive rules (${adaptRules ? "ON" : "OFF"})
   ${c.cyan}:improve${c.reset}            Run rule improvement via Claude now
+  ${c.cyan}:update${c.reset}             Check for updates and install
 
 ${c.bold}Other:${c.reset}
   ${c.cyan}:clear${c.reset}               Clear completed tasks
@@ -492,6 +506,31 @@ ${c.bold}Other:${c.reset}
       set("adaptRules", !adaptRules);
       console.log(`${c.green}✓${c.reset} Adaptive rules: ${!adaptRules ? `${c.green}ON${c.reset} — Rules will adapt and improve from failures` : "OFF"}`);
       break;
+
+    case ":update": {
+      const { checkForUpdate: checkUpdate, runUpdate } = await import("notoken-core");
+      console.log(`${c.dim}Checking for updates...${c.reset}`);
+      const updateInfo = await checkUpdate();
+      if (!updateInfo) {
+        console.log(`${c.dim}Could not check for updates.${c.reset}`);
+      } else if (!updateInfo.updateAvailable) {
+        console.log(`${c.green}✓${c.reset} You're on the latest version (${updateInfo.current})`);
+      } else {
+        console.log(`${c.yellow}⬆${c.reset} Update available: ${c.bold}${updateInfo.current}${c.reset} → ${c.green}${updateInfo.latest}${c.reset}`);
+        const { askForConfirmation: confirmUpdate } = await import("notoken-core");
+        const doUpdate = await confirmUpdate("Install update?");
+        if (doUpdate) {
+          console.log(`${c.dim}Updating notoken...${c.reset}`);
+          try {
+            runUpdate();
+            console.log(`${c.green}✓${c.reset} Updated to ${updateInfo.latest}. Restart notoken to use new version.`);
+          } catch (err) {
+            console.log(`${c.red}✗${c.reset} ${err instanceof Error ? err.message : err}`);
+          }
+        }
+      }
+      break;
+    }
 
     case ":improve":
     case ":heal": {

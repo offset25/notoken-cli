@@ -1,6 +1,6 @@
 {
   "name": "notoken-core",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shared engine for notoken — NLP parsing, execution, detection, analysis",
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,10 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist/", "config/"],
+  "files": [
+    "dist/",
+    "config/"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run"

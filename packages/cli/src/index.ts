@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "heal", "heal:claude"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "heal", "heal:claude"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -59,6 +59,22 @@ async function main() {
       case "logs": {
         const { runLogs } = await import("./commands/logs.js");
         await runLogs(subArgs);
+        return;
+      }
+      case "update": {
+        const { checkForUpdate, runUpdate } = await import("notoken-core");
+        console.log("Checking for updates...");
+        const info = await checkForUpdate();
+        if (!info) { console.log("Could not check for updates."); return; }
+        if (!info.updateAvailable) { console.log(`\x1b[32m✓\x1b[0m You're on the latest version (${info.current})`); return; }
+        console.log(`\x1b[33m⬆\x1b[0m Update available: ${info.current} → \x1b[32m${info.latest}\x1b[0m`);
+        console.log("Updating...");
+        try {
+          runUpdate();
+          console.log(`\x1b[32m✓\x1b[0m Updated to ${info.latest}`);
+        } catch (err) {
+          console.error(`\x1b[31m✗\x1b[0m ${err instanceof Error ? err.message : err}`);
+        }
         return;
       }
       case "heal": {

@@ -73,6 +73,9 @@ export { Spinner, withSpinner, progressBar } from "./utils/spinner.js";
 // ── Auto-backup ──
 export { createBackup, rollback, listBackups, cleanExpiredBackups, formatBackupList } from "./utils/autoBackup.js";
 
+// ── Updates ──
+export { checkForUpdate, checkForUpdateSync, runUpdate, formatUpdateBanner, type UpdateInfo } from "./utils/updater.js";
+
 // ── Logging ──
 export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
 export { logUncertainty, loadUncertaintyLog, getUncertaintySummary } from "./nlp/uncertainty.js";
