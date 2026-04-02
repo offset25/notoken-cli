@@ -118,9 +118,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    // Extract full prompt from raw text, not the truncated field
+    // Extract full prompt from raw text — strip conversational wrapping
     const prompt = intent.rawText
+      .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
       .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
+      .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
+      .replace(/\s+(please|for me|for us)\s*$/i, "")
       .trim()
       || ((fields.prompt as string) ?? "image");
     command = `[image-gen] ${prompt}`;

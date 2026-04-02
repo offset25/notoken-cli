@@ -309,7 +309,7 @@ async function generateViaCloud(prompt: string): Promise<GenerateResult> {
 
     // Pollinations.ai — free, no auth, Stable Diffusion
     const encodedPrompt = encodeURIComponent(prompt);
-    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true`;
+    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}`;
 
     console.error(`${c.dim}Generating image (this may take 10-30 seconds)...${c.reset}`);
 
