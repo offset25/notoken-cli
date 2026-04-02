@@ -157,7 +157,16 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
     // WSL / native Linux
     setLastOcEnv("wsl");
-    return runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000);
+    try {
+      return await runLocalCommand(`bash -c '${nvmPfx} ${cmd} 2>&1'`, 30_000);
+    } catch (err: unknown) {
+      // openclaw may write to stderr (config overwrite warnings) causing exec to throw
+      // even though the command succeeded — return the output if available
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      if (e.stdout?.trim()) return e.stdout.trim();
+      if (e.stderr?.trim()) return e.stderr.trim();
+      throw err;
+    }
   }
 
   const MODEL_ALIASES: Record<string, string> = {
