@@ -74,31 +74,31 @@ function chooseBestInstallDir(): InstallDirChoice {
     for (const drive of ["/mnt/d", "/mnt/e", "/mnt/f", "/mnt/g", "/mnt/h", "/mnt/i"]) {
       const free = getDriveFreeGB(drive);
       if (free > 0) {
-        candidates.push({ path: resolve(drive, "apps"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
+        candidates.push({ path: resolve(drive, "notoken", "ai"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
       }
     }
     // Also check C: but mark it
     const cFree = getDriveFreeGB("/mnt/c");
-    if (cFree > 0) candidates.push({ path: "/mnt/c/apps", freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free (system drive)` : "system drive — avoid" });
+    if (cFree > 0) candidates.push({ path: "/mnt/c/notoken/ai", freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free (system drive)` : "system drive — avoid" });
     // Linux root
     const rootFree = getDriveFreeGB("/");
-    candidates.push({ path: homedir(), freeGB: rootFree, rejected: rootFree < MIN_GB ? `only ${rootFree}GB free` : undefined });
+    candidates.push({ path: resolve(homedir(), "notoken", "ai"), freeGB: rootFree, rejected: rootFree < MIN_GB ? `only ${rootFree}GB free` : undefined });
   } else if (os === "win32") {
     for (const letter of ["D", "E", "F", "G", "H", "I"]) {
       const drive = `${letter}:\\`;
       const free = getDriveFreeGB(drive);
-      if (free > 0) candidates.push({ path: resolve(drive, "apps"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
+      if (free > 0) candidates.push({ path: resolve(drive, "notoken", "ai"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
     }
     const cFree = getDriveFreeGB("C:\\");
-    if (cFree > 0) candidates.push({ path: resolve("C:\\apps"), freeGB: cFree, rejected: "system drive — avoid" });
-    candidates.push({ path: resolve(homedir(), "StableDiffusion"), freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free` : undefined });
+    if (cFree > 0) candidates.push({ path: resolve("C:\\notoken\\ai"), freeGB: cFree, rejected: "system drive — avoid" });
+    candidates.push({ path: resolve(homedir(), "notoken", "ai"), freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free` : undefined });
   } else {
     // Linux/macOS
     const homeFree = getDriveFreeGB(homedir());
-    candidates.push({ path: homedir(), freeGB: homeFree, rejected: homeFree < MIN_GB ? `only ${homeFree}GB free` : undefined });
+    candidates.push({ path: resolve(homedir(), "notoken", "ai"), freeGB: homeFree, rejected: homeFree < MIN_GB ? `only ${homeFree}GB free` : undefined });
     // Check /opt if available
     const optFree = getDriveFreeGB("/opt");
-    if (optFree > 0) candidates.push({ path: "/opt/notoken", freeGB: optFree, rejected: optFree < MIN_GB ? `only ${optFree}GB free` : undefined });
+    if (optFree > 0) candidates.push({ path: "/opt/notoken/ai", freeGB: optFree, rejected: optFree < MIN_GB ? `only ${optFree}GB free` : undefined });
   }
 
   // Pick best: most free space that's not rejected
@@ -134,8 +134,8 @@ export function resolveUserPath(input: string): string | null {
     const letter = driveMatch[1].toUpperCase();
     const os = platform();
     const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
-    if (isWSL) return `/mnt/${letter.toLowerCase()}/apps`;
-    if (os === "win32") return `${letter}:\\apps`;
+    if (isWSL) return `/mnt/${letter.toLowerCase()}/notoken/ai`;
+    if (os === "win32") return `${letter}:\\notoken\\ai`;
   }
 
   // Absolute path
