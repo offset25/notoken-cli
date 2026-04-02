@@ -40,6 +40,8 @@ export interface DriveInfo {
 }
 
 export function getDriveInfo(path: string): DriveInfo | null {
+  const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
+
   // Walk up to find an existing parent directory for df
   let checkPath = path;
   for (let i = 0; i < 5; i++) {
@@ -48,9 +50,25 @@ export function getDriveInfo(path: string): DriveInfo | null {
       const parts = output.trim().split(/\s+/);
       if (parts.length < 6) { checkPath = resolve(checkPath, ".."); continue; }
       const total = parseInt(parts[1]) || 0;
-      const free = parseInt(parts[3]) || 0;
+      let free = parseInt(parts[3]) || 0;
       const pct = parseInt(parts[4]) || 0;
-      return { path, freeGB: free, totalGB: total, usedPct: pct, mount: parts[parts.length - 1] };
+      const mount = parts[parts.length - 1];
+
+      // WSL fix: paths on the WSL virtual disk (/dev/sdd, /dev/sdc) report
+      // the VHD max size, not actual free space on the host drive.
+      // Real free space = C: drive free space (where the VHD lives)
+      if (isWSL && !mount.startsWith("/mnt/") && mount !== "/mnt/wsl") {
+        try {
+          const cDrive = execSync('df -BG /mnt/c 2>/dev/null | tail -1', { encoding: "utf-8", timeout: 3000 });
+          const cParts = cDrive.trim().split(/\s+/);
+          if (cParts.length >= 6) {
+            const cFree = parseInt(cParts[3]) || 0;
+            free = cFree; // Use C: drive free space as the real limit
+          }
+        } catch {}
+      }
+
+      return { path, freeGB: free, totalGB: total, usedPct: pct, mount };
     } catch {
       checkPath = resolve(checkPath, "..");
     }
@@ -899,8 +917,50 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         return { success: false, message: `Could not install Docker. Run: notoken install docker` };
       }
     }
+    // Check disk space where Docker stores data
     try {
-      console.log(`${c.cyan}Step 2/${c.reset} Pulling Stable Diffusion Docker image...`);
+      const dockerRoot = tryExec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'") ?? "/var/lib/docker";
+      const dockerDrive = getDriveInfo(dockerRoot);
+      if (dockerDrive) {
+        console.log(`${c.cyan}Step 1b/${c.reset} Docker data: ${dockerRoot} (${dockerDrive.freeGB}GB free)`);
+        if (dockerDrive.freeGB < 16) {
+          console.log(`${c.yellow}⚠ Only ${dockerDrive.freeGB}GB free where Docker stores data (${dockerRoot}).${c.reset}`);
+          console.log(`${c.yellow}  The SD Docker image needs ~15GB.${c.reset}`);
+
+          // Try to move Docker data to a drive with space
+          const bestDrive = chooseBestInstallDir();
+          if (bestDrive.freeGB >= 20) {
+            const newDockerRoot = resolve(bestDrive.dir, "..", "docker-data");
+            console.log(`${c.cyan}  Moving Docker data root to ${newDockerRoot} (${bestDrive.freeGB}GB free)...${c.reset}`);
+            try {
+              mkdirSync(newDockerRoot, { recursive: true });
+              // Configure Docker daemon to use new data root
+              const daemonConfig = { "data-root": newDockerRoot };
+              const configPath = "/etc/docker/daemon.json";
+              let existingConfig: Record<string, unknown> = {};
+              if (existsSync(configPath)) {
+                try { existingConfig = JSON.parse(readFileSync(configPath, "utf-8")); } catch {}
+              }
+              writeFileSync(configPath, JSON.stringify({ ...existingConfig, ...daemonConfig }, null, 2));
+              // Restart Docker
+              execSync("service docker restart 2>/dev/null || systemctl restart docker 2>/dev/null", { stdio: "inherit", timeout: 30000 });
+              console.log(`${c.green}✓${c.reset} Docker data root moved to ${newDockerRoot}`);
+            } catch (moveErr) {
+              console.log(`${c.yellow}Could not move Docker data: ${moveErr instanceof Error ? moveErr.message : moveErr}${c.reset}`);
+              if (dockerDrive.freeGB < 5) {
+                return { success: false, message: `Not enough space (${dockerDrive.freeGB}GB). Free up C: drive or move Docker data manually:\n  ${c.dim}echo '{"data-root":"/mnt/d/docker-data"}' | sudo tee /etc/docker/daemon.json && sudo service docker restart${c.reset}` };
+              }
+            }
+          } else if (dockerDrive.freeGB < 5) {
+            return { success: false, message: `Not enough space (${dockerDrive.freeGB}GB free, need ~15GB).\nDocker data at: ${dockerRoot}\n${c.dim}Move it: echo '{"data-root":"/mnt/d/docker-data"}' | sudo tee /etc/docker/daemon.json && sudo service docker restart${c.reset}` };
+          }
+        }
+      }
+    } catch {}
+
+    try {
+      console.log(`${c.cyan}Step 2/${c.reset} Pulling Stable Diffusion Docker image (~15GB)...`);
+      console.log(`${c.dim}  This may take 10-30 minutes depending on connection speed.${c.reset}`);
       execSync("docker pull ghcr.io/ai-dock/stable-diffusion-webui:latest", { stdio: "inherit", timeout: 600000 });
       const gpuFlag = gpu.hasNvidia ? "--gpus all" : "";
       const envFlag = gpu.cpuOnly ? "-e COMMANDLINE_ARGS='--use-cpu all --skip-torch-cuda-test --no-half'" : "";

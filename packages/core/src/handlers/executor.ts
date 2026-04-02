@@ -117,6 +117,76 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
+  // Where is everything installed
+  if (intent.intent === "ai.where_installed") {
+    const { detectImageEngines, getDriveInfo } = await import("../utils/imageGen.js");
+    const { execSync: ex } = await import("node:child_process");
+    const tryCmd = (cmd: string) => { try { return ex(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
+
+    const engines = detectImageEngines();
+    const lines: string[] = [];
+    lines.push("\x1b[1m\x1b[36mInstall Locations\x1b[0m\n");
+
+    // Local SD engines
+    const installed = engines.filter(e => e.installed && e.path);
+    if (installed.length > 0) {
+      lines.push("\x1b[1mLocal Engines:\x1b[0m");
+      for (const e of installed) {
+        const size = tryCmd(`du -sh "${e.path}" 2>/dev/null`)?.split("\t")[0] ?? "?";
+        lines.push(`  \x1b[32m✓\x1b[0m \x1b[1m${e.engine}\x1b[0m: ${e.path} (${size})`);
+      }
+      lines.push("");
+    }
+
+    // Docker images
+    const dockerImages = tryCmd("docker images --format '{{.Repository}}:{{.Tag}}  {{.Size}}  {{.ID}}' 2>/dev/null | grep -i 'stable-diffusion\\|ai-dock\\|comfyui\\|sd-webui'");
+    if (dockerImages) {
+      lines.push("\x1b[1mDocker Images:\x1b[0m");
+      for (const img of dockerImages.split("\n").filter(l => l.trim())) {
+        lines.push(`  \x1b[36m${img}\x1b[0m`);
+      }
+      lines.push("");
+    }
+
+    // Docker data root
+    const dockerRoot = tryCmd("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'");
+    if (dockerRoot) {
+      const dockerDrive = getDriveInfo(dockerRoot);
+      lines.push(`\x1b[1mDocker Data:\x1b[0m ${dockerRoot}`);
+      if (dockerDrive) lines.push(`  Drive: ${dockerDrive.mount} — ${dockerDrive.freeGB}GB free (${dockerDrive.usedPct}% used)`);
+      const dockerSize = tryCmd(`du -sh ${dockerRoot} 2>/dev/null`)?.split("\t")[0];
+      if (dockerSize) lines.push(`  Total Docker disk usage: ${dockerSize}`);
+      lines.push("");
+    }
+
+    // Models
+    const modelsDirs = [
+      ...engines.filter(e => e.path).map(e => `${e.path}/models`),
+    ];
+    for (const mDir of modelsDirs) {
+      const models = tryCmd(`find "${mDir}" -name "*.safetensors" -o -name "*.ckpt" 2>/dev/null`);
+      if (models) {
+        lines.push(`\x1b[1mAI Models:\x1b[0m`);
+        for (const m of models.split("\n").filter(l => l.trim())) {
+          const size = tryCmd(`du -sh "${m}" 2>/dev/null`)?.split("\t")[0] ?? "?";
+          lines.push(`  ${size}\t${m}`);
+        }
+        lines.push("");
+      }
+    }
+
+    // Generated images
+    const genDir = (await import("../utils/paths.js")).USER_HOME + "/generated-images";
+    const imgCount = tryCmd(`ls "${genDir}"/*.png 2>/dev/null | wc -l`)?.trim() ?? "0";
+    const imgSize = tryCmd(`du -sh "${genDir}" 2>/dev/null`)?.split("\t")[0] ?? "0";
+    lines.push(`\x1b[1mGenerated Images:\x1b[0m ${genDir}`);
+    lines.push(`  ${imgCount} images (${imgSize})`);
+
+    result = lines.join("\n");
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[ai-where]", environment, success: true });
+    return result;
+  }
+
   // Install SD with optional user-specified path
   if (intent.intent === "ai.install_sd") {
     const { resolveUserPath } = await import("../utils/imageGen.js");
