@@ -7454,6 +7454,143 @@
       ]
     },
     {
+      "name": "ollama.storage",
+      "description": "Check Ollama model storage location and disk usage",
+      "synonyms": [
+        "ollama storage",
+        "where are ollama models",
+        "ollama disk usage",
+        "ollama models location",
+        "how much space do ollama models use",
+        "ollama model size",
+        "ollama space"
+      ],
+      "fields": {},
+      "command": "du -sh $(ollama show --modelfile 2>/dev/null || echo /usr/share/ollama/.ollama/models)",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "ollama storage",
+        "where are ollama models stored",
+        "how much space do ollama models use"
+      ]
+    },
+    {
+      "name": "ollama.move",
+      "description": "Move Ollama models to a different drive/directory",
+      "synonyms": [
+        "move ollama models",
+        "ollama move to",
+        "relocate ollama",
+        "move ollama to d drive",
+        "move ollama storage",
+        "change ollama models location"
+      ],
+      "fields": {
+        "destination": {
+          "type": "string",
+          "required": true,
+          "description": "target directory for ollama models"
+        }
+      },
+      "command": "echo 'Use OLLAMA_MODELS env var'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "move ollama models to /mnt/data",
+        "relocate ollama to d drive",
+        "change ollama models location"
+      ]
+    },
+    {
+      "name": "ollama.remove",
+      "description": "Remove/delete an Ollama model",
+      "synonyms": [
+        "ollama remove",
+        "ollama delete",
+        "remove ollama model",
+        "delete ollama model",
+        "ollama rm"
+      ],
+      "fields": {
+        "model": {
+          "type": "string",
+          "required": true,
+          "description": "model name to remove"
+        }
+      },
+      "command": "ollama rm {{model}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "ollama remove llama3.2",
+        "delete ollama model codellama",
+        "ollama rm phi3"
+      ]
+    },
+    {
+      "name": "ollama.start",
+      "description": "Start the Ollama service",
+      "synonyms": [
+        "start ollama",
+        "ollama start",
+        "launch ollama",
+        "run ollama"
+      ],
+      "fields": {},
+      "command": "systemctl start ollama",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "start ollama",
+        "launch ollama service",
+        "ollama start"
+      ]
+    },
+    {
+      "name": "ollama.stop",
+      "description": "Stop the Ollama service",
+      "synonyms": [
+        "stop ollama",
+        "ollama stop",
+        "kill ollama",
+        "shut down ollama"
+      ],
+      "fields": {},
+      "command": "systemctl stop ollama",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "stop ollama",
+        "shut down ollama service",
+        "ollama stop"
+      ]
+    },
+    {
+      "name": "ollama.restart",
+      "description": "Restart the Ollama service",
+      "synonyms": [
+        "restart ollama",
+        "ollama restart",
+        "bounce ollama"
+      ],
+      "fields": {},
+      "command": "systemctl restart ollama",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "restart ollama",
+        "bounce ollama service",
+        "ollama restart"
+      ]
+    },
+    {
       "name": "codex.status",
       "description": "Check if OpenAI Codex CLI is installed and configured",
       "synonyms": [

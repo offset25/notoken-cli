@@ -294,6 +294,247 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
+  // Ollama storage — check location & disk usage
+  if (intent.intent === "ollama.storage") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Ollama Storage ──${cc.reset}\n`);
+
+    // Detect WSL vs native
+    const isWSL = await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native");
+    const inWSL = isWSL.trim() === "wsl";
+
+    // Detect where Ollama is running
+    const ollamaInWSL = await runLocalCommand("pgrep -x ollama 2>/dev/null").catch(() => "");
+    const ollamaOnHost = inWSL ? await runLocalCommand("cmd.exe /c 'tasklist /FI \"IMAGENAME eq ollama.exe\" /NH' 2>/dev/null").catch(() => "") : "";
+    const hostHasOllama = ollamaOnHost.includes("ollama.exe");
+
+    if (inWSL) {
+      lines.push(`  ${cc.bold}Environment:${cc.reset} WSL`);
+      if (ollamaInWSL) lines.push(`  ${cc.green}✓${cc.reset} Ollama running ${cc.bold}inside WSL${cc.reset} (PID: ${ollamaInWSL.trim().split("\n")[0]})`);
+      else lines.push(`  ${cc.dim}○ Ollama not running inside WSL${cc.reset}`);
+      if (hostHasOllama) lines.push(`  ${cc.green}✓${cc.reset} Ollama running on ${cc.bold}Windows host${cc.reset}`);
+      else lines.push(`  ${cc.dim}○ Ollama not detected on Windows host${cc.reset}`);
+    } else {
+      lines.push(`  ${cc.bold}Environment:${cc.reset} Native Linux`);
+      if (ollamaInWSL) lines.push(`  ${cc.green}✓${cc.reset} Ollama running (PID: ${ollamaInWSL.trim().split("\n")[0]})`);
+      else lines.push(`  ${cc.dim}○ Ollama not running${cc.reset}`);
+    }
+
+    // Model storage paths
+    const envModels = process.env.OLLAMA_MODELS || "";
+    const defaultPaths = ["/usr/share/ollama/.ollama/models", `${process.env.HOME}/.ollama/models`];
+    let modelDir = envModels || "";
+    if (!modelDir) {
+      for (const dp of defaultPaths) {
+        const exists = await runLocalCommand(`[ -d "${dp}" ] && echo yes || echo no`).catch(() => "no");
+        if (exists.trim() === "yes") { modelDir = dp; break; }
+      }
+    }
+
+    if (modelDir) {
+      lines.push(`\n  ${cc.bold}Model directory:${cc.reset} ${modelDir}${envModels ? ` ${cc.dim}(OLLAMA_MODELS)${cc.reset}` : ""}`);
+      const usage = await runLocalCommand(`du -sh "${modelDir}" 2>/dev/null | awk '{print $1}'`).catch(() => "unknown");
+      const dfOut = await runLocalCommand(`df -h "${modelDir}" 2>/dev/null | tail -1`).catch(() => "");
+      lines.push(`  ${cc.bold}Models size:${cc.reset} ${usage.trim()}`);
+      if (dfOut) {
+        const parts = dfOut.trim().split(/\s+/);
+        lines.push(`  ${cc.bold}Drive:${cc.reset} ${parts[0] ?? "?"} — ${parts[3] ?? "?"} free of ${parts[1] ?? "?"}`);
+      }
+
+      // List individual models
+      const modelList = await runLocalCommand(`ls -1 "${modelDir}/manifests/registry.ollama.ai/library/" 2>/dev/null`).catch(() => "");
+      if (modelList.trim()) {
+        lines.push(`\n  ${cc.bold}Stored models:${cc.reset}`);
+        for (const m of modelList.trim().split("\n")) {
+          const mSize = await runLocalCommand(`du -sh "${modelDir}/manifests/registry.ollama.ai/library/${m}" 2>/dev/null | awk '{print $1}'`).catch(() => "?");
+          lines.push(`    ${cc.green}•${cc.reset} ${m} ${cc.dim}(${mSize.trim()})${cc.reset}`);
+        }
+      }
+    } else {
+      lines.push(`\n  ${cc.yellow}⚠ No model directory found.${cc.reset}`);
+    }
+
+    // GPU detection
+    const nvidiaGpu = await runLocalCommand("nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null").catch(() => "");
+    if (nvidiaGpu.trim()) {
+      lines.push(`\n  ${cc.bold}GPU:${cc.reset}`);
+      for (const gpu of nvidiaGpu.trim().split("\n")) {
+        const [name, total, used] = gpu.split(",").map(s => s.trim());
+        lines.push(`    ${cc.green}✓${cc.reset} ${name} — ${used}MB / ${total}MB VRAM`);
+      }
+    } else {
+      const intelGpu = await runLocalCommand("lspci 2>/dev/null | grep -i 'vga\\|3d\\|display'").catch(() => "");
+      if (intelGpu.trim()) {
+        lines.push(`\n  ${cc.bold}GPU:${cc.reset}`);
+        for (const g of intelGpu.trim().split("\n")) {
+          const gpuName = g.replace(/^.*:\s*/, "").trim();
+          lines.push(`    ${cc.yellow}⚠${cc.reset} ${gpuName} ${cc.dim}(no CUDA — Ollama will use CPU)${cc.reset}`);
+        }
+      } else {
+        lines.push(`\n  ${cc.bold}GPU:${cc.reset} ${cc.dim}None detected — Ollama will use CPU only${cc.reset}`);
+      }
+    }
+
+    // Ollama process memory usage
+    if (ollamaInWSL) {
+      const memUsage = await runLocalCommand("ps -p " + ollamaInWSL.trim().split("\n")[0] + " -o rss= 2>/dev/null").catch(() => "");
+      if (memUsage.trim()) {
+        const rssKB = parseInt(memUsage.trim());
+        const rssMB = Math.round(rssKB / 1024);
+        const rssGB = (rssKB / 1048576).toFixed(1);
+        lines.push(`\n  ${cc.bold}Memory usage:${cc.reset} ${rssMB >= 1024 ? rssGB + "GB" : rssMB + "MB"}`);
+      }
+    }
+
+    // Service info
+    const svcStatus = await runLocalCommand("systemctl is-active ollama 2>/dev/null").catch(() => "");
+    const svcEnabled = await runLocalCommand("systemctl is-enabled ollama 2>/dev/null").catch(() => "");
+    if (svcStatus.trim()) {
+      const active = svcStatus.trim() === "active";
+      lines.push(`\n  ${cc.bold}Service:${cc.reset} ${active ? `${cc.green}active${cc.reset}` : `${cc.red}${svcStatus.trim()}${cc.reset}`}${svcEnabled.trim() === "enabled" ? ` ${cc.dim}(enabled on boot)${cc.reset}` : ""}`);
+      lines.push(`  ${cc.dim}Control: "start ollama", "stop ollama", "restart ollama"${cc.reset}`);
+    }
+
+    // Windows host Ollama storage (if in WSL)
+    if (inWSL && hostHasOllama) {
+      const winHome = await runLocalCommand("cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null").catch(() => "");
+      const winPath = winHome.trim().replace(/\r/g, "");
+      if (winPath) {
+        const wslWinPath = winPath.replace(/\\/g, "/").replace(/^([A-Z]):/i, (_, d: string) => `/mnt/${d.toLowerCase()}`);
+        const winModelDir = `${wslWinPath}/.ollama/models`;
+        const winUsage = await runLocalCommand(`du -sh "${winModelDir}" 2>/dev/null | awk '{print $1}'`).catch(() => "");
+        if (winUsage.trim()) {
+          lines.push(`\n  ${cc.bold}Windows host models:${cc.reset} ${winModelDir}`);
+          lines.push(`  ${cc.bold}Size:${cc.reset} ${winUsage.trim()}`);
+        }
+      }
+    }
+
+    lines.push(`\n  ${cc.dim}Move models: "move ollama models to /mnt/d/ollama"${cc.reset}`);
+    return lines.join("\n");
+  }
+
+  // Ollama move — relocate models to a different directory
+  if (intent.intent === "ollama.move") {
+    const dest = (fields.destination as string) ?? intent.rawText.match(/(?:to|→)\s+(\S+)/i)?.[1];
+    if (!dest) return `\x1b[33mUsage: move ollama models to <path>\x1b[0m\n\x1b[2m  Example: "move ollama models to /mnt/d/ollama"\x1b[0m`;
+
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+
+    // Find current model dir
+    const defaultPaths = ["/usr/share/ollama/.ollama/models", `${process.env.HOME}/.ollama/models`];
+    let srcDir = process.env.OLLAMA_MODELS || "";
+    if (!srcDir) {
+      for (const dp of defaultPaths) {
+        const exists = await runLocalCommand(`[ -d "${dp}" ] && echo yes || echo no`).catch(() => "no");
+        if (exists.trim() === "yes") { srcDir = dp; break; }
+      }
+    }
+    if (!srcDir) return `${cc.red}✗ Could not find Ollama model directory.${cc.reset}`;
+
+    const usage = await runLocalCommand(`du -sh "${srcDir}" 2>/dev/null | awk '{print $1}'`).catch(() => "?");
+    lines.push(`\n${cc.bold}${cc.cyan}── Move Ollama Models ──${cc.reset}\n`);
+    lines.push(`  ${cc.bold}From:${cc.reset} ${srcDir} (${usage.trim()})`);
+    lines.push(`  ${cc.bold}To:${cc.reset}   ${dest}\n`);
+
+    // Check destination drive space
+    const destParent = dest.replace(/\/[^/]*$/, "") || "/";
+    const dfOut = await runLocalCommand(`df -BG "${destParent}" 2>/dev/null | tail -1 | awk '{print $4}'`).catch(() => "0G");
+    const freeGB = parseInt(dfOut);
+    const srcSizeOut = await runLocalCommand(`du -sB1G "${srcDir}" 2>/dev/null | awk '{print $1}'`).catch(() => "0");
+    const srcGB = parseInt(srcSizeOut);
+
+    if (freeGB < srcGB + 1) {
+      return `${cc.red}✗ Not enough space at ${dest}: need ~${srcGB}GB, only ${freeGB}GB free.${cc.reset}`;
+    }
+    lines.push(`  ${cc.green}✓${cc.reset} Space OK: ${freeGB}GB free, need ~${srcGB}GB\n`);
+
+    // Execute the move
+    lines.push(`  ${cc.dim}Step 1: Create destination...${cc.reset}`);
+    await runLocalCommand(`mkdir -p "${dest}"`);
+
+    lines.push(`  ${cc.dim}Step 2: Copy models (this may take a while)...${cc.reset}`);
+    console.log(lines.join("\n"));
+    await withSpinner("Copying models...", () => runLocalCommand(`cp -a "${srcDir}/." "${dest}/" 2>&1`, 600_000));
+
+    // Update systemd service if it exists
+    const serviceFile = await runLocalCommand("systemctl cat ollama 2>/dev/null | head -1 | sed 's/^# //'").catch(() => "");
+    const svcPath = serviceFile.trim();
+    if (svcPath && svcPath.endsWith(".service")) {
+      const hasEnv = await runLocalCommand(`grep -c OLLAMA_MODELS "${svcPath}" 2>/dev/null`).catch(() => "0");
+      if (parseInt(hasEnv.trim()) === 0) {
+        await runLocalCommand(`sed -i '/\\[Service\\]/a Environment="OLLAMA_MODELS=${dest}"' "${svcPath}" 2>&1`);
+      } else {
+        await runLocalCommand(`sed -i 's|OLLAMA_MODELS=.*|OLLAMA_MODELS=${dest}"|' "${svcPath}" 2>&1`);
+      }
+      await runLocalCommand("systemctl daemon-reload 2>&1");
+      await runLocalCommand("systemctl restart ollama 2>&1");
+      const verify = await runLocalCommand("systemctl is-active ollama 2>&1").catch(() => "unknown");
+
+      return `${cc.green}✓${cc.reset} Models moved to ${cc.bold}${dest}${cc.reset}\n  ${cc.green}✓${cc.reset} Service updated: OLLAMA_MODELS=${dest}\n  ${cc.green}✓${cc.reset} Ollama restarted: ${verify.trim()}\n\n  ${cc.dim}Old models at ${srcDir} can be removed once verified.\n  Run: rm -rf "${srcDir}"${cc.reset}`;
+    }
+
+    // No systemd — set env var
+    process.env.OLLAMA_MODELS = dest;
+    return `${cc.green}✓${cc.reset} Models copied to ${cc.bold}${dest}${cc.reset}\n  ${cc.yellow}⚠${cc.reset} Set OLLAMA_MODELS=${dest} in your environment to make permanent.\n  ${cc.dim}Add to ~/.bashrc: export OLLAMA_MODELS="${dest}"\n  Old models at ${srcDir} can be removed once verified.${cc.reset}`;
+  }
+
+  // Ollama service management (start/stop/restart)
+  if (intent.intent === "ollama.start" || intent.intent === "ollama.stop" || intent.intent === "ollama.restart") {
+    const action = intent.intent.split(".")[1]; // start, stop, restart
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+
+    // Check if Ollama is managed by systemd (Linux/WSL service)
+    const hasSystemd = (await runLocalCommand("systemctl list-unit-files ollama.service 2>/dev/null | grep -c ollama").catch(() => "0")).trim() !== "0";
+
+    if (hasSystemd) {
+      result = await withSpinner(`${action}ing Ollama service...`, () => runLocalCommand(`systemctl ${action} ollama 2>&1`, 15_000));
+      const status = await runLocalCommand("systemctl is-active ollama 2>&1").catch(() => "unknown");
+      return `\x1b[32m✓\x1b[0m Ollama service ${action}ed. Status: \x1b[1m${status.trim()}\x1b[0m`;
+    }
+
+    // WSL — check if running on Windows host
+    if (isWSL) {
+      const hostOllama = await runLocalCommand("cmd.exe /c 'tasklist /FI \"IMAGENAME eq ollama.exe\" /NH' 2>/dev/null").catch(() => "");
+      if (hostOllama.includes("ollama.exe") || action === "start") {
+        if (action === "stop") {
+          await runLocalCommand("cmd.exe /c 'taskkill /IM ollama.exe /F' 2>/dev/null").catch(() => "");
+          return `\x1b[32m✓\x1b[0m Ollama stopped on Windows host.`;
+        } else if (action === "start") {
+          await runLocalCommand("cmd.exe /c 'start \"\" \"C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Ollama\\ollama app.exe\"' 2>/dev/null").catch(() => "");
+          return `\x1b[32m✓\x1b[0m Ollama starting on Windows host...\n\x1b[2m  It may take a moment to become available.\x1b[0m`;
+        } else {
+          await runLocalCommand("cmd.exe /c 'taskkill /IM ollama.exe /F' 2>/dev/null").catch(() => "");
+          await runLocalCommand("cmd.exe /c 'start \"\" \"C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Ollama\\ollama app.exe\"' 2>/dev/null").catch(() => "");
+          return `\x1b[32m✓\x1b[0m Ollama restarted on Windows host.`;
+        }
+      }
+    }
+
+    // Fallback — try running ollama serve directly
+    if (action === "start") {
+      await runLocalCommand("nohup ollama serve > /dev/null 2>&1 &");
+      return `\x1b[32m✓\x1b[0m Ollama server starting...\n\x1b[2m  It may take a moment to become available at localhost:11434\x1b[0m`;
+    } else if (action === "stop") {
+      await runLocalCommand("pkill -x ollama 2>/dev/null").catch(() => "");
+      return `\x1b[32m✓\x1b[0m Ollama stopped.`;
+    } else {
+      await runLocalCommand("pkill -x ollama 2>/dev/null").catch(() => "");
+      await runLocalCommand("nohup ollama serve > /dev/null 2>&1 &");
+      return `\x1b[32m✓\x1b[0m Ollama restarted.`;
+    }
+  }
+
+  // Ollama remove — delete a model
+  if (intent.intent === "ollama.remove") {
+    const model = (fields.model as string) ?? intent.rawText.match(/(?:remove|delete|rm)\s+(?:ollama\s+(?:model\s+)?)?(\S+)/i)?.[1];
+    if (!model) return `\x1b[33mUsage: ollama remove <model>\x1b[0m\n\x1b[2m  Example: "ollama remove llama3.2"\x1b[0m`;
+    result = await withSpinner(`Removing ${model}...`, () => runLocalCommand(`ollama rm ${model} 2>&1`, 30_000));
+    return result.includes("deleted") ? `\x1b[32m✓\x1b[0m Model ${model} removed.` : result;
+  }
+
   // Codex CLI handlers
   if (intent.intent === "codex.status") {
     try {

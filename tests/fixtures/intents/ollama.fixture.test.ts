@@ -13,6 +13,17 @@ const phrases = [
   { input: "pull ollama model", expectedIntent: "ollama.pull", minConfidence: 0.7 },
   { input: "install ollama model", expectedIntent: "ollama.pull", minConfidence: 0.7 },
   { input: "ollama download codellama", expectedIntent: "ollama.pull", minConfidence: 0.7 },
+  // ollama.storage
+  { input: "ollama storage", expectedIntent: "ollama.storage", minConfidence: 0.7 },
+  { input: "where are ollama models", expectedIntent: "ollama.storage", minConfidence: 0.7 },
+  { input: "ollama disk usage", expectedIntent: "ollama.storage", minConfidence: 0.7 },
+  // ollama.remove
+  { input: "ollama remove llama3.2", expectedIntent: "ollama.remove", minConfidence: 0.7 },
+  { input: "delete ollama model", expectedIntent: "ollama.remove", minConfidence: 0.7 },
+  // ollama.start/stop/restart
+  { input: "start ollama", expectedIntent: "ollama.start", minConfidence: 0.7 },
+  { input: "stop ollama", expectedIntent: "ollama.stop", minConfidence: 0.7 },
+  { input: "restart ollama", expectedIntent: "ollama.restart", minConfidence: 0.7 },
 ];
 
 describe("ollama intent fixtures", () => {
