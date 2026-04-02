@@ -71,6 +71,26 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
 
+  // Detect WSL environment
+  const wslCheck = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
+  const inWSL = wslCheck.trim() === "wsl";
+
+  if (inWSL) {
+    lines.push(`  ${c.dim}Environment: WSL${c.reset}`);
+
+    // Check for OpenClaw on Windows host
+    const hostCheck = await run("cmd.exe /c 'tasklist /FI \"IMAGENAME eq node.exe\" /V /NH' 2>/dev/null");
+    const hostHasOpenclaw = hostCheck.includes("openclaw");
+    const hostNodeCheck = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
+    const hostInstalled = hostNodeCheck.includes("openclaw");
+
+    if (hostHasOpenclaw) {
+      lines.push(`  ${c.green}✓${c.reset} OpenClaw detected on ${c.bold}Windows host${c.reset}`);
+    } else if (hostInstalled) {
+      lines.push(`  ${c.yellow}○${c.reset} OpenClaw installed on Windows host but ${c.bold}not running${c.reset}`);
+    }
+  }
+
   // Step 1: Is process running?
   console.error(`${c.dim}Checking if openclaw is running...${c.reset}`);
   const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
@@ -557,6 +577,54 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   const lines: string[] = [];
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Diagnostics ──${c.reset}\n`);
+
+  // ── Environment detection ──
+  const wslDiag = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
+  const diagInWSL = wslDiag.trim() === "wsl";
+
+  if (diagInWSL) {
+    steps.push({ name: "Environment", status: "pass", detail: "WSL (Windows Subsystem for Linux)" });
+
+    // Check OpenClaw on Windows host
+    const hostOC = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
+    if (hostOC.includes("openclaw")) {
+      const hostRunning = await run("cmd.exe /c 'tasklist /FI \"IMAGENAME eq node.exe\" /V /NH' 2>/dev/null");
+      if (hostRunning.includes("openclaw")) {
+        steps.push({ name: "Windows host", status: "pass", detail: "OpenClaw running on Windows host" });
+      } else {
+        steps.push({ name: "Windows host", status: "warn", detail: "OpenClaw installed on Windows but not running" });
+      }
+    } else {
+      steps.push({ name: "Windows host", status: "skip", detail: "OpenClaw not installed on Windows host (checking WSL only)" });
+    }
+
+    // Check WSL OpenClaw install
+    const wslOC = await run("which openclaw 2>/dev/null");
+    if (wslOC.includes("openclaw")) {
+      const wslVer = await run("openclaw --version 2>/dev/null || echo error");
+      if (wslVer.includes("error")) {
+        steps.push({ name: "WSL install", status: "warn", detail: `Binary exists at ${wslOC.trim()} but --version failed (may need Node 22+)` });
+      } else {
+        steps.push({ name: "WSL install", status: "pass", detail: `${wslVer.trim()} at ${wslOC.trim()}` });
+      }
+    } else {
+      steps.push({ name: "WSL install", status: "fail", detail: "OpenClaw not installed in WSL — npm install -g openclaw" });
+    }
+  } else {
+    steps.push({ name: "Environment", status: "pass", detail: "Native Linux" });
+
+    const localOC = await run("which openclaw 2>/dev/null");
+    if (localOC.includes("openclaw")) {
+      const localVer = await run("openclaw --version 2>/dev/null || echo error");
+      if (localVer.includes("error")) {
+        steps.push({ name: "Install", status: "warn", detail: `Binary exists at ${localOC.trim()} but --version failed (may need Node 22+)` });
+      } else {
+        steps.push({ name: "Install", status: "pass", detail: `${localVer.trim()} at ${localOC.trim()}` });
+      }
+    } else {
+      steps.push({ name: "Install", status: "fail", detail: "OpenClaw not installed — npm install -g openclaw" });
+    }
+  }
 
   // ── Step 0: Node version ──
   const nodeVer = await run("node --version 2>/dev/null");
