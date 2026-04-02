@@ -40,15 +40,22 @@ export interface DriveInfo {
 }
 
 export function getDriveInfo(path: string): DriveInfo | null {
-  try {
-    const output = execSync(`df -BG "${path}" 2>/dev/null | tail -1`, { encoding: "utf-8", timeout: 3000 });
-    const parts = output.trim().split(/\s+/);
-    if (parts.length < 6) return null;
-    const total = parseInt(parts[1]) || 0;
-    const free = parseInt(parts[3]) || 0;
-    const pct = parseInt(parts[4]) || 0;
-    return { path, freeGB: free, totalGB: total, usedPct: pct, mount: parts[parts.length - 1] };
-  } catch { return null; }
+  // Walk up to find an existing parent directory for df
+  let checkPath = path;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const output = execSync(`df -BG "${checkPath}" 2>/dev/null | tail -1`, { encoding: "utf-8", timeout: 3000 });
+      const parts = output.trim().split(/\s+/);
+      if (parts.length < 6) { checkPath = resolve(checkPath, ".."); continue; }
+      const total = parseInt(parts[1]) || 0;
+      const free = parseInt(parts[3]) || 0;
+      const pct = parseInt(parts[4]) || 0;
+      return { path, freeGB: free, totalGB: total, usedPct: pct, mount: parts[parts.length - 1] };
+    } catch {
+      checkPath = resolve(checkPath, "..");
+    }
+  }
+  return null;
 }
 
 function getDriveFreeGB(path: string): number {
@@ -147,11 +154,29 @@ export function resolveUserPath(input: string): string | null {
   return null;
 }
 
-const _installChoice = chooseBestInstallDir();
-const INSTALL_BASE = process.env.NOTOKEN_INSTALL_DIR ?? _installChoice.dir;
-const SD_DIR = resolve(INSTALL_BASE, "stable-diffusion-webui");
-const COMFY_DIR = resolve(INSTALL_BASE, "ComfyUI");
-const FOOOCUS_DIR = resolve(INSTALL_BASE, "Fooocus");
+function getInstallBase(): string {
+  return process.env.NOTOKEN_INSTALL_DIR ?? chooseBestInstallDir().dir;
+}
+function getSDDir(): string { return resolve(getInstallBase(), "stable-diffusion-webui"); }
+function getComfyDir(): string { return resolve(getInstallBase(), "ComfyUI"); }
+function getFooocusDir(): string { return resolve(getInstallBase(), "Fooocus"); }
+
+// Keep backward compat for detection — check all known locations
+const KNOWN_SD_DIRS = [
+  () => resolve(getInstallBase(), "stable-diffusion-webui"),
+  () => resolve(homedir(), "stable-diffusion-webui"),
+  () => resolve(homedir(), "notoken", "ai", "stable-diffusion-webui"),
+];
+const KNOWN_COMFY_DIRS = [
+  () => resolve(getInstallBase(), "ComfyUI"),
+  () => resolve(homedir(), "ComfyUI"),
+  () => resolve(homedir(), "notoken", "ai", "ComfyUI"),
+];
+const KNOWN_FOOOCUS_DIRS = [
+  () => resolve(getInstallBase(), "Fooocus"),
+  () => resolve(homedir(), "Fooocus"),
+  () => resolve(homedir(), "notoken", "ai", "Fooocus"),
+];
 const STABILITY_MATRIX_DIR = resolve(homedir(), "StabilityMatrix");
 const EASY_DIFFUSION_DIR = resolve(homedir(), "easy-diffusion");
 const OUTPUT_DIR = resolve(USER_HOME, "generated-images");
@@ -267,7 +292,8 @@ export function detectGpu(): GpuInfo {
 export function detectImageEngines(): ImageEngineStatus[] {
   const engines: ImageEngineStatus[] = [];
 
-  // AUTOMATIC1111
+  // AUTOMATIC1111 — check all known locations
+  const SD_DIR = KNOWN_SD_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "webui.py"))) ?? getSDDir();
   const a1Installed = existsSync(SD_DIR) && existsSync(resolve(SD_DIR, "webui.py"));
   const a1Running = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
   engines.push({
@@ -279,6 +305,7 @@ export function detectImageEngines(): ImageEngineStatus[] {
   });
 
   // ComfyUI
+  const COMFY_DIR = KNOWN_COMFY_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "main.py"))) ?? getComfyDir();
   const comfyInstalled = existsSync(COMFY_DIR) && existsSync(resolve(COMFY_DIR, "main.py"));
   const comfyRunning = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
   engines.push({
@@ -290,6 +317,7 @@ export function detectImageEngines(): ImageEngineStatus[] {
   });
 
   // Fooocus
+  const FOOOCUS_DIR = KNOWN_FOOOCUS_DIRS.map(fn => fn()).find(d => existsSync(d) && existsSync(resolve(d, "entry_with_update.py"))) ?? getFooocusDir();
   const fooocusInstalled = existsSync(FOOOCUS_DIR) && existsSync(resolve(FOOOCUS_DIR, "entry_with_update.py"));
   engines.push({
     engine: "fooocus",
@@ -694,10 +722,10 @@ export function getInstallPlan(engine: "auto1111" | "comfyui" | "fooocus" | "doc
       estimatedTime: gpu.hasNvidia ? "10-20 minutes" : "15-30 minutes",
       diskSpace: "~10 GB (with model)",
       steps: [
-        `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git ${SD_DIR}`,
-        `cd ${SD_DIR} && python3 -m venv venv && source venv/bin/activate`,
+        `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git ${getSDDir()}`,
+        `cd ${getSDDir()} && python3 -m venv venv && source venv/bin/activate`,
         `pip install torch torchvision --index-url https://download.pytorch.org/whl/${torchExtra.replace("+", "")}`,
-        `cd ${SD_DIR} && bash webui.sh --api --listen`,
+        `cd ${getSDDir()} && bash webui.sh --api --listen`,
       ],
     },
     comfyui: {
@@ -706,8 +734,8 @@ export function getInstallPlan(engine: "auto1111" | "comfyui" | "fooocus" | "doc
       estimatedTime: "10-15 minutes",
       diskSpace: "~8 GB (with model)",
       steps: [
-        `git clone https://github.com/comfyanonymous/ComfyUI.git ${COMFY_DIR}`,
-        `cd ${COMFY_DIR} && python3 -m venv venv && source venv/bin/activate`,
+        `git clone https://github.com/comfyanonymous/ComfyUI.git ${getComfyDir()}`,
+        `cd ${getComfyDir()} && python3 -m venv venv && source venv/bin/activate`,
         `pip install torch torchvision --index-url https://download.pytorch.org/whl/${torchExtra.replace("+", "")}`,
         `pip install -r requirements.txt`,
         `python3 main.py --listen`,
@@ -719,8 +747,8 @@ export function getInstallPlan(engine: "auto1111" | "comfyui" | "fooocus" | "doc
       estimatedTime: "10-15 minutes",
       diskSpace: "~10 GB (with model)",
       steps: [
-        `git clone https://github.com/lllyasviel/Fooocus.git ${FOOOCUS_DIR}`,
-        `cd ${FOOOCUS_DIR} && python3 -m venv venv && source venv/bin/activate`,
+        `git clone https://github.com/lllyasviel/Fooocus.git ${getFooocusDir()}`,
+        `cd ${getFooocusDir()} && python3 -m venv venv && source venv/bin/activate`,
         `pip install -r requirements_versions.txt`,
         `python3 entry_with_update.py`,
       ],
@@ -888,7 +916,7 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
   }
 
   // Step 4: Clone and setup
-  const dirs: Record<string, string> = { auto1111: SD_DIR, comfyui: COMFY_DIR, fooocus: FOOOCUS_DIR };
+  const dirs: Record<string, string> = { auto1111: getSDDir(), comfyui: getComfyDir(), fooocus: getFooocusDir() };
   const dir = dirs[engine];
   const repos: Record<string, string> = {
     auto1111: "https://github.com/AUTOMATIC1111/stable-diffusion-webui.git",
@@ -1243,6 +1271,6 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
   }
 
   lines.push(`\n  ${c.dim}Images saved to: ${OUTPUT_DIR}${c.reset}`);
-  lines.push(`  ${c.dim}Install base: ${INSTALL_BASE}${c.reset}`);
+  lines.push(`  ${c.dim}Install base: ${getInstallBase()}${c.reset}`);
   return lines.join("\n");
 }

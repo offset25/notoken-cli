@@ -117,7 +117,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return result;
   }
 
-  // Install with user-specified path — "install stable diffusion on F drive"
+  // Install SD with optional user-specified path
   if (intent.intent === "ai.install_sd") {
     const rawLower = intent.rawText.toLowerCase();
     const pathMatch = rawLower.match(/\bon\s+([a-z]\s*drive|\/\S+)/i);
@@ -129,6 +129,19 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         console.error(`\x1b[36mUsing custom install location:\x1b[0m ${resolved}`);
       }
     }
+    // Determine which engine to install
+    const engineField = (fields.engine as string) ?? "auto1111";
+    let engine: "auto1111" | "comfyui" | "fooocus" | "docker" = "auto1111";
+    if (engineField.includes("comfy")) engine = "comfyui";
+    else if (engineField.includes("fooocus") || engineField.includes("focus")) engine = "fooocus";
+    else if (engineField.includes("docker")) engine = "docker";
+
+    command = `[install-sd] ${engine}`;
+    const { installImageEngine } = await import("../utils/imageGen.js");
+    const installResult = await installImageEngine(engine);
+    result = installResult.message;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: installResult.success });
+    return result;
   }
 
   // Image generation — natural language to image
