@@ -4010,6 +4010,57 @@
       "requiresConfirmation": false,
       "riskLevel": "low",
       "examples": ["openclaw doctor", "fix openclaw", "diagnose openclaw"]
+    },
+
+    {
+      "name": "browser.open",
+      "description": "Open a URL in a browser",
+      "synonyms": ["open", "browse", "navigate", "visit", "go to", "load", "launch browser", "open browser", "open url", "open website", "open page", "open site"],
+      "fields": {
+        "url": { "type": "string", "required": true }
+      },
+      "command": "notoken:browse:{{url}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["open google.com", "browse to localhost:3000", "visit example.com", "go to github.com", "navigate to notoken.sh"]
+    },
+    {
+      "name": "browser.screenshot",
+      "description": "Take a screenshot of a webpage",
+      "synonyms": ["screenshot", "capture", "snap", "screencap", "screen grab", "take screenshot", "capture page", "save page"],
+      "fields": {
+        "url": { "type": "string", "required": true }
+      },
+      "command": "notoken:browse:screenshot:{{url}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["take screenshot of google.com", "screenshot example.com", "capture localhost:3000", "screencap notoken.sh"]
+    },
+    {
+      "name": "browser.status",
+      "description": "Show browser engine status",
+      "synonyms": ["browser status", "browser engines", "check browser", "which browser", "browser info"],
+      "fields": {},
+      "command": "notoken:browse:status",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["browser status", "check browser", "which browser engines", "show browser info"]
+    },
+    {
+      "name": "browser.install",
+      "description": "Install a browser engine for automation",
+      "synonyms": ["install browser", "install patchright", "install playwright", "setup browser", "install chromium"],
+      "fields": {
+        "engine": { "type": "string", "required": false, "default": "patchright" }
+      },
+      "command": "notoken:browse:install:{{engine}}",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": ["install browser", "install patchright", "install playwright", "setup browser engine"]
     }
   ]
 }

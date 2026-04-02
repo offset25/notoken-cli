@@ -97,6 +97,13 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Browser ──
+export {
+  detectBrowserEngines, getBestEngine, installBrowserEngine, browse, formatBrowserStatus,
+  stopDockerBrowser, normalizeUrl,
+  type BrowserEngine, type BrowserStatus, type BrowseOptions, type BrowseResult, type InstallResult,
+} from "./utils/browser.js";
+
 // ── Logging ──
 export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
 export { logUncertainty, loadUncertaintyLog, getUncertaintySummary } from "./nlp/uncertainty.js";

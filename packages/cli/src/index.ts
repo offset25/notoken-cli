@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "heal", "heal:claude"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "heal", "heal:claude", "browse"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -92,6 +92,11 @@ async function main() {
         execSync("npx tsx src/healing/claudeHealer.ts " + subArgs.join(" "), { stdio: "inherit", cwd: process.cwd() });
         return;
       }
+      case "browse": {
+        const { runBrowse } = await import("./commands/browse.js");
+        await runBrowse(subArgs, flags);
+        return;
+      }
     }
   }
 
@@ -129,6 +134,9 @@ Usage:
   notoken logs <service>               Tail service logs (nginx, docker, system, etc.)
   notoken check                        Check integration health (OpenClaw, Matrix, Ollama)
   notoken update                       Check for updates and install
+  notoken browse <url>                  Open URL in browser (patchright/playwright/docker)
+  notoken browse status                Show available browser engines
+  notoken browse install [engine]      Install browser engine
   notoken heal                         Improve rules (LLM API mode)
   notoken heal:claude                  Improve rules via Claude
 

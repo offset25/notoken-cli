@@ -37,6 +37,10 @@ import {
 import {
   createFullBackup, restoreFromBackup, listFullBackups, formatBackupsList,
 } from "notoken-core";
+import {
+  detectBrowserEngines, getBestEngine, installBrowserEngine,
+  browse, formatBrowserStatus, stopDockerBrowser,
+} from "notoken-core";
 
 const c = {
   reset: "\x1b[0m",
@@ -488,7 +492,8 @@ ${c.bold}System:${c.reset}
 ${c.bold}Secrets:${c.reset}
   ${c.cyan}:secrets${c.reset}             List secrets held in memory (never stored in history)
   ${c.cyan}:save-secrets [file]${c.reset} Save secrets to file (chmod 600)
-  ${c.cyan}:clear-secrets${c.reset}       Wipe secrets from memory
+  ${c.cyan}:clear-secrets${c.reset}       Wipe secrets and passwords from memory
+  ${c.cyan}:clearpasswords${c.reset}     Same as :clear-secrets
 
 ${c.bold}Adaptive Rules:${c.reset}
   ${c.cyan}:adapt${c.reset}              Toggle adaptive rules (${adaptRules ? "ON" : "OFF"})
@@ -506,6 +511,13 @@ ${c.bold}Sessions:${c.reset}
   ${c.cyan}:backup${c.reset}              Backup ~/.notoken/ to a timestamped archive
   ${c.cyan}:restore <file>${c.reset}      Restore from a backup archive
   ${c.cyan}:backups-full${c.reset}        List full backups
+
+${c.bold}Browser:${c.reset}
+  ${c.cyan}:browse <url>${c.reset}        Open URL in browser (patchright/playwright/docker/system)
+  ${c.cyan}:browse <url> --ss${c.reset}   Take a screenshot of a page
+  ${c.cyan}:browse status${c.reset}       Show available browser engines
+  ${c.cyan}:browse install${c.reset}      Install patchright (or playwright/docker)
+  ${c.cyan}:browse stop${c.reset}         Stop Docker browser container
 
 ${c.bold}Updates:${c.reset}
   ${c.cyan}:update${c.reset}              Check for updates and install
@@ -646,9 +658,11 @@ ${c.bold}Other:${c.reset}
       break;
     }
 
-    case ":clear-secrets": {
+    case ":clear-secrets":
+    case ":clearpasswords":
+    case ":clear-passwords": {
       clearSecrets();
-      console.log(`${c.green}✓${c.reset} Secrets wiped from memory.`);
+      console.log(`${c.green}✓${c.reset} All secrets and passwords wiped from memory.`);
       break;
     }
 
@@ -817,6 +831,62 @@ ${c.bold}Other:${c.reset}
         console.log(`${c.green}✓${c.reset} Restored from: ${backupFile}`);
       } catch (err) {
         console.log(`${c.red}✗${c.reset} Restore failed: ${err instanceof Error ? err.message : err}`);
+      }
+      break;
+    }
+
+    // ── Browser ──
+
+    case ":browse": {
+      const browseArg = parts[1];
+      const browseFlags = new Set(parts.filter(p => p.startsWith("--")));
+
+      if (!browseArg || browseArg === "help") {
+        console.log(`${c.bold}Browser:${c.reset}
+  ${c.cyan}:browse <url>${c.reset}        Open URL
+  ${c.cyan}:browse <url> --ss${c.reset}   Screenshot
+  ${c.cyan}:browse status${c.reset}       Show engines
+  ${c.cyan}:browse install${c.reset}      Install engine
+  ${c.cyan}:browse stop${c.reset}         Stop Docker browser`);
+        break;
+      }
+
+      if (browseArg === "status") {
+        console.log(formatBrowserStatus(detectBrowserEngines()));
+        break;
+      }
+
+      if (browseArg === "install") {
+        const engine = parts[2] as "patchright" | "playwright" | "docker" | undefined;
+        console.log(`${c.dim}Installing ${engine ?? "patchright"}...${c.reset}`);
+        const result = await installBrowserEngine(engine);
+        console.log(result.success ? `${c.green}✓${c.reset} ${result.message}` : `${c.red}✗${c.reset} ${result.message}`);
+        break;
+      }
+
+      if (browseArg === "stop") {
+        console.log(stopDockerBrowser());
+        break;
+      }
+
+      // Open URL
+      const screenshot = browseFlags.has("--screenshot") || browseFlags.has("--ss");
+      const headless = browseFlags.has("--headless");
+      const best = getBestEngine();
+      if (!best || (best.engine === "system" && screenshot)) {
+        console.log(`${c.yellow}No automation engine available.${c.reset} Run ${c.cyan}:browse install${c.reset}`);
+        break;
+      }
+
+      console.log(`${c.dim}Opening ${browseArg} via ${best.engine}...${c.reset}`);
+      const result = await browse({ url: browseArg, headless, screenshot });
+      if (result.error) {
+        console.log(`${c.red}✗${c.reset} ${result.error}`);
+      } else {
+        console.log(`${c.green}✓${c.reset} ${result.title ?? "Page loaded"} ${c.dim}(${result.engine})${c.reset}`);
+        if (result.screenshotPath) {
+          console.log(`${c.cyan}Screenshot:${c.reset} ${result.screenshotPath}`);
+        }
       }
       break;
     }
