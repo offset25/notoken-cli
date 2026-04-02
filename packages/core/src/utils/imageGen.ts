@@ -615,51 +615,160 @@ export function getInstallPlan(engine: "auto1111" | "comfyui" | "fooocus" | "doc
 
 export async function installImageEngine(engine: "auto1111" | "comfyui" | "fooocus" | "docker"): Promise<{ success: boolean; message: string }> {
   const gpu = detectGpu();
+  const os = (await import("node:os")).platform();
+  const isWSL = !!tryExec("grep -qi microsoft /proc/version && echo wsl");
 
+  // ── Docker path ──
   if (engine === "docker") {
     if (!tryExec("docker --version")) {
-      return { success: false, message: "Docker is not installed. Run: notoken install docker" };
+      console.log(`${c.cyan}Step 1/${c.reset} Docker not found — installing...`);
+      try {
+        execSync("curl -fsSL https://get.docker.com | sh", { stdio: "inherit", timeout: 300000 });
+      } catch {
+        return { success: false, message: `Could not install Docker. Run: notoken install docker` };
+      }
     }
     try {
-      console.log(`${c.dim}Pulling Stable Diffusion Docker image...${c.reset}`);
+      console.log(`${c.cyan}Step 2/${c.reset} Pulling Stable Diffusion Docker image...`);
       execSync("docker pull ghcr.io/ai-dock/stable-diffusion-webui:latest", { stdio: "inherit", timeout: 600000 });
-
       const gpuFlag = gpu.hasNvidia ? "--gpus all" : "";
       const envFlag = gpu.cpuOnly ? "-e COMMANDLINE_ARGS='--use-cpu all --skip-torch-cuda-test --no-half'" : "";
+      console.log(`${c.cyan}Step 3/${c.reset} Starting container...`);
       execSync(`docker run -d ${gpuFlag} -p 7860:7860 --name sd-webui ${envFlag} ghcr.io/ai-dock/stable-diffusion-webui:latest`, { stdio: "inherit", timeout: 30000 });
-
       return { success: true, message: `${c.green}✓${c.reset} Stable Diffusion running in Docker at ${c.bold}http://localhost:7860${c.reset}` };
     } catch (err) {
       return { success: false, message: `Docker install failed: ${err instanceof Error ? err.message : err}` };
     }
   }
 
-  // For non-Docker, check prerequisites
-  const python = tryExec("python3 --version") ?? tryExec("python --version");
-  if (!python) {
-    return { success: false, message: "Python 3.10+ is required. Install with: notoken install python" };
-  }
-  const pyVer = python.match(/(\d+)\.(\d+)/);
-  if (pyVer && (parseInt(pyVer[1]) < 3 || parseInt(pyVer[2]) < 10)) {
-    return { success: false, message: `Python 3.10+ required (found ${python}). Upgrade with: pyenv install 3.11` };
-  }
-  if (!tryExec("git --version")) {
-    return { success: false, message: "git is required. Install with: notoken fix git" };
+  // ── Windows (no WSL) — use standalone installers ──
+  if (os === "win32") {
+    console.log(`${c.cyan}Step 1/${c.reset} Windows detected — downloading standalone installer...`);
+    const urls: Record<string, string> = {
+      auto1111: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/latest",
+      comfyui: "https://github.com/comfyanonymous/ComfyUI/releases/latest",
+      fooocus: "https://github.com/lllyasviel/Fooocus/releases/latest",
+    };
+    try {
+      execSync(`start "" "${urls[engine]}"`, { stdio: "ignore", shell: "cmd.exe" });
+      return { success: true, message: `${c.green}✓${c.reset} Download opened in browser. Extract and run the executable.` };
+    } catch {
+      return { success: false, message: `Open manually: ${urls[engine]}` };
+    }
   }
 
+  // ── Linux / WSL / macOS — install prerequisites then engine ──
+
+  // Step 1: git
+  if (!tryExec("git --version")) {
+    console.log(`${c.cyan}Step 1/${c.reset} Installing git...`);
+    try {
+      if (tryExec("apt-get --version")) {
+        execSync("apt-get update -qq && apt-get install -y -qq git", { stdio: "inherit", timeout: 120000 });
+      } else if (tryExec("dnf --version")) {
+        execSync("dnf install -y git", { stdio: "inherit", timeout: 120000 });
+      } else if (tryExec("brew --version")) {
+        execSync("brew install git", { stdio: "inherit", timeout: 120000 });
+      } else {
+        return { success: false, message: "Cannot auto-install git. Install it manually first." };
+      }
+    } catch (err) {
+      return { success: false, message: `Failed to install git: ${err instanceof Error ? err.message : err}` };
+    }
+  } else {
+    console.log(`${c.cyan}Step 1/${c.reset} ${c.green}git found${c.reset} — ${tryExec("git --version")}`);
+  }
+
+  // Step 2: Python 3.10+
+  let pythonCmd = tryExec("python3 --version") ? "python3" : tryExec("python --version") ? "python" : null;
+  const pyVersion = pythonCmd ? tryExec(`${pythonCmd} --version`) : null;
+  const pyMatch = pyVersion?.match(/(\d+)\.(\d+)/);
+  const pyOk = pyMatch && parseInt(pyMatch[1]) >= 3 && parseInt(pyMatch[2]) >= 10;
+
+  if (!pyOk) {
+    console.log(`${c.cyan}Step 2/${c.reset} Installing Python 3.11...`);
+    try {
+      if (tryExec("apt-get --version")) {
+        execSync("apt-get update -qq && apt-get install -y -qq python3.11 python3.11-venv python3-pip", { stdio: "inherit", timeout: 120000 });
+        pythonCmd = "python3.11";
+      } else if (tryExec("dnf --version")) {
+        execSync("dnf install -y python3.11 python3.11-pip", { stdio: "inherit", timeout: 120000 });
+        pythonCmd = "python3.11";
+      } else if (tryExec("brew --version")) {
+        execSync("brew install python@3.11", { stdio: "inherit", timeout: 120000 });
+        pythonCmd = "python3.11";
+      } else {
+        return { success: false, message: "Cannot auto-install Python. Install Python 3.10+ manually." };
+      }
+    } catch (err) {
+      return { success: false, message: `Failed to install Python: ${err instanceof Error ? err.message : err}` };
+    }
+  } else {
+    console.log(`${c.cyan}Step 2/${c.reset} ${c.green}Python found${c.reset} — ${pyVersion}`);
+  }
+
+  // Step 3: pip/venv
+  if (!tryExec(`${pythonCmd} -m venv --help 2>/dev/null`)) {
+    console.log(`${c.cyan}Step 3/${c.reset} Installing python3-venv...`);
+    try {
+      if (tryExec("apt-get --version")) {
+        execSync(`apt-get install -y -qq python3-venv python3-full 2>/dev/null || apt-get install -y -qq python3.11-venv 2>/dev/null || true`, { stdio: "inherit", timeout: 60000 });
+      }
+    } catch {}
+  } else {
+    console.log(`${c.cyan}Step 3/${c.reset} ${c.green}venv available${c.reset}`);
+  }
+
+  // Step 4: Clone and setup
   const dirs: Record<string, string> = { auto1111: SD_DIR, comfyui: COMFY_DIR, fooocus: FOOOCUS_DIR };
   const dir = dirs[engine];
-  const plan = getInstallPlan(engine);
+  const repos: Record<string, string> = {
+    auto1111: "https://github.com/AUTOMATIC1111/stable-diffusion-webui.git",
+    comfyui: "https://github.com/comfyanonymous/ComfyUI.git",
+    fooocus: "https://github.com/lllyasviel/Fooocus.git",
+  };
+
+  if (existsSync(dir)) {
+    console.log(`${c.cyan}Step 4/${c.reset} ${c.green}Already cloned${c.reset} at ${dir}`);
+  } else {
+    console.log(`${c.cyan}Step 4/${c.reset} Cloning ${engine}...`);
+    try {
+      execSync(`git clone "${repos[engine]}" "${dir}"`, { stdio: "inherit", timeout: 300000 });
+    } catch (err) {
+      return { success: false, message: `Clone failed: ${err instanceof Error ? err.message : err}` };
+    }
+  }
+
+  // Step 5: Create venv and install deps
+  console.log(`${c.cyan}Step 5/${c.reset} Setting up virtual environment and dependencies...`);
+  const torchExtra = gpu.hasNvidia ? "cu121" : gpu.hasAmd ? "rocm5.7" : "cpu";
 
   try {
-    for (const step of plan.steps) {
-      console.log(`${c.dim}$ ${step}${c.reset}`);
-      execSync(step, { stdio: "inherit", timeout: 600000, shell: "/bin/bash" });
+    const venvPython = `${dir}/venv/bin/python`;
+    const venvPip = `${dir}/venv/bin/pip`;
+
+    if (!existsSync(`${dir}/venv`)) {
+      execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 60000 });
     }
-    return { success: true, message: `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}` };
+    execSync(`${venvPip} install --upgrade pip`, { stdio: "inherit", timeout: 60000 });
+    execSync(`${venvPip} install torch torchvision --index-url https://download.pytorch.org/whl/${torchExtra}`, { stdio: "inherit", timeout: 600000 });
+
+    if (engine === "comfyui" || engine === "fooocus") {
+      const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
+      if (existsSync(resolve(dir, reqFile))) {
+        execSync(`${venvPip} install -r "${resolve(dir, reqFile)}"`, { stdio: "inherit", timeout: 600000 });
+      }
+    }
+
+    console.log(`${c.green}✓${c.reset} Dependencies installed.`);
   } catch (err) {
-    return { success: false, message: `Installation failed: ${err instanceof Error ? err.message : err}` };
+    return { success: false, message: `Dependency install failed: ${err instanceof Error ? err.message : err}\n\n${c.dim}Try: notoken install stability-matrix (standalone, no Python needed)${c.reset}` };
   }
+
+  // Step 6: Verify
+  console.log(`${c.cyan}Step 6/${c.reset} ${c.green}Installation complete${c.reset}`);
+  const plan = getInstallPlan(engine);
+  return { success: true, message: `${c.green}✓${c.reset} ${plan.engine} installed at ${dir}\n\n${c.dim}Start: notoken start stable-diffusion\nOr just say "generate a picture of a cat" — it will auto-start.${c.reset}` };
 }
 
 // ─── Formatting ────────────────────────────────────────────────────────────
