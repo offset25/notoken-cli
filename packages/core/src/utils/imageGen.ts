@@ -1264,7 +1264,13 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
       ], dir);
 
       if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
-        console.log(`${c.dim}  Installing Stable Diffusion requirements (using pre-built wheels)...${c.reset}`);
+        console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
+        // Pre-install problematic packages with relaxed versions (pre-built wheels)
+        // scikit-image==0.21.0 has no wheel for Python 3.12+, but >=0.21 does
+        console.log(`${c.dim}  Pre-installing packages that need pre-built wheels...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "--prefer-binary", "scikit-image>=0.21", "scipy", "tqdm", "safetensors"], dir);
+        // Now install the rest — already-satisfied packages will be skipped
+        console.log(`${c.dim}  Installing remaining requirements...${c.reset}`);
         await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", resolve(dir, "requirements_versions.txt")], dir);
       } else if (engine === "comfyui" || engine === "fooocus") {
         const reqFile = engine === "fooocus" ? "requirements_versions.txt" : "requirements.txt";
