@@ -42,8 +42,13 @@ async function main() {
         return;
       }
       case "setup": {
-        const { runSetup } = await import("./commands/setup.js");
-        await runSetup(subArgs);
+        if (subArgs[0] === "openclaw") {
+          const { runSetupOpenclaw } = await import("./commands/setup-openclaw.js");
+          await runSetupOpenclaw();
+        } else {
+          const { runSetup } = await import("./commands/setup.js");
+          await runSetup(subArgs);
+        }
         return;
       }
       case "logs": {
