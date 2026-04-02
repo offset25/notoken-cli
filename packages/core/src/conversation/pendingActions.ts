@@ -27,8 +27,31 @@ export interface PendingAction {
   fields?: Record<string, unknown>;
 }
 
-// In-memory store — per session, no persistence needed
-let pendingActions: PendingAction[] = [];
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
+
+const PENDING_FILE = resolve(process.env.NOTOKEN_HOME ?? resolve(homedir(), ".notoken"), "pending-actions.json");
+
+// Persisted to disk so "try it" works across CLI invocations
+let pendingActions: PendingAction[] = loadFromDisk();
+
+function loadFromDisk(): PendingAction[] {
+  try {
+    if (existsSync(PENDING_FILE)) {
+      return JSON.parse(readFileSync(PENDING_FILE, "utf-8"));
+    }
+  } catch {}
+  return [];
+}
+
+function saveToDisk(): void {
+  try {
+    const dir = resolve(PENDING_FILE, "..");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(PENDING_FILE, JSON.stringify(pendingActions));
+  } catch {}
+}
 
 /**
  * Store an action that NoToken is suggesting to the user.
@@ -38,6 +61,7 @@ export function suggestAction(action: PendingAction): void {
   pendingActions.push({ ...action, timestamp: Date.now() });
   // Keep last 5
   if (pendingActions.length > 5) pendingActions = pendingActions.slice(-5);
+  saveToDisk();
 }
 
 /**
@@ -57,7 +81,10 @@ export function getLastPendingAction(): PendingAction | null {
  */
 export function consumePendingAction(): PendingAction | null {
   const action = getLastPendingAction();
-  if (action) pendingActions.pop();
+  if (action) {
+    pendingActions.pop();
+    saveToDisk();
+  }
   return action;
 }
 
@@ -84,4 +111,5 @@ export function isAffirmation(text: string): boolean {
  */
 export function clearPendingActions(): void {
   pendingActions = [];
+  saveToDisk();
 }

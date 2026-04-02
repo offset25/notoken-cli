@@ -20,7 +20,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { USER_HOME } from "./paths.js";
 
 const c = {
@@ -29,9 +29,55 @@ const c = {
   cyan: "\x1b[36m", magenta: "\x1b[35m", blue: "\x1b[34m",
 };
 
-const SD_DIR = resolve(homedir(), "stable-diffusion-webui");
-const COMFY_DIR = resolve(homedir(), "ComfyUI");
-const FOOOCUS_DIR = resolve(homedir(), "Fooocus");
+// Install paths — dynamically chosen based on available disk space
+function getBestInstallDir(): string {
+  const os = platform();
+  const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
+
+  if (isWSL) {
+    // In WSL, check mounted Windows drives for space
+    const drives = ["/mnt/d", "/mnt/e", "/mnt/f", "/mnt/g", "/mnt/h"];
+    for (const drive of drives) {
+      const free = getDriveFreeGB(drive);
+      if (free > 15) {
+        const dir = resolve(drive, "apps");
+        try { mkdirSync(dir, { recursive: true }); } catch {}
+        return dir;
+      }
+    }
+    // Check Linux root filesystem
+    const rootFree = getDriveFreeGB("/");
+    if (rootFree > 15) return homedir();
+    // Last resort
+    return homedir();
+  }
+
+  if (os === "win32") {
+    // Check non-C drives first
+    for (const letter of ["D", "E", "F", "G"]) {
+      const drive = `${letter}:\\`;
+      const free = getDriveFreeGB(drive);
+      if (free > 15) return resolve(drive, "apps");
+    }
+    return resolve(homedir(), "StableDiffusion");
+  }
+
+  // Linux/macOS — just use home
+  return homedir();
+}
+
+function getDriveFreeGB(path: string): number {
+  try {
+    const output = execSync(`df -BG "${path}" 2>/dev/null | tail -1`, { encoding: "utf-8", timeout: 3000 });
+    const match = output.match(/(\d+)G\s+\d+%/);
+    return match ? parseInt(match[1]) : 0;
+  } catch { return 0; }
+}
+
+const INSTALL_BASE = process.env.NOTOKEN_INSTALL_DIR ?? getBestInstallDir();
+const SD_DIR = resolve(INSTALL_BASE, "stable-diffusion-webui");
+const COMFY_DIR = resolve(INSTALL_BASE, "ComfyUI");
+const FOOOCUS_DIR = resolve(INSTALL_BASE, "Fooocus");
 const STABILITY_MATRIX_DIR = resolve(homedir(), "StabilityMatrix");
 const EASY_DIFFUSION_DIR = resolve(homedir(), "easy-diffusion");
 const OUTPUT_DIR = resolve(USER_HOME, "generated-images");
@@ -652,6 +698,18 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
   // ── WSL — check if better to install on Windows side ──
   if (isWSL) {
     console.log(`${c.cyan}Step 0/${c.reset} WSL detected — installing inside WSL (GPU passthrough supported)`);
+  }
+
+  // Check disk space before proceeding
+  {
+    const installFree = getDriveFreeGB(INSTALL_BASE);
+    console.log(`${c.cyan}Disk/${c.reset} Installing to: ${c.bold}${INSTALL_BASE}${c.reset} (${installFree}GB free)`);
+    if (installFree < 10) {
+      console.log(`${c.red}⚠ WARNING: Only ${installFree}GB free — need ~10GB for Stable Diffusion${c.reset}`);
+      if (installFree < 5) {
+        return { success: false, message: `${c.red}✗ Not enough disk space (${installFree}GB free, need 10GB).${c.reset}\n\n${c.dim}Free up space or specify a different location:\n  NOTOKEN_INSTALL_DIR=/mnt/d/apps notoken install stable-diffusion${c.reset}` };
+      }
+    }
   }
 
   // ── Linux / WSL / macOS — install prerequisites then engine ──
