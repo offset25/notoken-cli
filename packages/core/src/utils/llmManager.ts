@@ -34,6 +34,16 @@ export interface LLMState {
   tokensSaved: number;
   commandsHandledOffline: number;
   lastSaved: string;
+  sessions: SessionStats[];
+}
+
+export interface SessionStats {
+  id: string;
+  folder: string;
+  startedAt: string;
+  endedAt?: string;
+  tokensSaved: number;
+  commandsHandled: number;
 }
 
 const c = {
@@ -43,20 +53,29 @@ const c = {
 
 // ─── State Persistence ──────────────────────────────────────────────────────
 
+// Per-session counters (reset each launch)
+let sessionTokens = 0;
+let sessionCommands = 0;
+const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const sessionStartedAt = new Date().toISOString();
+const sessionFolder = process.cwd();
+
 function loadState(): LLMState {
   try {
     if (existsSync(STATE_FILE)) {
       return JSON.parse(readFileSync(STATE_FILE, "utf-8"));
     }
   } catch {}
-  return { offlineMode: false, disabled: [], tokensSaved: 0, commandsHandledOffline: 0, lastSaved: new Date().toISOString() };
+  return { offlineMode: false, disabled: [], tokensSaved: 0, commandsHandledOffline: 0, lastSaved: new Date().toISOString(), sessions: [] };
 }
 
-function saveState(state: LLMState): void {
+function saveState(s: LLMState): void {
   try {
     mkdirSync(USER_HOME, { recursive: true });
-    state.lastSaved = new Date().toISOString();
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    s.lastSaved = new Date().toISOString();
+    // Keep last 50 sessions
+    if (s.sessions.length > 50) s.sessions = s.sessions.slice(-50);
+    writeFileSync(STATE_FILE, JSON.stringify(s, null, 2));
   } catch {}
 }
 
@@ -144,7 +163,9 @@ export function formatStatus(): string {
 
   // Token savings
   lines.push("");
-  lines.push(`  ${c.cyan}Tokens saved:${c.reset} ~${formatTokens(state.tokensSaved)} (${state.commandsHandledOffline} commands handled offline)`);
+  lines.push(`  ${c.bold}This session:${c.reset} ~${formatTokens(sessionTokens)} tokens saved (${sessionCommands} commands)`);
+  lines.push(`  ${c.bold}All time:${c.reset}     ~${formatTokens(state.tokensSaved)} tokens saved (${state.commandsHandledOffline} commands)`);
+  lines.push(`  ${c.dim}Session: ${sessionId} | Folder: ${sessionFolder}${c.reset}`);
 
   return lines.join("\n");
 }
@@ -194,28 +215,49 @@ const AVG_TOKENS_PER_CALL = 700;
 export function recordOfflineCommand(): void {
   state.commandsHandledOffline++;
   state.tokensSaved += AVG_TOKENS_PER_CALL;
-  // Save periodically (every 10 commands)
+  sessionCommands++;
+  sessionTokens += AVG_TOKENS_PER_CALL;
   if (state.commandsHandledOffline % 10 === 0) saveState(state);
 }
 
-export function getTokensSaved(): { tokens: number; commands: number } {
-  return { tokens: state.tokensSaved, commands: state.commandsHandledOffline };
+export function getTokensSaved(): { session: { tokens: number; commands: number }; total: { tokens: number; commands: number } } {
+  return {
+    session: { tokens: sessionTokens, commands: sessionCommands },
+    total: { tokens: state.tokensSaved, commands: state.commandsHandledOffline },
+  };
 }
 
 export function formatTokensSaved(): string {
-  const { tokens, commands } = getTokensSaved();
-  if (commands === 0) return "";
-  return `${c.dim}~${formatTokens(tokens)} tokens saved (${commands} commands handled offline)${c.reset}`;
+  if (sessionCommands === 0 && state.commandsHandledOffline === 0) return "";
+  const lines: string[] = [];
+  if (sessionCommands > 0) {
+    lines.push(`${c.dim}This session: ~${formatTokens(sessionTokens)} tokens saved (${sessionCommands} commands)${c.reset}`);
+  }
+  lines.push(`${c.dim}All time: ~${formatTokens(state.tokensSaved)} tokens saved (${state.commandsHandledOffline} commands)${c.reset}`);
+  return lines.join("\n");
 }
 
 export function formatTokensSavedBrief(): string {
-  const { tokens, commands } = getTokensSaved();
-  if (commands === 0) return "";
-  return `${c.dim}Tokens saved: ~${formatTokens(tokens)}${c.reset}`;
+  if (sessionCommands === 0) return "";
+  return `${c.dim}Session: ~${formatTokens(sessionTokens)} saved | Total: ~${formatTokens(state.tokensSaved)}${c.reset}`;
 }
 
-// Save state on exit
+export function getSessionId(): string {
+  return sessionId;
+}
+
+// Save state on exit — record session stats
 export function saveOnExit(): void {
+  if (sessionCommands > 0) {
+    state.sessions.push({
+      id: sessionId,
+      folder: sessionFolder,
+      startedAt: sessionStartedAt,
+      endedAt: new Date().toISOString(),
+      tokensSaved: sessionTokens,
+      commandsHandled: sessionCommands,
+    });
+  }
   saveState(state);
 }
 
