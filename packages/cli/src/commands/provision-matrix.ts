@@ -1,24 +1,27 @@
 /**
  * Matrix server provisioner.
  *
+ * Cross-platform: Linux, macOS, Windows (native + WSL).
+ *
  * Full self-hosted Matrix setup:
- * 1. Check/install Docker
- * 2. Check/install nginx (reverse proxy)
+ * 1. Detect platform and adapt commands
+ * 2. Check/install Docker (Desktop on Win/Mac, engine on Linux)
  * 3. Ask: custom domain or server IP/reverse DNS
- * 4. If domain → install certbot, get Let's Encrypt SSL
- * 5. Configure nginx reverse proxy → Conduit
+ * 4. Check/install reverse proxy (nginx on Linux, skip on Win/Mac local)
+ * 5. If domain on Linux → Let's Encrypt SSL
  * 6. Deploy Matrix Conduit via Docker Compose
  * 7. Wait for server health
- * 8. Register openclaw-bot user
- * 9. Register human user
- * 10. Connect OpenClaw to Matrix
- * 11. Verify end-to-end
+ * 8. Register openclaw-bot + human user
+ * 9. Connect OpenClaw to Matrix
+ * 10. Verify end-to-end
  *
  * Every step has error handling. Failures suggest fixes.
  */
 
 import { execSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { platform as osPlatform, homedir } from "node:os";
+import { resolve } from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
@@ -26,6 +29,18 @@ const c = {
   reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",
   green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m",
 };
+
+type Platform = "linux" | "macos" | "windows" | "wsl";
+
+function detectPlatform(): Platform {
+  const p = osPlatform();
+  if (p === "win32") return "windows";
+  if (p === "darwin") return "macos";
+  // Check WSL
+  const release = tryExec("uname -r") ?? "";
+  if (release.toLowerCase().includes("microsoft")) return "wsl";
+  return "linux";
+}
 
 const CONDUIT_INTERNAL_PORT = 6167;
 const CONDUIT_EXTERNAL_PORT = 8448;
@@ -43,8 +58,17 @@ interface ProvisionState {
   errors: string[];
 }
 
+function getConduitDir(): string {
+  const p = detectPlatform();
+  if (p === "windows") return resolve(homedir(), ".notoken", "matrix-conduit");
+  if (p === "macos") return resolve(homedir(), ".notoken", "matrix-conduit");
+  return "/opt/matrix-conduit";
+}
+
 export async function provisionMatrix(): Promise<void> {
   const rl = readline.createInterface({ input, output });
+  const plat = detectPlatform();
+  const conduitDir = getConduitDir();
   const state: ProvisionState = {
     serverName: "matrix.local",
     domain: null,
@@ -108,24 +132,46 @@ export async function provisionMatrix(): Promise<void> {
 // ─── Step 1: Docker ─────────────────────────────────────────────────────────
 
 async function ensureDocker(rl: readline.Interface): Promise<boolean> {
+  const plat = detectPlatform();
   step("Checking Docker");
 
   if (tryExec("docker --version")) {
     pass("Docker installed");
 
-    // Check if daemon is running
     if (!tryExec("docker info --format '{{.ServerVersion}}'")) {
       warn("Docker daemon not running");
-      const start = await ask(rl, `  Start Docker? [Y/n] `);
-      if (/^n/i.test(start)) {
-        fail("Docker daemon required. Run: sudo systemctl start docker");
+
+      if (plat === "windows") {
+        fail("Start Docker Desktop from the Start menu, then try again.");
         return false;
-      }
-      if (!tryExec("sudo systemctl start docker")) {
-        fail("Could not start Docker. Try manually: sudo systemctl start docker");
+      } else if (plat === "macos") {
+        info("Trying to start Docker Desktop...");
+        tryExec("open -a Docker");
+        // Wait a bit for Docker Desktop to start
+        for (let i = 0; i < 10; i++) {
+          if (tryExec("docker info --format '{{.ServerVersion}}'")) break;
+          tryExec("sleep 3");
+        }
+        if (tryExec("docker info --format '{{.ServerVersion}}'")) {
+          pass("Docker Desktop started");
+        } else {
+          fail("Docker Desktop didn't start. Open it manually and try again.");
+          return false;
+        }
+      } else if (plat === "wsl") {
+        // In WSL, Docker Desktop should be running on Windows side
+        fail("Docker not responding. Make sure Docker Desktop is running on Windows.");
+        info("Enable WSL integration in Docker Desktop → Settings → Resources → WSL Integration");
         return false;
+      } else {
+        const start = await ask(rl, `  Start Docker? [Y/n] `);
+        if (/^n/i.test(start)) { fail("Docker daemon required"); return false; }
+        if (!tryExec("sudo systemctl start docker")) {
+          fail("Could not start Docker. Try: sudo systemctl start docker");
+          return false;
+        }
+        pass("Docker daemon started");
       }
-      pass("Docker daemon started");
     } else {
       pass("Docker daemon running");
     }
@@ -134,28 +180,64 @@ async function ensureDocker(rl: readline.Interface): Promise<boolean> {
 
   warn("Docker not installed");
   const install = await ask(rl, `  Install Docker? [Y/n] `);
-  if (/^n/i.test(install)) {
-    fail("Docker required for Matrix server");
-    return false;
-  }
+  if (/^n/i.test(install)) { fail("Docker required for Matrix server"); return false; }
 
-  info("Installing Docker (this may take a minute)...");
-  try {
-    execSync("curl -fsSL https://get.docker.com | sh", { stdio: "inherit", timeout: 180_000 });
-    execSync("sudo systemctl enable docker && sudo systemctl start docker", { stdio: "pipe", timeout: 30_000 });
-    tryExec("sudo usermod -aG docker $USER");
-    pass("Docker installed and running");
-    return true;
-  } catch {
-    fail("Docker install failed. Try manually: curl -fsSL https://get.docker.com | sh");
+  if (plat === "windows") {
+    info("Installing Docker Desktop...");
+    if (tryExec("winget install Docker.DockerDesktop")) {
+      pass("Docker Desktop installed. Start it from the Start menu, then run this again.");
+    } else {
+      fail("Download Docker Desktop from https://docker.com/products/docker-desktop");
+    }
     return false;
+  } else if (plat === "macos") {
+    info("Installing Docker Desktop via Homebrew...");
+    if (tryExec("brew install --cask docker")) {
+      info("Starting Docker Desktop...");
+      tryExec("open -a Docker");
+      for (let i = 0; i < 15; i++) {
+        if (tryExec("docker info --format '{{.ServerVersion}}'")) { pass("Docker ready"); return true; }
+        tryExec("sleep 3");
+      }
+      warn("Docker Desktop installed but may need manual start. Open it, then try again.");
+      return false;
+    } else {
+      fail("Download Docker Desktop from https://docker.com/products/docker-desktop");
+      return false;
+    }
+  } else if (plat === "wsl") {
+    fail("Install Docker Desktop on Windows and enable WSL integration.");
+    info("Download: https://docker.com/products/docker-desktop");
+    info("Then: Docker Desktop → Settings → Resources → WSL Integration → Enable");
+    return false;
+  } else {
+    info("Installing Docker Engine...");
+    try {
+      execSync("curl -fsSL https://get.docker.com | sh", { stdio: "inherit", timeout: 180_000 });
+      execSync("sudo systemctl enable docker && sudo systemctl start docker", { stdio: "pipe", timeout: 30_000 });
+      tryExec("sudo usermod -aG docker $USER");
+      pass("Docker installed and running");
+      return true;
+    } catch {
+      fail("Docker install failed. Try: curl -fsSL https://get.docker.com | sh");
+      return false;
+    }
   }
 }
 
 // ─── Step 2: Domain ─────────────────────────────────────────────────────────
 
 async function configureDomain(rl: readline.Interface, state: ProvisionState): Promise<void> {
+  const plat = detectPlatform();
   step("Server address");
+
+  // On Windows/Mac/WSL local — just use localhost
+  if (plat === "windows" || plat === "macos" || plat === "wsl") {
+    state.serverName = "localhost";
+    pass("Using localhost (local development mode)");
+    info("For production, run this on a Linux server with a domain.");
+    return;
+  }
 
   console.log(`  How should your Matrix server be reached?\n`);
   console.log(`  ${c.cyan}1${c.reset} Custom domain ${c.dim}— e.g., matrix.example.com (needs DNS pointing here)${c.reset}`);
@@ -212,7 +294,21 @@ async function configureDomain(rl: readline.Interface, state: ProvisionState): P
 // ─── Step 3: Reverse Proxy ──────────────────────────────────────────────────
 
 async function ensureReverseProxy(rl: readline.Interface, state: ProvisionState): Promise<void> {
+  const plat = detectPlatform();
   step("Reverse proxy");
+
+  // On Windows/Mac local development, skip reverse proxy
+  if ((plat === "windows" || plat === "macos") && !state.domain) {
+    info("Local setup — accessing Matrix directly on port " + CONDUIT_EXTERNAL_PORT);
+    info("For production with a domain, run this on a Linux server.");
+    return;
+  }
+
+  // On WSL without a domain, also skip
+  if (plat === "wsl" && !state.domain) {
+    info("WSL local setup — accessing Matrix via localhost:" + CONDUIT_EXTERNAL_PORT);
+    return;
+  }
 
   const hasNginx = !!tryExec("nginx -v 2>&1");
   const hasApache = !!tryExec("apache2 -v 2>&1") || !!tryExec("httpd -v 2>&1");
@@ -229,7 +325,24 @@ async function ensureReverseProxy(rl: readline.Interface, state: ProvisionState)
     return;
   }
 
-  console.log(`  No web server found. Install one for SSL and proper domain hosting.\n`);
+  if (plat === "macos") {
+    console.log(`\n  ${c.cyan}1${c.reset} nginx via Homebrew ${c.dim}— recommended${c.reset}`);
+    console.log(`  ${c.cyan}2${c.reset} Skip ${c.dim}— access directly on port ${CONDUIT_EXTERNAL_PORT}${c.reset}\n`);
+    const choice = await ask(rl, `  Choice [1-2]: `);
+    if (choice.trim() === "1") {
+      if (tryExec("brew install nginx")) {
+        tryExec("brew services start nginx");
+        state.reverseProxy = "nginx";
+        pass("nginx installed via Homebrew");
+      } else {
+        warn("nginx install failed. Install Homebrew first: https://brew.sh");
+      }
+    }
+    return;
+  }
+
+  // Linux
+  console.log(`  No web server found. Install one for SSL and domain hosting.\n`);
   console.log(`  ${c.cyan}1${c.reset} nginx ${c.dim}— recommended, lightweight${c.reset}`);
   console.log(`  ${c.cyan}2${c.reset} Apache`);
   console.log(`  ${c.cyan}3${c.reset} Skip ${c.dim}— access Matrix directly on port ${CONDUIT_EXTERNAL_PORT}${c.reset}\n`);
@@ -262,9 +375,23 @@ async function ensureReverseProxy(rl: readline.Interface, state: ProvisionState)
 // ─── Step 4: SSL ────────────────────────────────────────────────────────────
 
 async function configureSSL(rl: readline.Interface, state: ProvisionState): Promise<void> {
+  const plat = detectPlatform();
   step("SSL certificate");
 
   if (!state.domain) return;
+
+  // SSL via Let's Encrypt only works on Linux servers with public IPs
+  if (plat === "windows" || plat === "macos") {
+    info("Let's Encrypt requires a public server. For local dev, SSL is not needed.");
+    info("Deploy to a Linux server for production SSL.");
+    return;
+  }
+
+  if (plat === "wsl") {
+    info("Let's Encrypt requires a public-facing server, not WSL.");
+    info("Deploy to a Linux VPS for production SSL.");
+    return;
+  }
 
   const setupSSL = await ask(rl, `  Set up Let's Encrypt SSL for ${state.domain}? [Y/n] `);
   if (/^n/i.test(setupSSL)) {
@@ -311,9 +438,10 @@ async function configureSSL(rl: readline.Interface, state: ProvisionState): Prom
 // ─── Step 5: Deploy Conduit ─────────────────────────────────────────────────
 
 function deployConduit(state: ProvisionState): boolean {
+  const conduitDir = getConduitDir();
   step("Deploying Matrix Conduit");
 
-  mkdirSync(CONDUIT_DIR, { recursive: true });
+  mkdirSync(conduitDir, { recursive: true });
 
   // Write conduit.toml
   const toml = [
@@ -328,7 +456,7 @@ function deployConduit(state: ProvisionState): boolean {
     `trusted_servers = ["matrix.org"]`,
     `address = "0.0.0.0"`,
   ].join("\n");
-  writeFileSync(`${CONDUIT_DIR}/conduit.toml`, toml);
+  writeFileSync(`${conduitDir}/conduit.toml`, toml);
 
   // Write docker-compose.yml
   const listenPort = state.reverseProxy !== "none" ? "127.0.0.1:8448" : `0.0.0.0:${CONDUIT_EXTERNAL_PORT}`;
@@ -348,15 +476,15 @@ function deployConduit(state: ProvisionState): boolean {
     "volumes:",
     "  conduit-data:",
   ].join("\n");
-  writeFileSync(`${CONDUIT_DIR}/docker-compose.yml`, compose);
+  writeFileSync(`${conduitDir}/docker-compose.yml`, compose);
 
   // Stop existing if running
-  tryExec(`cd ${CONDUIT_DIR} && docker compose down 2>/dev/null`);
+  tryExec(`cd ${conduitDir} && docker compose down 2>/dev/null`);
 
   // Start
   info("Starting Matrix Conduit container...");
   try {
-    execSync(`cd ${CONDUIT_DIR} && docker compose up -d`, { stdio: "inherit", timeout: 120_000 });
+    execSync(`cd ${conduitDir} && docker compose up -d`, { stdio: "inherit", timeout: 120_000 });
     pass("Conduit container started");
     return true;
   } catch {
