@@ -609,6 +609,20 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
     lines.push(`  ${icon} ${c.bold}${e.engine}${c.reset} — ${status}${url}`);
   }
 
+  // Explain what's currently being used
+  const running = engines.find(e => e.running);
+  const installed = engines.find(e => e.installed && e.engine !== "docker");
+  lines.push("");
+  if (running) {
+    lines.push(`  ${c.bold}Currently using:${c.reset} ${c.green}${running.engine}${c.reset} (local, ${running.url})`);
+  } else if (installed) {
+    lines.push(`  ${c.bold}Currently using:${c.reset} ${c.yellow}${installed.engine} installed but stopped${c.reset} — will auto-start on generate`);
+  } else {
+    lines.push(`  ${c.bold}Currently using:${c.reset} ${c.cyan}Cloud API (Pollinations.ai)${c.reset} — free, no install needed`);
+    lines.push(`  ${c.dim}Powered by Stable Diffusion via Pollinations. Images are generated on their servers.${c.reset}`);
+    lines.push(`  ${c.dim}For private/offline generation, install a local engine above.${c.reset}`);
+  }
+
   lines.push(`\n  ${c.dim}Images saved to: ${OUTPUT_DIR}${c.reset}`);
   return lines.join("\n");
 }
