@@ -132,32 +132,128 @@ export async function runSetupOpenclaw(): Promise<void> {
         console.log(`  ${c.dim}Skipping. Configure later: openclaw configure --section model${c.reset}`);
     }
 
-    // ── Step 5: Telegram Bot ──
-    console.log(`\n${c.bold}[5/7] Telegram Bot (optional)${c.reset}`);
-    console.log(`  ${c.dim}To create a bot:${c.reset}`);
-    console.log(`  ${c.dim}1. Open https://t.me/BotFather${c.reset}`);
-    console.log(`  ${c.dim}2. Send /newbot${c.reset}`);
-    console.log(`  ${c.dim}3. Choose a name and username${c.reset}`);
-    console.log(`  ${c.dim}4. Copy the token it gives you${c.reset}`);
-    const telegramToken = await ask(rl, `\n  Telegram bot token (Enter to skip): `);
+    // ── Step 5: Chat Channels ──
+    console.log(`\n${c.bold}[5/7] Chat Channels${c.reset}`);
+    console.log(`  Which channels do you want to connect?\n`);
+    console.log(`  ${c.cyan}1${c.reset} Telegram ${c.dim}— bot token from @BotFather${c.reset}`);
+    console.log(`  ${c.cyan}2${c.reset} Discord ${c.dim}— bot token from Discord Developer Portal${c.reset}`);
+    console.log(`  ${c.cyan}3${c.reset} Matrix (self-hosted) ${c.dim}— sets up local Matrix server via Docker${c.reset}`);
+    console.log(`  ${c.cyan}4${c.reset} WhatsApp/Slack/other ${c.dim}— needs OAuth, will launch onboard wizard${c.reset}`);
+    console.log(`  ${c.cyan}5${c.reset} Skip for now\n`);
 
-    if (telegramToken.trim()) {
-      tryExec(`openclaw config set channels.telegram.enabled true --strict-json`);
-      tryExec(`openclaw config set channels.telegram.token --ref-provider default --ref-source env --ref-id TELEGRAM_BOT_TOKEN`);
-      tryExec(`openclaw config set env.vars.TELEGRAM_BOT_TOKEN "${telegramToken.trim()}"`);
-      console.log(`  ${c.green}✓${c.reset} Telegram configured`);
+    const channelChoice = await ask(rl, `  Choice [1-5]: `);
 
-      // Ask about DM policy
-      console.log(`\n  ${c.bold}Who can message your bot?${c.reset}`);
-      console.log(`  ${c.cyan}1${c.reset} Only me (private) ${c.dim}— recommended${c.reset}`);
-      console.log(`  ${c.cyan}2${c.reset} Anyone (open)`);
-      const dmChoice = await ask(rl, `  Choice [1-2]: `);
-      if (dmChoice.trim() === "2") {
-        tryExec(`openclaw config set channels.telegram.dmPolicy open`);
-      } else {
-        tryExec(`openclaw config set channels.telegram.dmPolicy closed`);
-        console.log(`  ${c.dim}Tip: After starting, pair your Telegram user with: openclaw pairing approve${c.reset}`);
+    switch (channelChoice.trim()) {
+      case "1": {
+        console.log(`\n  ${c.dim}To create a Telegram bot:${c.reset}`);
+        console.log(`  ${c.dim}1. Open https://t.me/BotFather${c.reset}`);
+        console.log(`  ${c.dim}2. Send /newbot${c.reset}`);
+        console.log(`  ${c.dim}3. Copy the token${c.reset}`);
+        const token = await ask(rl, `\n  Telegram bot token: `);
+        if (token.trim()) {
+          tryExec(`openclaw channels add --channel telegram --token "${token.trim()}" 2>/dev/null`);
+          tryExec(`openclaw config set channels.telegram.enabled true --strict-json`);
+          tryExec(`openclaw config set channels.telegram.dmPolicy closed`);
+          console.log(`  ${c.green}✓${c.reset} Telegram configured`);
+          console.log(`  ${c.dim}Tip: After starting, pair with: openclaw pairing approve${c.reset}`);
+        }
+        break;
       }
+      case "2": {
+        console.log(`\n  ${c.dim}Create a bot at https://discord.com/developers/applications${c.reset}`);
+        console.log(`  ${c.dim}1. New Application → Bot → Reset Token → Copy${c.reset}`);
+        console.log(`  ${c.dim}2. Enable MESSAGE CONTENT intent under Bot → Privileged Intents${c.reset}`);
+        const token = await ask(rl, `\n  Discord bot token: `);
+        if (token.trim()) {
+          tryExec(`openclaw channels add --channel discord --token "${token.trim()}" 2>/dev/null`);
+          tryExec(`openclaw config set channels.discord.enabled true --strict-json`);
+          console.log(`  ${c.green}✓${c.reset} Discord configured`);
+        }
+        break;
+      }
+      case "3": {
+        console.log(`\n  ${c.bold}Setting up local Matrix server (Conduit via Docker)...${c.reset}`);
+        const hasDocker = tryExec("docker --version");
+        if (!hasDocker) {
+          console.log(`  ${c.red}✗${c.reset} Docker required. Run: notoken install docker`);
+          break;
+        }
+
+        const matrixPort = await ask(rl, `  Matrix port [8448]: `) || "8448";
+        const serverName = await ask(rl, `  Server name [matrix.local]: `) || "matrix.local";
+        const botPassword = "openclaw-bot-" + Math.random().toString(36).slice(2, 10);
+
+        console.log(`  ${c.dim}Starting Conduit Matrix server...${c.reset}`);
+
+        // Create config
+        tryExec(`mkdir -p /opt/matrix-conduit`);
+        const toml = `[global]\nserver_name = "${serverName}"\ndatabase_backend = "rocksdb"\ndatabase_path = "/var/lib/matrix-conduit"\nport = 6167\nmax_request_size = 20000000\nallow_registration = true\nallow_federation = false\ntrusted_servers = ["matrix.org"]\naddress = "0.0.0.0"`;
+        execSync(`cat > /opt/matrix-conduit/conduit.toml << 'EOF'\n${toml}\nEOF`);
+
+        const compose = `services:\n  conduit:\n    image: matrixconduit/matrix-conduit:latest\n    container_name: matrix-conduit\n    restart: unless-stopped\n    ports:\n      - '${matrixPort}:6167'\n    volumes:\n      - conduit-data:/var/lib/matrix-conduit\n      - ./conduit.toml:/etc/conduit.toml:ro\n    environment:\n      CONDUIT_CONFIG: /etc/conduit.toml\nvolumes:\n  conduit-data:`;
+        execSync(`cat > /opt/matrix-conduit/docker-compose.yml << 'EOF'\n${compose}\nEOF`);
+
+        try {
+          execSync("cd /opt/matrix-conduit && docker compose up -d", { stdio: "inherit", timeout: 120_000 });
+
+          // Wait for server
+          console.log(`  ${c.dim}Waiting for Matrix server...${c.reset}`);
+          let ready = false;
+          for (let i = 0; i < 10; i++) {
+            const check = tryExec(`curl -sf http://localhost:${matrixPort}/_matrix/client/versions`);
+            if (check) { ready = true; break; }
+            execSync("sleep 2");
+          }
+
+          if (!ready) {
+            console.log(`  ${c.red}✗${c.reset} Matrix server didn't start. Check: docker logs matrix-conduit`);
+            break;
+          }
+
+          console.log(`  ${c.green}✓${c.reset} Matrix Conduit running on port ${matrixPort}`);
+
+          // Register bot user
+          const regResult = tryExec(`curl -sf -X POST http://localhost:${matrixPort}/_matrix/client/r0/register -H 'Content-Type: application/json' -d '{"username":"openclaw-bot","password":"${botPassword}","auth":{"type":"m.login.dummy"}}'`);
+
+          if (regResult) {
+            const reg = JSON.parse(regResult);
+            console.log(`  ${c.green}✓${c.reset} Bot registered: ${reg.user_id}`);
+
+            // Connect to OpenClaw
+            tryExec(`openclaw channels add --channel matrix --homeserver http://localhost:${matrixPort} --user-id '${reg.user_id}' --access-token '${reg.access_token}' --device-name 'OpenClaw Bot' 2>/dev/null`);
+            console.log(`  ${c.green}✓${c.reset} OpenClaw connected to Matrix`);
+
+            // Register a user account for the human
+            console.log(`\n  ${c.bold}Create your user account:${c.reset}`);
+            const myUsername = await ask(rl, `  Username: `);
+            const myPassword = await ask(rl, `  Password: `);
+            if (myUsername.trim() && myPassword.trim()) {
+              const userResult = tryExec(`curl -sf -X POST http://localhost:${matrixPort}/_matrix/client/r0/register -H 'Content-Type: application/json' -d '{"username":"${myUsername.trim()}","password":"${myPassword.trim()}","auth":{"type":"m.login.dummy"}}'`);
+              if (userResult) {
+                console.log(`  ${c.green}✓${c.reset} User @${myUsername.trim()}:${serverName} created`);
+                console.log(`\n  ${c.bold}To chat with your bot:${c.reset}`);
+                console.log(`  ${c.dim}1. Use Element (https://app.element.io)${c.reset}`);
+                console.log(`  ${c.dim}2. Homeserver: http://YOUR_SERVER_IP:${matrixPort}${c.reset}`);
+                console.log(`  ${c.dim}3. Log in as ${myUsername.trim()}${c.reset}`);
+                console.log(`  ${c.dim}4. Start a DM with @openclaw-bot:${serverName}${c.reset}`);
+              }
+            }
+          } else {
+            console.log(`  ${c.yellow}⚠${c.reset} Could not register bot. May need manual setup.`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`  ${c.red}✗${c.reset} Matrix setup failed: ${msg.split("\n")[0]}`);
+        }
+        break;
+      }
+      case "4": {
+        console.log(`\n  ${c.dim}WhatsApp, Slack, and other OAuth channels need interactive browser login.${c.reset}`);
+        console.log(`  ${c.dim}The onboard wizard in step 7 will handle this.${c.reset}`);
+        break;
+      }
+      default:
+        console.log(`  ${c.dim}Skipping. Add channels later: openclaw configure --section channels${c.reset}`);
     }
 
     // ── Step 6: Run doctor --fix ──
