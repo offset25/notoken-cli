@@ -30,51 +30,125 @@ const c = {
 };
 
 // Install paths — dynamically chosen based on available disk space
-function getBestInstallDir(): string {
-  const os = platform();
-  const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
 
-  if (isWSL) {
-    // In WSL, check mounted Windows drives for space
-    const drives = ["/mnt/d", "/mnt/e", "/mnt/f", "/mnt/g", "/mnt/h"];
-    for (const drive of drives) {
-      const free = getDriveFreeGB(drive);
-      if (free > 15) {
-        const dir = resolve(drive, "apps");
-        try { mkdirSync(dir, { recursive: true }); } catch {}
-        return dir;
-      }
-    }
-    // Check Linux root filesystem
-    const rootFree = getDriveFreeGB("/");
-    if (rootFree > 15) return homedir();
-    // Last resort
-    return homedir();
-  }
+export interface DriveInfo {
+  path: string;
+  freeGB: number;
+  totalGB: number;
+  usedPct: number;
+  mount: string;
+}
 
-  if (os === "win32") {
-    // Check non-C drives first
-    for (const letter of ["D", "E", "F", "G"]) {
-      const drive = `${letter}:\\`;
-      const free = getDriveFreeGB(drive);
-      if (free > 15) return resolve(drive, "apps");
-    }
-    return resolve(homedir(), "StableDiffusion");
-  }
-
-  // Linux/macOS — just use home
-  return homedir();
+export function getDriveInfo(path: string): DriveInfo | null {
+  try {
+    const output = execSync(`df -BG "${path}" 2>/dev/null | tail -1`, { encoding: "utf-8", timeout: 3000 });
+    const parts = output.trim().split(/\s+/);
+    if (parts.length < 6) return null;
+    const total = parseInt(parts[1]) || 0;
+    const free = parseInt(parts[3]) || 0;
+    const pct = parseInt(parts[4]) || 0;
+    return { path, freeGB: free, totalGB: total, usedPct: pct, mount: parts[parts.length - 1] };
+  } catch { return null; }
 }
 
 function getDriveFreeGB(path: string): number {
-  try {
-    const output = execSync(`df -BG "${path}" 2>/dev/null | tail -1`, { encoding: "utf-8", timeout: 3000 });
-    const match = output.match(/(\d+)G\s+\d+%/);
-    return match ? parseInt(match[1]) : 0;
-  } catch { return 0; }
+  return getDriveInfo(path)?.freeGB ?? 0;
 }
 
-const INSTALL_BASE = process.env.NOTOKEN_INSTALL_DIR ?? getBestInstallDir();
+export interface InstallDirChoice {
+  dir: string;
+  freeGB: number;
+  reasoning: string;
+  candidates: Array<{ path: string; freeGB: number; rejected?: string }>;
+}
+
+function chooseBestInstallDir(): InstallDirChoice {
+  const os = platform();
+  const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
+
+  const candidates: Array<{ path: string; freeGB: number; rejected?: string }> = [];
+  const MIN_GB = 15;
+
+  if (isWSL) {
+    // Check mounted Windows drives (skip C:)
+    for (const drive of ["/mnt/d", "/mnt/e", "/mnt/f", "/mnt/g", "/mnt/h", "/mnt/i"]) {
+      const free = getDriveFreeGB(drive);
+      if (free > 0) {
+        candidates.push({ path: resolve(drive, "apps"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
+      }
+    }
+    // Also check C: but mark it
+    const cFree = getDriveFreeGB("/mnt/c");
+    if (cFree > 0) candidates.push({ path: "/mnt/c/apps", freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free (system drive)` : "system drive — avoid" });
+    // Linux root
+    const rootFree = getDriveFreeGB("/");
+    candidates.push({ path: homedir(), freeGB: rootFree, rejected: rootFree < MIN_GB ? `only ${rootFree}GB free` : undefined });
+  } else if (os === "win32") {
+    for (const letter of ["D", "E", "F", "G", "H", "I"]) {
+      const drive = `${letter}:\\`;
+      const free = getDriveFreeGB(drive);
+      if (free > 0) candidates.push({ path: resolve(drive, "apps"), freeGB: free, rejected: free < MIN_GB ? `only ${free}GB free` : undefined });
+    }
+    const cFree = getDriveFreeGB("C:\\");
+    if (cFree > 0) candidates.push({ path: resolve("C:\\apps"), freeGB: cFree, rejected: "system drive — avoid" });
+    candidates.push({ path: resolve(homedir(), "StableDiffusion"), freeGB: cFree, rejected: cFree < MIN_GB ? `only ${cFree}GB free` : undefined });
+  } else {
+    // Linux/macOS
+    const homeFree = getDriveFreeGB(homedir());
+    candidates.push({ path: homedir(), freeGB: homeFree, rejected: homeFree < MIN_GB ? `only ${homeFree}GB free` : undefined });
+    // Check /opt if available
+    const optFree = getDriveFreeGB("/opt");
+    if (optFree > 0) candidates.push({ path: "/opt/notoken", freeGB: optFree, rejected: optFree < MIN_GB ? `only ${optFree}GB free` : undefined });
+  }
+
+  // Pick best: most free space that's not rejected
+  const viable = candidates.filter(c => !c.rejected).sort((a, b) => b.freeGB - a.freeGB);
+  if (viable.length > 0) {
+    const best = viable[0];
+    const rejected = candidates.filter(c => c.rejected);
+    let reasoning = `Chose ${best.path} (${best.freeGB}GB free)`;
+    if (rejected.length > 0) {
+      reasoning += `. Skipped: ${rejected.map(r => `${r.path} (${r.rejected})`).join(", ")}`;
+    }
+    return { dir: best.path, freeGB: best.freeGB, reasoning, candidates };
+  }
+
+  // No viable option — pick least bad
+  const sorted = candidates.sort((a, b) => b.freeGB - a.freeGB);
+  const best = sorted[0] ?? { path: homedir(), freeGB: 0 };
+  return {
+    dir: best.path,
+    freeGB: best.freeGB,
+    reasoning: `No drive with ${MIN_GB}GB+ free. Best available: ${best.path} (${best.freeGB}GB free)`,
+    candidates,
+  };
+}
+
+/** Resolve a user-specified path like "D drive", "F:", "/mnt/f", "/opt/mydir" */
+export function resolveUserPath(input: string): string | null {
+  const normalized = input.trim().toLowerCase();
+
+  // "D drive", "d:", "D:\\"
+  const driveMatch = normalized.match(/^([a-z])\s*(?:drive|:|\s|$)/i);
+  if (driveMatch) {
+    const letter = driveMatch[1].toUpperCase();
+    const os = platform();
+    const isWSL = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
+    if (isWSL) return `/mnt/${letter.toLowerCase()}/apps`;
+    if (os === "win32") return `${letter}:\\apps`;
+  }
+
+  // Absolute path
+  if (input.startsWith("/") || input.match(/^[A-Z]:\\/)) return input;
+
+  // "/mnt/d", "/mnt/f/mydir"
+  if (normalized.startsWith("/mnt/")) return input;
+
+  return null;
+}
+
+const _installChoice = chooseBestInstallDir();
+const INSTALL_BASE = process.env.NOTOKEN_INSTALL_DIR ?? _installChoice.dir;
 const SD_DIR = resolve(INSTALL_BASE, "stable-diffusion-webui");
 const COMFY_DIR = resolve(INSTALL_BASE, "ComfyUI");
 const FOOOCUS_DIR = resolve(INSTALL_BASE, "Fooocus");
@@ -700,16 +774,38 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     console.log(`${c.cyan}Step 0/${c.reset} WSL detected — installing inside WSL (GPU passthrough supported)`);
   }
 
-  // Check disk space before proceeding
+  // Show disk space reasoning
   {
-    const installFree = getDriveFreeGB(INSTALL_BASE);
-    console.log(`${c.cyan}Disk/${c.reset} Installing to: ${c.bold}${INSTALL_BASE}${c.reset} (${installFree}GB free)`);
-    if (installFree < 10) {
-      console.log(`${c.red}⚠ WARNING: Only ${installFree}GB free — need ~10GB for Stable Diffusion${c.reset}`);
-      if (installFree < 5) {
-        return { success: false, message: `${c.red}✗ Not enough disk space (${installFree}GB free, need 10GB).${c.reset}\n\n${c.dim}Free up space or specify a different location:\n  NOTOKEN_INSTALL_DIR=/mnt/d/apps notoken install stable-diffusion${c.reset}` };
+    const choice = chooseBestInstallDir();
+    const actualBase = process.env.NOTOKEN_INSTALL_DIR ?? choice.dir;
+    const actualFree = getDriveFreeGB(actualBase);
+
+    console.log(`${c.cyan}Disk/${c.reset} ${c.bold}Evaluating disk space...${c.reset}`);
+    for (const cand of choice.candidates) {
+      const icon = cand.rejected ? `${c.dim}✗${c.reset}` : `${c.green}✓${c.reset}`;
+      const note = cand.rejected ? ` ${c.dim}— ${cand.rejected}${c.reset}` : "";
+      console.log(`  ${icon} ${cand.path}: ${cand.freeGB}GB free${note}`);
+    }
+    console.log(`${c.cyan}     ${c.reset} ${c.dim}${choice.reasoning}${c.reset}`);
+    console.log(`${c.cyan}Disk/${c.reset} Installing to: ${c.bold}${actualBase}${c.reset} (${actualFree}GB free)`);
+
+    if (actualFree < 10) {
+      console.log(`${c.red}⚠ WARNING: Only ${actualFree}GB free — need ~10GB for Stable Diffusion${c.reset}`);
+      if (actualFree < 5) {
+        return {
+          success: false,
+          message: [
+            `${c.red}✗ Not enough disk space (${actualFree}GB free, need 10GB).${c.reset}`,
+            ``,
+            `${c.bold}To install on a different drive, say:${c.reset}`,
+            `  ${c.cyan}"install stable diffusion on F drive"${c.reset}`,
+            `  ${c.cyan}"install stable diffusion on /mnt/f"${c.reset}`,
+            `  Or set: ${c.dim}NOTOKEN_INSTALL_DIR=/mnt/f/apps notoken install stable-diffusion${c.reset}`,
+          ].join("\n"),
+        };
       }
     }
+    console.log(`${c.dim}To change location: "install stable diffusion on F drive"${c.reset}\n`);
   }
 
   // ── Linux / WSL / macOS — install prerequisites then engine ──
@@ -1090,6 +1186,22 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
     lines.push(`  ${c.dim}For private/offline generation, install a local engine above.${c.reset}`);
   }
 
+  // Docker data location warning
+  const dockerEngine = engines.find(e => e.engine === "docker" && e.installed);
+  if (dockerEngine) {
+    const dockerRoot = tryExec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'");
+    if (dockerRoot) {
+      const dockerDrive = getDriveInfo(dockerRoot);
+      if (dockerDrive) {
+        lines.push(`\n  ${c.dim}Docker data: ${dockerRoot} (${dockerDrive.mount} — ${dockerDrive.freeGB}GB free)${c.reset}`);
+        if (dockerDrive.freeGB < 10) {
+          lines.push(`  ${c.yellow}⚠ Docker drive is low on space!${c.reset}`);
+        }
+      }
+    }
+  }
+
   lines.push(`\n  ${c.dim}Images saved to: ${OUTPUT_DIR}${c.reset}`);
+  lines.push(`  ${c.dim}Install base: ${INSTALL_BASE}${c.reset}`);
   return lines.join("\n");
 }

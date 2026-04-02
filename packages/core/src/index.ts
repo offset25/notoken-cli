@@ -122,7 +122,8 @@ export {
 export {
   detectGpu, detectImageEngines, getBestImageEngine, generateImage,
   getInstallPlan, installImageEngine, formatImageEngineStatus,
-  type ImageEngine, type ImageEngineStatus, type GpuInfo, type GenerateResult,
+  getDriveInfo, resolveUserPath,
+  type ImageEngine, type ImageEngineStatus, type GpuInfo, type GenerateResult, type DriveInfo,
 } from "./utils/imageGen.js";
 
 // ── Project Scanner ──
