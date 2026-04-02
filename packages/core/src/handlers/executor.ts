@@ -15,6 +15,7 @@ import { smartRead, smartSearch } from "../utils/smartFile.js";
 import { pluginRegistry } from "../plugins/registry.js";
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
+import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
 
 /**
  * Generic command executor.
@@ -92,6 +93,27 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
       return result;
     }
+  }
+
+  // Knowledge lookup — Wikidata
+  if (intent.intent === "knowledge.lookup") {
+    // Extract the full topic from raw text, not the truncated field
+    const topic = intent.rawText
+      .replace(/^(what|who)\s+(is|are|was|were)\s+/i, "")
+      .replace(/^(tell\s+me\s+about|define|lookup|look\s+up|explain|info\s+about|information\s+about|facts\s+about|learn\s+about|whats\s+a|what\s+are)\s*/i, "")
+      .replace(/\?$/, "").trim()
+      || ((fields.topic as string) ?? "");
+    command = `[wiki-lookup] ${topic}`;
+    const wikiResult = await searchWikidata(topic);
+    if (wikiResult.found && wikiResult.entity) {
+      result = formatWikiEntity(wikiResult.entity);
+    } else if (wikiResult.suggestions?.length) {
+      result = formatWikiSuggestions(wikiResult.suggestions);
+    } else {
+      result = `No information found for "${topic}"`;
+    }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: wikiResult.found });
+    return result;
   }
 
   // Image generation — natural language to image

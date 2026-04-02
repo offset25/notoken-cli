@@ -97,6 +97,12 @@ export {
   type BackupInfo,
 } from "./utils/sessionBackup.js";
 
+// ── Wikidata Knowledge Base ──
+export {
+  searchWikidata, lookupUnknownNouns, formatWikiEntity, formatWikiSuggestions,
+  type WikiEntity, type WikiLookupResult,
+} from "./nlp/wikidata.js";
+
 // ── Image Generation ──
 export {
   detectGpu, detectImageEngines, getBestImageEngine, generateImage,
