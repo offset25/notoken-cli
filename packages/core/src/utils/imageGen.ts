@@ -175,14 +175,23 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
     };
   }
 
-  // If installed but not running, tell user to start it
+  // If installed but not running — auto-start it, wait, then generate
   if (engine.installed && !engine.running) {
-    return {
-      success: false,
-      engine: engine.engine,
-      prompt,
-      message: formatStartMessage(engine),
-    };
+    const started = await autoStartEngine(engine);
+    if (!started) {
+      return {
+        success: false,
+        engine: engine.engine,
+        prompt,
+        message: formatStartMessage(engine),
+      };
+    }
+    // Re-detect to get the URL
+    const refreshed = detectImageEngines().find(e => e.engine === engine.engine);
+    if (refreshed?.running) {
+      engine.running = true;
+      engine.url = refreshed.url;
+    }
   }
 
   // Engine is running — generate via API
@@ -191,16 +200,99 @@ export async function generateImage(prompt: string): Promise<GenerateResult> {
   }
 
   if (engine.engine === "comfyui") {
-    return {
-      success: false,
-      engine: "comfyui",
-      prompt,
-      message: `${c.cyan}ComfyUI${c.reset} is running at ${c.bold}http://localhost:8188${c.reset}\n\nOpen the web UI to generate images using node-based workflows.\nPaste your prompt there: ${c.bold}${prompt}${c.reset}`,
-    };
+    return generateViaAuto1111(prompt, engine.url ?? "http://localhost:8188");
   }
 
   return { success: false, prompt, message: formatNoEngineMessage(prompt) };
 }
+
+// ─── Auto-Start ────────────────────────────────────────────────────────────
+
+async function autoStartEngine(engine: ImageEngineStatus): Promise<boolean> {
+  try {
+    if (engine.engine === "auto1111" && engine.path) {
+      console.error(`${c.dim}Starting Stable Diffusion...${c.reset}`);
+      // Launch in background — detached so it survives this process
+      const { spawn } = await import("node:child_process");
+      const child = spawn("bash", [resolve(engine.path, "webui.sh"), "--api", "--listen"], {
+        cwd: engine.path,
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      return waitForReady("http://localhost:7860/sdapi/v1/sd-models", 120);
+    }
+
+    if (engine.engine === "comfyui" && engine.path) {
+      console.error(`${c.dim}Starting ComfyUI...${c.reset}`);
+      const { spawn } = await import("node:child_process");
+      const child = spawn("python3", ["main.py", "--listen"], {
+        cwd: engine.path,
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      return waitForReady("http://localhost:8188/system_stats", 90);
+    }
+
+    if (engine.engine === "fooocus" && engine.path) {
+      console.error(`${c.dim}Starting Fooocus...${c.reset}`);
+      const { spawn } = await import("node:child_process");
+      const child = spawn("python3", ["entry_with_update.py"], {
+        cwd: engine.path,
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      // Fooocus doesn't have a reliable API — just wait a bit
+      await sleep(15000);
+      return true;
+    }
+
+    if (engine.engine === "docker") {
+      console.error(`${c.dim}Starting Docker SD container...${c.reset}`);
+      const gpu = detectGpu();
+      const gpuFlag = gpu.hasNvidia ? "--gpus all" : "";
+      const envFlag = gpu.cpuOnly ? "-e COMMANDLINE_ARGS='--use-cpu all --skip-torch-cuda-test --no-half'" : "";
+      tryExec(`docker start sd-webui 2>/dev/null`) ??
+        tryExec(`docker run -d ${gpuFlag} -p 7860:7860 --name sd-webui ${envFlag} ghcr.io/ai-dock/stable-diffusion-webui:latest`);
+      return waitForReady("http://localhost:7860/sdapi/v1/sd-models", 120);
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForReady(url: string, timeoutSeconds: number): Promise<boolean> {
+  const start = Date.now();
+  const deadline = start + timeoutSeconds * 1000;
+  let dots = 0;
+
+  while (Date.now() < deadline) {
+    const check = tryExec(`curl -sf --max-time 2 "${url}" 2>/dev/null`, 3000);
+    if (check) {
+      console.error(`${c.green}✓${c.reset} Ready! (${((Date.now() - start) / 1000).toFixed(0)}s)`);
+      return true;
+    }
+    dots++;
+    if (dots % 5 === 0) {
+      const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+      console.error(`${c.dim}  Waiting for engine to start... (${elapsed}s)${c.reset}`);
+    }
+    await sleep(3000);
+  }
+
+  console.error(`${c.yellow}⚠${c.reset} Timed out waiting for engine after ${timeoutSeconds}s`);
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ─── API Generation ────────────────────────────────────────────────────────
 
 async function generateViaAuto1111(prompt: string, baseUrl: string): Promise<GenerateResult> {
   try {
