@@ -1037,13 +1037,17 @@
         "ls",
         "show files",
         "directory listing",
-        "what files"
+        "what files",
+        "do an ls",
+        "what is in this folder",
+        "what's here",
+        "show directory"
       ],
       "fields": {
         "path": {
           "type": "string",
           "required": false,
-          "default": "/var/log"
+          "default": "."
         },
         "environment": {
           "type": "environment",
@@ -3915,6 +3919,97 @@
         "convex deploy",
         "convex run"
       ]
+    },
+
+    {
+      "name": "project.scan",
+      "description": "Scan for software projects in a directory",
+      "synonyms": ["scan projects", "what projects", "find projects", "check what projects", "scan for projects", "check projects", "project scan"],
+      "fields": {
+        "path": { "type": "string", "required": false, "default": "." }
+      },
+      "command": "echo '=== Scanning for projects ===' && find {{path}} -maxdepth 3 \\( -name 'package.json' -o -name 'Cargo.toml' -o -name 'go.mod' -o -name 'requirements.txt' -o -name 'pyproject.toml' -o -name 'Gemfile' -o -name 'pom.xml' -o -name 'build.gradle' -o -name 'composer.json' -o -name '*.sln' -o -name '*.csproj' -o -name 'Dockerfile' -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \\) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' -not -path '*/target/*' 2>/dev/null | sort",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "scan for projects",
+        "what projects are on here",
+        "check what projects are in this folder",
+        "find projects"
+      ]
+    },
+    {
+      "name": "project.info",
+      "description": "Show info about the current project (type, deps, scripts)",
+      "synonyms": ["project info", "what project is this", "what kind of project", "project type", "what framework", "what stack"],
+      "fields": {
+        "path": { "type": "string", "required": false, "default": "." }
+      },
+      "command": "echo '=== Project Info ===' && ls {{path}}/package.json 2>/dev/null && echo 'Node.js project' && cat {{path}}/package.json 2>/dev/null | head -20 || ls {{path}}/Cargo.toml 2>/dev/null && echo 'Rust project' || ls {{path}}/go.mod 2>/dev/null && echo 'Go project' || ls {{path}}/requirements.txt 2>/dev/null && echo 'Python project' || ls {{path}}/composer.json 2>/dev/null && echo 'PHP project' || echo 'Unknown project type'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what project is this",
+        "project info",
+        "what framework is this"
+      ]
+    },
+    {
+      "name": "openclaw.start",
+      "description": "Start the OpenClaw gateway",
+      "synonyms": ["start openclaw", "openclaw start", "start gateway", "openclaw gateway", "run openclaw"],
+      "fields": {},
+      "command": "openclaw gateway --verbose",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["start openclaw", "run the gateway", "openclaw start"]
+    },
+    {
+      "name": "openclaw.stop",
+      "description": "Stop the OpenClaw gateway",
+      "synonyms": ["stop openclaw", "openclaw stop", "stop gateway", "kill openclaw"],
+      "fields": {},
+      "command": "pkill -f 'openclaw gateway' 2>/dev/null && echo 'Gateway stopped' || echo 'Gateway not running'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": ["stop openclaw", "stop the gateway"]
+    },
+    {
+      "name": "openclaw.restart",
+      "description": "Restart the OpenClaw gateway",
+      "synonyms": ["restart openclaw", "openclaw restart", "restart gateway", "bounce openclaw"],
+      "fields": {},
+      "command": "pkill -f 'openclaw gateway' 2>/dev/null; sleep 1; openclaw gateway --verbose &",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": ["restart openclaw", "restart the gateway"]
+    },
+    {
+      "name": "openclaw.status",
+      "description": "Check OpenClaw gateway status and channels",
+      "synonyms": ["openclaw status", "openclaw check", "is openclaw running", "check openclaw", "gateway status"],
+      "fields": {},
+      "command": "echo '=== OpenClaw Status ===' && openclaw --version 2>&1 && echo '' && openclaw channels status 2>&1 && echo '' && openclaw channels list 2>&1 || echo 'OpenClaw not available'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["openclaw status", "is openclaw running", "check openclaw"]
+    },
+    {
+      "name": "openclaw.doctor",
+      "description": "Run OpenClaw doctor to diagnose and fix issues",
+      "synonyms": ["openclaw doctor", "fix openclaw", "diagnose openclaw", "openclaw fix"],
+      "fields": {},
+      "command": "openclaw doctor --fix 2>&1 || echo 'OpenClaw not available — run: notoken setup openclaw'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["openclaw doctor", "fix openclaw", "diagnose openclaw"]
     }
   ]
 }

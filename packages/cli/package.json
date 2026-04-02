@@ -1,6 +1,6 @@
 {
   "name": "notoken",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "description": "Token-free terminal assistant — NLP-based server operations CLI",
   "type": "module",
   "license": "MIT",

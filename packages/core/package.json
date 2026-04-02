@@ -1,6 +1,6 @@
 {
   "name": "notoken-core",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Shared engine for notoken — NLP parsing, execution, detection, analysis",
   "type": "module",
   "license": "MIT",
