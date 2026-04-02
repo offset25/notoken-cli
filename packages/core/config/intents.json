@@ -151,7 +151,7 @@
     },
     {
       "name": "server.uptime",
-      "description": "Check server uptime and load",
+      "description": "Check server uptime, load, and top processes with analysis",
       "synonyms": [
         "uptime",
         "load",
@@ -160,23 +160,38 @@
         "server load",
         "server seems sluggish",
         "server seems slow",
-        "figure out why"
+        "figure out why",
+        "how long has the server been running",
+        "how long has this been running",
+        "what is the load",
+        "what is the load on my server",
+        "check server load",
+        "server status",
+        "is the server ok",
+        "is the server healthy",
+        "system load",
+        "how busy is the server",
+        "server health",
+        "check my server"
       ],
       "fields": {
         "environment": {
           "type": "environment",
           "required": false,
-          "default": "dev"
+          "default": "local"
         }
       },
-      "command": "uptime && echo '' && nproc && echo '' && cat /proc/loadavg && echo '' && ps aux --sort=-%cpu | head -6",
-      "execution": "remote",
+      "command": "echo '=== Uptime ===' && uptime && echo '' && echo '=== CPUs ===' && nproc && echo '' && echo '=== Load ===' && cat /proc/loadavg 2>/dev/null && echo '' && echo '=== Memory ===' && free -h 2>/dev/null && echo '' && echo '=== Top Processes (by CPU) ===' && ps aux --sort=-%cpu | head -8 && echo '' && echo '=== Top Processes (by Memory) ===' && ps aux --sort=-%mem | head -6",
+      "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
       "examples": [
         "uptime on prod",
         "show load average on staging",
-        "how long has prod been up"
+        "how long has prod been up",
+        "what is the load on my server",
+        "how long has the server been running",
+        "check server health"
       ]
     },
     {
@@ -873,29 +888,42 @@
     },
     {
       "name": "cron.list",
-      "description": "List cron jobs on a server",
+      "description": "List all cron jobs — user crontab, system crons, and timers",
       "synonyms": [
         "cron",
         "crontab",
         "cron jobs",
         "scheduled tasks",
-        "list cron"
+        "list cron",
+        "check my crontabs",
+        "what crontabs are running",
+        "show my cron jobs",
+        "what crons do i have",
+        "check crontab",
+        "show scheduled tasks",
+        "what is scheduled",
+        "my crontabs",
+        "list crontabs",
+        "cron list",
+        "show crons"
       ],
       "fields": {
         "environment": {
           "type": "environment",
           "required": false,
-          "default": "dev"
+          "default": "local"
         }
       },
-      "command": "crontab -l 2>/dev/null && echo '\\nSystem crons:\\n' && ls -la /etc/cron.d/ 2>/dev/null",
-      "execution": "remote",
+      "command": "echo '=== User Crontab ===' && crontab -l 2>/dev/null || echo '(no user crontab)' && echo '' && echo '=== System Crons (/etc/cron.d/) ===' && ls -la /etc/cron.d/ 2>/dev/null || echo '(none)' && echo '' && echo '=== Cron Directories ===' && echo 'Hourly:' && ls /etc/cron.hourly/ 2>/dev/null || echo '  (empty)' && echo 'Daily:' && ls /etc/cron.daily/ 2>/dev/null || echo '  (empty)' && echo 'Weekly:' && ls /etc/cron.weekly/ 2>/dev/null || echo '  (empty)' && echo 'Monthly:' && ls /etc/cron.monthly/ 2>/dev/null || echo '  (empty)' && echo '' && echo '=== Systemd Timers ===' && systemctl list-timers --no-pager 2>/dev/null | head -20 || echo '(no systemd timers)'",
+      "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
       "examples": [
         "show cron jobs on prod",
         "list scheduled tasks on staging",
-        "what crons are running"
+        "what crons are running",
+        "check my crontabs",
+        "what crontabs do i have"
       ]
     },
     {
