@@ -650,10 +650,89 @@ async function runOnWindowsSide(cmd: string, cwd: string): Promise<void> {
   }
 }
 
-/** Run a command with streaming output and no timeout (for long pip installs) */
+/**
+ * Run a command with streaming output. For short commands, runs inline.
+ * For long commands (pip install torch), runs as detached background process
+ * with log file monitoring — survives parent process timeouts.
+ */
 async function runWithProgress(cmd: string, args: string[], cwd: string): Promise<void> {
   const { spawn: spawnAsync } = await import("node:child_process");
+  const isLongRunning = args.some(a => a.includes("torch") || a.includes("requirements"));
+  const logFile = resolve(USER_HOME, ".install-progress.log");
 
+  if (isLongRunning) {
+    // Long-running: spawn detached with log file, then poll for completion
+    console.error(`${c.dim}  Running in background (logging to ${logFile})...${c.reset}`);
+
+    // Write a shell script that runs the command and writes a status file
+    const statusFile = resolve(USER_HOME, ".install-status");
+    const script = `#!/bin/bash
+${cmd} ${args.map(a => `'${a}'`).join(" ")} > "${logFile}" 2>&1
+echo $? > "${statusFile}"
+`;
+    const scriptFile = resolve(USER_HOME, ".install-run.sh");
+    writeFileSync(scriptFile, script, { mode: 0o755 });
+
+    // Remove old status file
+    try { (await import("node:fs")).unlinkSync(statusFile); } catch {}
+
+    // Spawn detached — survives parent timeout
+    const child = spawnAsync("bash", [scriptFile], {
+      cwd,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    // Poll for completion by watching the status file
+    const startTime = Date.now();
+    const maxWait = 30 * 60 * 1000; // 30 minutes max
+
+    while (Date.now() - startTime < maxWait) {
+      await sleep(5000);
+
+      // Show latest log lines
+      try {
+        const log = readFileSync(logFile, "utf-8");
+        const lines = log.split("\n").filter(l => l.trim());
+        const recent = lines.slice(-3);
+        for (const line of recent) {
+          if (line.includes("Downloading") || line.includes("Installing") ||
+              line.includes("Collecting") || line.includes("Successfully") ||
+              line.includes("━") || line.includes("%") || line.includes("error")) {
+            process.stderr.write(`  ${c.dim}${line.trim()}${c.reset}\n`);
+          }
+        }
+      } catch {}
+
+      // Check if done
+      try {
+        if (existsSync(statusFile)) {
+          const exitCode = parseInt(readFileSync(statusFile, "utf-8").trim());
+          if (exitCode === 0) {
+            console.error(`${c.green}  ✓ Complete${c.reset}`);
+            return;
+          } else {
+            const log = readFileSync(logFile, "utf-8");
+            const lastLines = log.split("\n").filter(l => l.trim()).slice(-5).join("\n");
+            throw new Error(`Command failed (exit ${exitCode}): ${lastLines}`);
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Command failed")) throw err;
+      }
+
+      // Show elapsed time every 30s
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (elapsed % 30 === 0) {
+        console.error(`${c.dim}  Still working... (${elapsed}s elapsed)${c.reset}`);
+      }
+    }
+
+    throw new Error("Install timed out after 30 minutes");
+  }
+
+  // Short-running: inline with streaming output
   return new Promise((resolve, reject) => {
     const child = spawnAsync(cmd, args, {
       cwd,
@@ -666,7 +745,6 @@ async function runWithProgress(cmd: string, args: string[], cwd: string): Promis
       const lines = data.toString().split("\n").filter(l => l.trim());
       for (const line of lines) {
         lastLine = line;
-        // Show download progress, install lines, and curl progress
         if (line.includes("Downloading") || line.includes("Installing") ||
             line.includes("Collecting") || line.includes("Successfully") ||
             line.includes("━") || line.includes("error") || line.includes("ERROR") ||

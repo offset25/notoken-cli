@@ -65,11 +65,13 @@ let _cached: EntitiesConfig | null = null;
 export function loadEntities(forceReload = false): EntitiesConfig {
   if (_cached && !forceReload) return _cached;
 
-  // Try multiple paths
+  // Try multiple paths — monorepo + flat + cwd
   const paths = [
     CONFIG_PATH,
     resolve(process.cwd(), "config/entities.json"),
+    resolve(process.cwd(), "packages/core/config/entities.json"),
     resolve(import.meta.url.replace("file://", "").replace(/dist\/.*$/, ""), "config/entities.json"),
+    resolve(import.meta.url.replace("file://", "").replace(/src\/.*$/, ""), "config/entities.json"),
   ];
 
   for (const p of paths) {
