@@ -7452,6 +7452,74 @@
         "download codellama",
         "install phi3 model"
       ]
+    },
+    {
+      "name": "codex.status",
+      "description": "Check if OpenAI Codex CLI is installed and configured",
+      "synonyms": [
+        "codex status",
+        "is codex installed",
+        "check codex",
+        "codex setup",
+        "is codex working"
+      ],
+      "fields": {},
+      "command": "codex --version",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "codex status",
+        "is codex installed",
+        "check codex setup"
+      ]
+    },
+    {
+      "name": "codex.install",
+      "description": "Install OpenAI Codex CLI",
+      "synonyms": [
+        "install codex",
+        "setup codex",
+        "get codex",
+        "codex install"
+      ],
+      "fields": {},
+      "command": "npm install -g @openai/codex",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install codex",
+        "setup codex cli",
+        "get codex"
+      ]
+    },
+    {
+      "name": "codex.run",
+      "description": "Run a task with Codex CLI",
+      "synonyms": [
+        "codex run",
+        "ask codex",
+        "use codex for",
+        "codex do",
+        "run codex"
+      ],
+      "fields": {
+        "task": {
+          "type": "string",
+          "required": true,
+          "description": "task or prompt for codex"
+        }
+      },
+      "command": "codex \"{{task}}\"",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "codex run fix the tests",
+        "ask codex to refactor utils",
+        "use codex for adding types"
+      ]
     }
   ]
 }

@@ -38,7 +38,7 @@ export interface LLMFallbackResult {
  * Order: explicit config → auto-detect Ollama → nothing.
  */
 export function isLLMConfigured(): boolean {
-  return !!(process.env.NOTOKEN_LLM_ENDPOINT || process.env.NOTOKEN_LLM_CLI || detectOllama());
+  return !!(process.env.NOTOKEN_LLM_ENDPOINT || process.env.NOTOKEN_LLM_CLI || detectOllama() || detectCodex());
 }
 
 /** Which LLM backend is active? */
@@ -46,7 +46,23 @@ export function getLLMBackend(): string | null {
   if (process.env.NOTOKEN_LLM_CLI) return process.env.NOTOKEN_LLM_CLI;
   if (process.env.NOTOKEN_LLM_ENDPOINT) return "api";
   if (detectOllama()) return "ollama";
+  if (detectCodex()) return "codex";
   return null;
+}
+
+let codexChecked = false;
+let codexAvailable = false;
+
+function detectCodex(): boolean {
+  if (codexChecked) return codexAvailable;
+  codexChecked = true;
+  try {
+    execSync("command -v codex", { timeout: 1000, stdio: "pipe" });
+    codexAvailable = true;
+  } catch {
+    codexAvailable = false;
+  }
+  return codexAvailable;
 }
 
 let ollamaChecked = false;
@@ -93,6 +109,12 @@ export async function llmFallback(
     if (apiResult) return apiResult;
   }
 
+  // Try Codex (auto-detected local)
+  if (detectCodex()) {
+    const codexResult = await tryLLMCli(rawText, { ...context, _cli: "codex" });
+    if (codexResult) return codexResult;
+  }
+
   // Try Ollama (auto-detected local)
   if (detectOllama()) {
     const ollamaResult = await tryOllama(rawText, context);
@@ -120,6 +142,9 @@ async function tryLLMCli(
     } else if (cli === "chatgpt") {
       execSync("command -v chatgpt", { stdio: "pipe" });
       cmd = `chatgpt ${JSON.stringify(prompt)}`;
+    } else if (cli === "codex") {
+      execSync("command -v codex", { stdio: "pipe" });
+      cmd = `codex ${JSON.stringify(prompt)}`;
     } else {
       return null;
     }

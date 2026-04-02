@@ -20,6 +20,13 @@ const phrases = [
   // Openclaw message
   { input: "tell openclaw hello", expectedIntent: "openclaw.message", minConfidence: 0.8 },
   { input: "ask openclaw what can you do", expectedIntent: "openclaw.message", minConfidence: 0.8 },
+  // Codex CLI intents
+  { input: "codex status", expectedIntent: "codex.status", minConfidence: 0.8 },
+  { input: "is codex installed", expectedIntent: "codex.status", minConfidence: 0.7 },
+  { input: "check codex", expectedIntent: "codex.status", minConfidence: 0.7 },
+  { input: "install codex", expectedIntent: "codex.install", minConfidence: 0.8 },
+  { input: "setup codex", expectedIntent: "codex.install", minConfidence: 0.7 },
+  { input: "use codex for refactoring", expectedIntent: "codex.run", minConfidence: 0.7 },
   // Convex
   { input: "convex projects", expectedIntent: "convex.projects", minConfidence: 0.8 },
   { input: "talk to convex hello", expectedIntent: "convex.message", minConfidence: 0.8 },

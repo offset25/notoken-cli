@@ -159,15 +159,27 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const { getLLMBackend } = await import("../nlp/llmFallback.js");
     const switchMatch = intent.rawText.match(/(?:switch|change|use)\s+(?:notoken\s+(?:to\s+)?|(?:to\s+)?)(\S+)/i);
     const target = ((fields.model as string)?.trim() || switchMatch?.[1])?.toLowerCase();
-    if (target && ["claude","ollama","chatgpt"].includes(target)) {
-      process.env.MYCLI_LLM_CLI = target === "chatgpt" ? "" : target;
-      if (target === "chatgpt") process.env.MYCLI_LLM_ENDPOINT = "https://api.openai.com/v1/chat/completions";
-      else delete process.env.MYCLI_LLM_ENDPOINT;
-      return `\x1b[32m✓\x1b[0m Notoken now using: \x1b[1m${target}\x1b[0m\n\x1b[2mSet MYCLI_LLM_CLI=${target} to make permanent.\x1b[0m`;
+    if (target && ["claude","ollama","chatgpt","codex"].includes(target)) {
+      if (target === "codex") {
+        // Verify codex is installed
+        try { await runLocalCommand("codex --version"); } catch {
+          return `\x1b[31m✗ Codex CLI not found.\x1b[0m\n\x1b[2m  Install: "install codex" or npm install -g @openai/codex\x1b[0m`;
+        }
+        process.env.NOTOKEN_LLM_CLI = "codex";
+        delete process.env.NOTOKEN_LLM_ENDPOINT;
+      } else if (target === "chatgpt") {
+        process.env.NOTOKEN_LLM_CLI = "";
+        process.env.NOTOKEN_LLM_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+      } else {
+        process.env.NOTOKEN_LLM_CLI = target;
+        delete process.env.NOTOKEN_LLM_ENDPOINT;
+      }
+      return `\x1b[32m✓\x1b[0m Notoken now using: \x1b[1m${target}\x1b[0m\n\x1b[2mSet NOTOKEN_LLM_CLI=${target} to make permanent.\x1b[0m`;
     }
     const backend = getLLMBackend();
     const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1").catch(() => "");
-    return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n\n  \x1b[2mSwitch: "use claude" or "use ollama"\x1b[0m`;
+    const codexOk = await runLocalCommand("codex --version 2>/dev/null").catch(() => "");
+    return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n    ${codexOk ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m codex\n\n  \x1b[2mSwitch: "use claude", "use ollama", "use codex"\x1b[0m`;
   }
 
   // Ollama model management
@@ -279,6 +291,34 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     console.log(lines.join("\n"));
     console.log(`\n\x1b[2mPulling ${model}... this may take a few minutes.\x1b[0m`);
     result = await withSpinner(`Pulling ${model}...`, () => runLocalCommand(`ollama pull ${model} 2>&1`, 300_000));
+    return result;
+  }
+
+  // Codex CLI handlers
+  if (intent.intent === "codex.status") {
+    try {
+      const ver = await runLocalCommand("codex --version 2>&1");
+      const apiKey = process.env.OPENAI_API_KEY ? "\x1b[32m✓ OPENAI_API_KEY set\x1b[0m" : "\x1b[33m⚠ OPENAI_API_KEY not set\x1b[0m";
+      return `\x1b[32m✓\x1b[0m Codex CLI installed: \x1b[1m${ver.trim()}\x1b[0m\n  ${apiKey}`;
+    } catch {
+      return `\x1b[31m✗ Codex CLI not installed.\x1b[0m\n\x1b[2m  Install: "install codex" or npm install -g @openai/codex\x1b[0m`;
+    }
+  }
+  if (intent.intent === "codex.install") {
+    try { await runLocalCommand("codex --version"); return `\x1b[32m✓\x1b[0m Codex CLI already installed.`; } catch { /* continue */ }
+    console.log(`\x1b[2mInstalling Codex CLI...\x1b[0m`);
+    result = await withSpinner("Installing Codex CLI...", () => runLocalCommand("npm install -g @openai/codex 2>&1", 120_000));
+    const ver = await runLocalCommand("codex --version 2>&1").catch(() => "unknown");
+    return `\x1b[32m✓\x1b[0m Codex CLI installed: ${ver.trim()}\n\x1b[2m  Set OPENAI_API_KEY to use it.\x1b[0m`;
+  }
+  if (intent.intent === "codex.run") {
+    const task = (fields.task as string) ?? intent.rawText.replace(/^(?:codex|ask codex|use codex for|codex do|run codex)\s*/i, "").trim();
+    if (!task) return `\x1b[33mUsage: codex run <task>\x1b[0m\n\x1b[2m  Example: "ask codex to refactor this function"\x1b[0m`;
+    try { await runLocalCommand("codex --version"); } catch {
+      return `\x1b[31m✗ Codex CLI not found.\x1b[0m\n\x1b[2m  Install: "install codex"\x1b[0m`;
+    }
+    console.log(`\x1b[2mRunning Codex: "${task}"\x1b[0m`);
+    result = await withSpinner("Codex working...", () => runLocalCommand(`codex "${task.replace(/"/g, '\\"')}" 2>&1`, 120_000));
     return result;
   }
 
