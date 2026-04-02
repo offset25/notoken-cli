@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseByRules } from "../../../src/nlp/ruleParser.js";
+import { parseByRules } from "../../../packages/core/src/nlp/ruleParser.js";
 
 describe("parseByRules", () => {
   it("parses restart service with environment", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseIntent } from "../../../src/nlp/parseIntent.js";
+import { parseIntent } from "../../../packages/core/src/nlp/parseIntent.js";
 
 describe("parse → disambiguate pipeline", () => {
   it("parses and disambiguates a clear command", async () => {

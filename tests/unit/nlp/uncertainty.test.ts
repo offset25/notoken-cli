@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { analyzeUncertainty, getUncoveredSpans } from "../../../src/nlp/uncertainty.js";
-import { tokenize } from "../../../src/nlp/semantic.js";
+import { analyzeUncertainty, getUncoveredSpans } from "../../../packages/core/src/nlp/uncertainty.js";
+import { tokenize } from "../../../packages/core/src/nlp/semantic.js";
 
 const SERVICES = ["nginx", "redis", "api", "worker", "postgres"];
 const ENVS = ["dev", "staging", "prod", "local"];

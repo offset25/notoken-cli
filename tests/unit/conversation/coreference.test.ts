@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolveCoreferences, extractEntitiesFromFields } from "../../../src/conversation/coreference.js";
-import type { Conversation } from "../../../src/conversation/store.js";
+import { resolveCoreferences, extractEntitiesFromFields } from "../../../packages/core/src/conversation/coreference.js";
+import type { Conversation } from "../../../packages/core/src/conversation/store.js";
 
 function makeConv(turns: Array<{ rawText: string; intent?: string; fields?: Record<string, unknown> }>): Conversation {
   const conv: Conversation = {

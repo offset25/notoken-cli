@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fuzzyMatch } from "../../../src/nlp/semantic.js";
+import { fuzzyMatch } from "../../../packages/core/src/nlp/semantic.js";
 import typos from "../../data/fixtures/phrases/typo-phrases.json";
 
 const SERVICES = ["nginx", "redis", "api", "worker", "postgres"];

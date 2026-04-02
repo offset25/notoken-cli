@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { parsePasswd, getLoginUsers } from "../../../src/parsers/passwd.js";
-import { parseShadow } from "../../../src/parsers/shadow.js";
-import { parseEnvFile, generateEnvName, setEnvValue } from "../../../src/parsers/envFile.js";
-import { parseNginx } from "../../../src/parsers/nginxParser.js";
-import { parseApache } from "../../../src/parsers/apacheParser.js";
-import { parseYaml, getYamlValue, listYamlPaths } from "../../../src/parsers/yamlParser.js";
-import { parseJson, searchJsonKeys } from "../../../src/parsers/jsonParser.js";
-import { detectFileType } from "../../../src/parsers/index.js";
-import { findKnownLocations } from "../../../src/parsers/fileFinder.js";
+import { parsePasswd, getLoginUsers } from "../../../packages/core/src/parsers/passwd.js";
+import { parseShadow } from "../../../packages/core/src/parsers/shadow.js";
+import { parseEnvFile, generateEnvName, setEnvValue } from "../../../packages/core/src/parsers/envFile.js";
+import { parseNginx } from "../../../packages/core/src/parsers/nginxParser.js";
+import { parseApache } from "../../../packages/core/src/parsers/apacheParser.js";
+import { parseYaml, getYamlValue, listYamlPaths } from "../../../packages/core/src/parsers/yamlParser.js";
+import { parseJson, searchJsonKeys } from "../../../packages/core/src/parsers/jsonParser.js";
+import { detectFileType } from "../../../packages/core/src/parsers/index.js";
+import { findKnownLocations } from "../../../packages/core/src/parsers/fileFinder.js";
 
 describe("passwd parser", () => {
   const SAMPLE = `root:x:0:0:root:/root:/bin/bash

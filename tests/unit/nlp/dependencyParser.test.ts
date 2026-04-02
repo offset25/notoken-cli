@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize, parseDependencies } from "../../../src/nlp/semantic.js";
+import { tokenize, parseDependencies } from "../../../packages/core/src/nlp/semantic.js";
 
 const SERVICES = ["nginx", "redis", "api", "worker", "postgres"];
 const ENVS = ["dev", "staging", "prod", "local"];

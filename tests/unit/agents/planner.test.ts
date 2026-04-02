@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createPlan } from "../../../src/agents/planner.js";
+import { createPlan } from "../../../packages/core/src/agents/planner.js";
 
 describe("createPlan", () => {
   it("returns single step for simple commands", () => {

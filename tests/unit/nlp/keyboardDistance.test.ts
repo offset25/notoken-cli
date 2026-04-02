@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keyboardDistance, fuzzyMatch } from "../../../src/nlp/semantic.js";
+import { keyboardDistance, fuzzyMatch } from "../../../packages/core/src/nlp/semantic.js";
 
 describe("keyboardDistance", () => {
   it("returns 0 for identical strings", () => {

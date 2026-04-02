@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import type { ParsedCommand } from "../../../src/types/intent.js";
+import type { ParsedCommand } from "../../../packages/core/src/types/intent.js";
 
 export function assertValidParse(
   result: ParsedCommand,

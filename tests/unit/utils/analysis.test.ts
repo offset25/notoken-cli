@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyzeLoad, analyzeDisk, analyzeMemory } from "../../../src/utils/analysis.js";
+import { analyzeLoad, analyzeDisk, analyzeMemory } from "../../../packages/core/src/utils/analysis.js";
 
 describe("analyzeLoad", () => {
   it("detects healthy load", () => {

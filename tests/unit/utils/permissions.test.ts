@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getLocalPermissions, parsePermissionRequest, checkAccessForIntent, formatPermissionsDisplay } from "../../../src/utils/permissions.js";
+import { getLocalPermissions, parsePermissionRequest, checkAccessForIntent, formatPermissionsDisplay } from "../../../packages/core/src/utils/permissions.js";
 import { resolve } from "node:path";
 
 describe("getLocalPermissions", () => {
@@ -18,7 +18,7 @@ describe("getLocalPermissions", () => {
   });
 
   it("detects directories", () => {
-    const perms = getLocalPermissions(resolve(process.cwd(), "src"));
+    const perms = getLocalPermissions(resolve(process.cwd(), "packages"));
     expect(perms.exists).toBe(true);
     expect(perms.type).toBe("directory");
   });

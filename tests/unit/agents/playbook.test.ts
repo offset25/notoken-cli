@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadPlaybooks, getPlaybook, formatPlaybookList } from "../../../src/agents/playbookRunner.js";
+import { loadPlaybooks, getPlaybook, formatPlaybookList } from "../../../packages/core/src/agents/playbookRunner.js";
 
 describe("playbook system", () => {
   it("loads playbooks from config", () => {

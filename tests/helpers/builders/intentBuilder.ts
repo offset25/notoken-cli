@@ -1,4 +1,4 @@
-import type { DynamicIntent } from "../../../src/types/intent.js";
+import type { DynamicIntent } from "../../../packages/core/src/types/intent.js";
 
 export function buildIntent(overrides: Partial<DynamicIntent> = {}): DynamicIntent {
   return {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateIntent, isDangerous, getRiskLevel } from "../../../src/policy/safety.js";
+import { validateIntent, isDangerous, getRiskLevel } from "../../../packages/core/src/policy/safety.js";
 import { buildIntent } from "../../helpers/builders/intentBuilder.js";
 
 describe("validateIntent", () => {

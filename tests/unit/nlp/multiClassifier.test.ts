@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyMulti } from "../../../src/nlp/multiClassifier.js";
+import { classifyMulti } from "../../../packages/core/src/nlp/multiClassifier.js";
 
 describe("classifyMulti", () => {
   it("returns votes from multiple classifiers", () => {

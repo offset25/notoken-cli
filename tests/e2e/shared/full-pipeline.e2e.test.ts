@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
-const CLI = resolve(ROOT, "src/index.ts");
+const CLI = resolve(ROOT, "packages/cli/src/index.ts");
 
 function runCli(args: string): { stdout: string; exitCode: number } {
   try {

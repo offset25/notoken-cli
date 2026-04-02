@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { validatePatch } from "../../../src/healing/ruleValidator.js";
-import type { RulePatch } from "../../../src/types/rules.js";
+import { validatePatch } from "../../../packages/core/src/healing/ruleValidator.js";
+import type { RulePatch } from "../../../packages/core/src/types/rules.js";
 
 describe("ruleValidator integration", () => {
   it("accepts a valid patch", () => {

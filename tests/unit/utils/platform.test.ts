@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectLocalPlatform, getInstallCommand, getServiceCommand, getPackageForCommand } from "../../../src/utils/platform.js";
+import { detectLocalPlatform, getInstallCommand, getServiceCommand, getPackageForCommand } from "../../../packages/core/src/utils/platform.js";
 
 describe("detectLocalPlatform", () => {
   it("returns a valid platform object", () => {

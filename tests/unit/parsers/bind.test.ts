@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseZoneFile } from "../../../src/parsers/bindParser.js";
+import { parseZoneFile } from "../../../packages/core/src/parsers/bindParser.js";
 
 const SAMPLE_ZONE = `$TTL 86400
 $ORIGIN example.com.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getFileInfo, smartRead, smartSearch } from "../../../src/utils/smartFile.js";
+import { getFileInfo, smartRead, smartSearch } from "../../../packages/core/src/utils/smartFile.js";
 import { resolve } from "node:path";
 
 const ROOT = resolve(process.cwd());
@@ -18,9 +18,9 @@ describe("getFileInfo", () => {
   });
 
   it("detects large files correctly", async () => {
-    const info = await getFileInfo(resolve(ROOT, "config/intents.json"), false);
+    const info = await getFileInfo(resolve(ROOT, "packages/core/config/intents.json"), false);
     expect(info.exists).toBe(true);
-    // intents.json is ~1500 lines, should be flagged as big
+    // intents.json is ~4000 lines, should be flagged as big
     expect(info.isBig).toBe(true);
   });
 
@@ -32,7 +32,7 @@ describe("getFileInfo", () => {
 
 describe("smartRead", () => {
   it("shows full content for small files", async () => {
-    const output = await smartRead(resolve(ROOT, "tsconfig.json"), false);
+    const output = await smartRead(resolve(ROOT, "packages/core/tsconfig.json"), false);
     expect(output).toContain("tsconfig.json");
     expect(output).toContain("compilerOptions");
     // Should NOT have "Large file" warning
@@ -40,7 +40,7 @@ describe("smartRead", () => {
   });
 
   it("shows sample for large files", async () => {
-    const output = await smartRead(resolve(ROOT, "config/intents.json"), false);
+    const output = await smartRead(resolve(ROOT, "packages/core/config/intents.json"), false);
     expect(output).toContain("Large file");
     expect(output).toContain("First 30 lines");
     expect(output).toContain("Last 30 lines");
