@@ -142,7 +142,7 @@ Examples:
   notoken setup dev                               # set up dev environment
   notoken logs nginx                              # tail nginx logs
   notoken "restart nginx on prod" --dry-run       # NLP one-shot
-  MYCLI_LLM_CLI=claude notoken --adapt        # interactive + adapt
+  NOTOKEN_LLM_CLI=claude notoken --adapt        # interactive + adapt
 `);
 }
 

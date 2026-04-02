@@ -2,8 +2,8 @@
  * LLM fallback for unrecognized prompts.
  *
  * ONLY fires when an LLM is actually configured:
- * - MYCLI_LLM_ENDPOINT env var is set (for API), OR
- * - MYCLI_LLM_CLI=claude|chatgpt is set (for CLI tools)
+ * - NOTOKEN_LLM_ENDPOINT env var is set (for API), OR
+ * - NOTOKEN_LLM_CLI=claude|chatgpt is set (for CLI tools)
  *
  * Otherwise returns null immediately — no noise, no "trying fallback" messages.
  */
@@ -38,13 +38,13 @@ export interface LLMFallbackResult {
  * Order: explicit config → auto-detect Ollama → nothing.
  */
 export function isLLMConfigured(): boolean {
-  return !!(process.env.MYCLI_LLM_ENDPOINT || process.env.MYCLI_LLM_CLI || detectOllama());
+  return !!(process.env.NOTOKEN_LLM_ENDPOINT || process.env.NOTOKEN_LLM_CLI || detectOllama());
 }
 
 /** Which LLM backend is active? */
 export function getLLMBackend(): string | null {
-  if (process.env.MYCLI_LLM_CLI) return process.env.MYCLI_LLM_CLI;
-  if (process.env.MYCLI_LLM_ENDPOINT) return "api";
+  if (process.env.NOTOKEN_LLM_CLI) return process.env.NOTOKEN_LLM_CLI;
+  if (process.env.NOTOKEN_LLM_ENDPOINT) return "api";
   if (detectOllama()) return "ollama";
   return null;
 }
@@ -82,13 +82,13 @@ export async function llmFallback(
   if (!isLLMConfigured()) return null;
 
   // Try CLI tool if configured
-  if (process.env.MYCLI_LLM_CLI) {
+  if (process.env.NOTOKEN_LLM_CLI) {
     const cliResult = await tryLLMCli(rawText, context);
     if (cliResult) return cliResult;
   }
 
   // Try API endpoint if configured
-  if (process.env.MYCLI_LLM_ENDPOINT) {
+  if (process.env.NOTOKEN_LLM_ENDPOINT) {
     const apiResult = await tryApiEndpoint(rawText, context);
     if (apiResult) return apiResult;
   }
@@ -106,7 +106,7 @@ async function tryLLMCli(
   rawText: string,
   context: Record<string, unknown>
 ): Promise<LLMFallbackResult | null> {
-  const cli = process.env.MYCLI_LLM_CLI;
+  const cli = process.env.NOTOKEN_LLM_CLI;
   if (!cli) return null;
 
   try {
@@ -162,11 +162,11 @@ async function tryApiEndpoint(
   rawText: string,
   context: Record<string, unknown>
 ): Promise<LLMFallbackResult | null> {
-  const endpoint = process.env.MYCLI_LLM_ENDPOINT;
+  const endpoint = process.env.NOTOKEN_LLM_ENDPOINT;
   if (!endpoint) return null;
 
-  const apiKey = process.env.MYCLI_LLM_API_KEY ?? "";
-  const model = process.env.MYCLI_LLM_MODEL ?? "claude-sonnet-4-20250514";
+  const apiKey = process.env.NOTOKEN_LLM_API_KEY ?? "";
+  const model = process.env.NOTOKEN_LLM_MODEL ?? "claude-sonnet-4-20250514";
   const prompt = buildPrompt(rawText, context);
 
   try {
@@ -199,7 +199,7 @@ async function tryOllama(
   context: Record<string, unknown>
 ): Promise<LLMFallbackResult | null> {
   const prompt = buildPrompt(rawText, context);
-  const model = process.env.MYCLI_OLLAMA_MODEL ?? "llama3.2";
+  const model = process.env.NOTOKEN_OLLAMA_MODEL ?? "llama3.2";
 
   try {
     const response = await fetch("http://localhost:11434/api/generate", {

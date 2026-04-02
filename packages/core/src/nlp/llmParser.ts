@@ -7,13 +7,13 @@ import { loadRules } from "../utils/config.js";
  * LLM-based fallback parser.
  *
  * Sends the raw text + context to an LLM and asks for structured JSON.
- * Set MYCLI_LLM_ENDPOINT and optionally MYCLI_LLM_API_KEY in env.
+ * Set NOTOKEN_LLM_ENDPOINT and optionally NOTOKEN_LLM_API_KEY in env.
  */
 export async function parseByLLM(rawText: string): Promise<DynamicIntent | null> {
-  const endpoint = process.env.MYCLI_LLM_ENDPOINT;
+  const endpoint = process.env.NOTOKEN_LLM_ENDPOINT;
   if (!endpoint) return null;
 
-  const apiKey = process.env.MYCLI_LLM_API_KEY ?? "";
+  const apiKey = process.env.NOTOKEN_LLM_API_KEY ?? "";
   const rules = loadRules();
   const intents = loadIntents();
 
@@ -28,7 +28,7 @@ export async function parseByLLM(rawText: string): Promise<DynamicIntent | null>
         ...(apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey } : {}),
       },
       body: JSON.stringify({
-        model: process.env.MYCLI_LLM_MODEL ?? "claude-sonnet-4-20250514",
+        model: process.env.NOTOKEN_LLM_MODEL ?? "claude-sonnet-4-20250514",
         max_tokens: 512,
         messages: [
           { role: "system", content: systemPrompt },

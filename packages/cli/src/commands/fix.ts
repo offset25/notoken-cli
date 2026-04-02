@@ -59,7 +59,7 @@ const FIXERS: Record<string, { description: string; run: () => Promise<void> }> 
     description: "Fix common file permission issues",
     run: async () => {
       await step("Fixing ~/.ssh permissions", "chmod 700 ~/.ssh 2>/dev/null && chmod 600 ~/.ssh/* 2>/dev/null || echo 'No .ssh dir'");
-      await step("Fixing ~/.mycli permissions", "chmod -R 700 ~/.mycli 2>/dev/null || echo 'No .mycli dir'");
+      await step("Fixing ~/.notoken permissions", "chmod -R 700 ~/.notoken 2>/dev/null || echo 'No .notoken dir'");
       if (existsSync(".env")) {
         await step("Securing .env file", "chmod 600 .env");
       }

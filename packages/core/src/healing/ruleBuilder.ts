@@ -8,15 +8,15 @@ import { RulePatch as RulePatchSchema } from "../types/rules.js";
 export async function buildRulesFromExamples(
   examples: string[]
 ): Promise<RulePatch | null> {
-  const endpoint = process.env.MYCLI_LLM_ENDPOINT;
+  const endpoint = process.env.NOTOKEN_LLM_ENDPOINT;
   if (!endpoint) {
-    console.error("Set MYCLI_LLM_ENDPOINT to use the RuleBuilder.");
+    console.error("Set NOTOKEN_LLM_ENDPOINT to use the RuleBuilder.");
     return null;
   }
 
   const rules = loadRules();
   const intents = loadIntents();
-  const apiKey = process.env.MYCLI_LLM_API_KEY ?? "";
+  const apiKey = process.env.NOTOKEN_LLM_API_KEY ?? "";
 
   const intentList = intents.map((i) => `- ${i.name}: ${i.description}`).join("\n");
 
@@ -64,7 +64,7 @@ Rules:
         ...(apiKey ? { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey } : {}),
       },
       body: JSON.stringify({
-        model: process.env.MYCLI_LLM_MODEL ?? "claude-sonnet-4-20250514",
+        model: process.env.NOTOKEN_LLM_MODEL ?? "claude-sonnet-4-20250514",
         max_tokens: 1024,
         messages: [{ role: "user", content: prompt }],
       }),

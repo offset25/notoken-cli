@@ -363,12 +363,12 @@ export async function runDoctor(): Promise<void> {
 
   // ── Environment Variables ──
   section("Environment");
-  if (process.env.MYCLI_LLM_CLI) {
-    pass(`MYCLI_LLM_CLI=${process.env.MYCLI_LLM_CLI}`);
-  } else if (process.env.MYCLI_LLM_ENDPOINT) {
-    pass(`MYCLI_LLM_ENDPOINT set`);
+  if (process.env.NOTOKEN_LLM_CLI) {
+    pass(`NOTOKEN_LLM_CLI=${process.env.NOTOKEN_LLM_CLI}`);
+  } else if (process.env.NOTOKEN_LLM_ENDPOINT) {
+    pass(`NOTOKEN_LLM_ENDPOINT set`);
   } else {
-    info("No LLM configured (set MYCLI_LLM_CLI=claude for AI features)");
+    info("No LLM configured (set NOTOKEN_LLM_CLI=claude for AI features)");
   }
 
   if (process.env.ANTHROPIC_API_KEY) {

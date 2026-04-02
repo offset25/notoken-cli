@@ -12,7 +12,7 @@
  *
  * Usage:
  *   npx tsx src/healing/claudeHealer.ts [--promote] [--dry-run]
- *   MYCLI_LLM_CLI=claude npm run heal:claude
+ *   NOTOKEN_LLM_CLI=claude npm run heal:claude
  */
 
 import { execSync, execFileSync } from "node:child_process";
@@ -39,7 +39,7 @@ async function main() {
   try {
     execSync("command -v claude", { stdio: "pipe" });
   } catch {
-    console.error(`${c.red}Claude CLI not found. Install it or set MYCLI_LLM_CLI=claude.${c.reset}`);
+    console.error(`${c.red}Claude CLI not found. Install it or set NOTOKEN_LLM_CLI=claude.${c.reset}`);
     process.exit(1);
   }
 

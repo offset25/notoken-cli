@@ -535,7 +535,7 @@ ${c.bold}Other:${c.reset}
     case ":improve":
     case ":heal": {
       if (!isLLMConfigured()) {
-        console.log(`${c.red}No LLM configured. Set MYCLI_LLM_CLI=claude to enable.${c.reset}`);
+        console.log(`${c.red}No LLM configured. Set NOTOKEN_LLM_CLI=claude to enable.${c.reset}`);
         break;
       }
       console.log(`${c.dim}Improving rules via Claude...${c.reset}`);

@@ -1,14 +1,15 @@
 /**
  * Centralized path resolution.
  *
- * Single source of truth for all directory paths used by mycli.
- * Supports three modes:
- *   1. Development (tsx): src/utils/paths.ts → resolve("../..")
- *   2. npm package: dist/utils/paths.js → resolve("../..")
- *   3. SEA binary: embedded assets, writable dirs in ~/.mycli/
+ * Single source of truth for all directory paths used by notoken.
+ * Everything lives under ~/.notoken/
  *
- * Writable directories (data, logs) always go to ~/.mycli/ so they
- * work in all modes. Config is read-only and ships with the package.
+ * ~/.notoken/
+ *   data/              — history, sessions
+ *   logs/              — failures, uncertainty
+ *   backups/           — auto-backups before file modifications
+ *   conversations/     — conversation persistence
+ *   .update-check.json — update cache
  */
 
 import { resolve, dirname } from "node:path";
@@ -22,8 +23,6 @@ const __dirname = dirname(__filename);
 /** Whether running as a Node.js Single Executable Application */
 export function isSEA(): boolean {
   try {
-    // node:sea module only exists when running as a SEA binary
-    // Use globalThis to check for the injected fuse
     return !!(globalThis as Record<string, unknown>).__sea_resources__;
   } catch {
     return false;
@@ -36,9 +35,9 @@ export const PACKAGE_ROOT = resolve(__dirname, "../..");
 /** Read-only config directory (ships with the package) */
 export const CONFIG_DIR = resolve(PACKAGE_ROOT, "config");
 
-/** User data root — writable, lives in home directory */
+/** User home — everything writable lives here: ~/.notoken/ */
 export const USER_HOME = resolve(
-  process.env.MYCLI_DATA_DIR ?? resolve(homedir(), ".mycli")
+  process.env.NOTOKEN_HOME ?? resolve(homedir(), ".notoken")
 );
 
 /** Writable data directory (history, sessions) */
