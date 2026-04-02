@@ -76,6 +76,14 @@ export { createBackup, rollback, listBackups, cleanExpiredBackups, formatBackupL
 // ── Updates ──
 export { checkForUpdate, checkForUpdateSync, runUpdate, formatUpdateBanner, type UpdateInfo } from "./utils/updater.js";
 
+// ── LLM Manager ──
+export {
+  detectProviders, formatStatus, goOffline, goOnline, disableLLM, enableLLM,
+  isOfflineMode, isLLMDisabled, recordOfflineCommand, getTokensSaved,
+  formatTokensSaved, formatTokensSavedBrief, saveOnExit,
+  type LLMProvider, type LLMState,
+} from "./utils/llmManager.js";
+
 // ── Logging ──
 export { logFailure, loadFailures, clearFailures } from "./utils/logger.js";
 export { logUncertainty, loadUncertaintyLog, getUncertaintySummary } from "./nlp/uncertainty.js";
