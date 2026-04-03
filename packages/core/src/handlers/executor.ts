@@ -917,7 +917,48 @@ expect eof
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
     const targetEnv = ocTarget ?? (ocEnv?.inWSL ? "wsl" : (process.platform === "win32" ? "windows" : "wsl"));
 
-    // ── Windows host actions ──
+    // ── Native Windows actions (not WSL) — must come before WSL-to-Windows host block ──
+    const isNativeWin = process.platform === "win32" && !ocEnv?.inWSL;
+    if (isNativeWin) {
+      if (action === "stop" || action === "restart") {
+        await runLocalCommand(`powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | ForEach-Object { \\$_.Terminate() }" 2>/dev/null`).catch(() => "");
+        await runLocalCommand("sleep 2").catch(() => "");
+        if (action === "stop") {
+          const check = await runLocalCommand(`powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | Select-Object ProcessId" 2>/dev/null`).catch(() => "");
+          return check && /\d+/.test(check)
+            ? `${cc.yellow}⚠ Gateway may still be running.${cc.reset}`
+            : `${cc.green}✓${cc.reset} OpenClaw gateway stopped.`;
+        }
+      }
+
+      if (action === "start" || action === "restart") {
+        const ocPath = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
+        const ocEntry = ocPath ? `${ocPath}\\node_modules\\openclaw\\dist\\index.js` : "openclaw";
+        const userHome = process.env.USERPROFILE || "";
+        const ocConfigBash = `$(cygpath '${userHome}\\.openclaw\\openclaw.json')`;
+        const ocConfig = await runLocalCommand(`cat "${ocConfigBash}" 2>/dev/null || echo '{}'`).catch(() => "{}");
+        const isOllamaModel = ocConfig.includes('"ollama/');
+        const envVars = isOllamaModel ? '$env:OLLAMA_API_KEY="ollama-local"; $env:OLLAMA_HOST="http://localhost:11434"; ' : "";
+
+        await runLocalCommand(
+          `powershell -Command "${envVars}Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`
+        ).catch(() => "");
+
+        let healthy = false;
+        for (let i = 0; i < 10; i++) {
+          await runLocalCommand("sleep 1").catch(() => {});
+          const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (health.includes('"ok"')) { healthy = true; break; }
+        }
+
+        const modelName = ocConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1] ?? "unknown";
+        return healthy
+          ? `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`
+          : `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
+      }
+    }
+
+    // ── Windows host actions (from WSL) ──
     if (targetEnv === "windows" || targetEnv === "both") {
       if (!ocEnv?.inWSL) {
         if (targetEnv === "windows") return `${cc.yellow}⚠ Not in WSL — can't target Windows host.${cc.reset}`;
@@ -968,57 +1009,6 @@ expect eof
             ? `${winLabel}${cc.green}✓${cc.reset} ${action}ed — model: ${winModel}`
             : `${winLabel}${cc.yellow}⚠${cc.reset} ${action}ing but not healthy yet`);
         }
-      }
-    }
-
-    // ── Native Windows actions (not WSL) ──
-    const isNativeWin = process.platform === "win32" && !ocEnv?.inWSL;
-    if (isNativeWin) {
-      if (action === "stop" || action === "restart") {
-        await runLocalCommand(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Stop-Process -Force" 2>/dev/null`).catch(() => "");
-        await runLocalCommand("sleep 2").catch(() => "");
-        if (action === "stop") {
-          const check = await runLocalCommand(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Select-Object Id" 2>/dev/null`).catch(() => "");
-          return check && /\d+/.test(check)
-            ? `${cc.yellow}⚠ Gateway may still be running.${cc.reset}`
-            : `${cc.green}✓${cc.reset} OpenClaw gateway stopped.`;
-        }
-      }
-
-      if (action === "start" || action === "restart") {
-        // Find openclaw entry point
-        const ocPath = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
-        const ocEntry = ocPath
-          ? `${ocPath}\\node_modules\\openclaw\\dist\\index.js`
-          : (await runLocalCommand("which openclaw 2>/dev/null").catch(() => "openclaw")).trim();
-
-        // Read config for model info
-        const userProfile = process.env.USERPROFILE || "C:\\Users\\Default";
-        const ocConfigPath = `${userProfile}\\.openclaw\\openclaw.json`;
-        const ocConfigBash = `$(cygpath '${ocConfigPath}')`;
-        const ocConfig = await runLocalCommand(`cat "${ocConfigBash}" 2>/dev/null || echo '{}'`).catch(() => "{}");
-        const isOllamaModel = ocConfig.includes('"ollama/');
-
-        // Start gateway via PowerShell (handles spaces in paths)
-        const envVars = isOllamaModel ? '$env:OLLAMA_API_KEY="ollama-local"; $env:OLLAMA_HOST="http://localhost:11434"; ' : "";
-        await runLocalCommand(
-          `powershell -Command "${envVars}Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`
-        ).catch(() => "");
-
-        // Wait for health
-        let healthy = false;
-        for (let i = 0; i < 10; i++) {
-          await runLocalCommand("sleep 1").catch(() => {});
-          const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
-          if (health.includes('"ok"')) { healthy = true; break; }
-        }
-
-        const modelName = ocConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1] ?? "unknown";
-
-        if (healthy) {
-          return `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`;
-        }
-        return `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
       }
     }
 
