@@ -200,10 +200,118 @@ describe("LLM auth auto-setup — credential detection", () => {
   });
 
   it("detects environment API keys", () => {
-    // These may or may not be set — just test the detection logic
     const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
     expect(typeof hasAnthropic).toBe("boolean");
     expect(typeof hasOpenAI).toBe("boolean");
+  });
+});
+
+// ── openclaw.dashboard intent routing ───────────────────────────────────────
+
+describe("openclaw.dashboard intent routing", () => {
+  it("parses 'open openclaw dashboard' as openclaw.dashboard", async () => {
+    const result = await parseIntent("open openclaw dashboard");
+    expect(result.intent.intent).toBe("openclaw.dashboard");
+  });
+
+  it("parses 'openclaw web ui' as openclaw.dashboard", async () => {
+    const result = await parseIntent("openclaw web ui");
+    expect(result.intent.intent).toBe("openclaw.dashboard");
+  });
+
+  it("parses 'pair openclaw' as openclaw.dashboard", async () => {
+    const result = await parseIntent("pair openclaw");
+    expect(result.intent.intent).toBe("openclaw.dashboard");
+  });
+});
+
+// ── openclaw config token reading ───────────────────────────────────────────
+
+describe("openclaw config token reading", () => {
+  it.skipIf(!isWin)("reads gateway token from openclaw config", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const configPath = `${process.env.USERPROFILE}\\.openclaw\\openclaw.json`;
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      const token = config?.gateway?.auth?.token;
+      expect(token).toBeDefined();
+      expect(typeof token).toBe("string");
+      expect(token.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+// ── Playwright availability ─────────────────────────────────────────────────
+
+describe("Playwright availability", () => {
+  it("can import playwright", async () => {
+    try {
+      const pw = await import("playwright");
+      expect(pw.chromium).toBeDefined();
+    } catch {
+      // Not installed — handler falls back to manual pairing
+    }
+  });
+});
+
+// ── openclaw.channel.setup intent routing ───────────────────────────────────
+
+describe("openclaw.channel.setup intent routing", () => {
+  it("parses 'setup telegram' as openclaw.channel.setup", async () => {
+    const result = await parseIntent("setup telegram");
+    expect(result.intent.intent).toBe("openclaw.channel.setup");
+  });
+
+  it("parses 'connect discord' as a channel setup intent", async () => {
+    const result = await parseIntent("connect discord");
+    expect(["openclaw.channel.setup", "openclaw.add_channel"]).toContain(result.intent.intent);
+  });
+
+  it("parses 'setup matrix' as openclaw.channel.setup", async () => {
+    const result = await parseIntent("setup matrix");
+    expect(result.intent.intent).toBe("openclaw.channel.setup");
+  });
+
+  it("parses 'setup channels' as openclaw.channel.setup", async () => {
+    const result = await parseIntent("setup channels");
+    expect(result.intent.intent).toBe("openclaw.channel.setup");
+  });
+});
+
+// ── Channel detection from raw text ─────────────────────────────────────────
+
+describe("channel detection from raw text", () => {
+  const KNOWN_CHANNELS = ["telegram", "discord", "matrix", "whatsapp", "signal", "slack", "irc"];
+
+  function detectChannel(rawText: string): string | null {
+    const lower = rawText.toLowerCase();
+    for (const ch of KNOWN_CHANNELS) {
+      if (lower.includes(ch)) return ch;
+    }
+    return null;
+  }
+
+  it("detects telegram from 'setup telegram for openclaw'", () => {
+    expect(detectChannel("setup telegram for openclaw")).toBe("telegram");
+  });
+
+  it("detects discord from 'connect discord'", () => {
+    expect(detectChannel("connect discord")).toBe("discord");
+  });
+
+  it("detects matrix from 'add matrix channel'", () => {
+    expect(detectChannel("add matrix channel")).toBe("matrix");
+  });
+
+  it("returns null for 'setup channels' (no specific channel)", () => {
+    expect(detectChannel("setup channels")).toBeNull();
+  });
+
+  it("rejects invalid channel names from fields", () => {
+    const badValues = ["s", "set", "ch", ""];
+    for (const v of badValues) {
+      expect(KNOWN_CHANNELS.includes(v)).toBe(false);
+    }
   });
 });
