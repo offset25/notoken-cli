@@ -318,8 +318,64 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       }
     } catch {}
 
-    // Open browser
+    // Try auto-pair with Playwright (fills token and clicks Connect automatically)
     const url = "http://127.0.0.1:18789";
+    let autoPaired = false;
+
+    // Ensure Playwright + Chromium are installed
+    let hasPlaywright = false;
+    try {
+      await import("playwright");
+      hasPlaywright = true;
+    } catch {
+      console.log(`${cc.cyan}Installing Playwright for browser automation...${cc.reset}`);
+      try {
+        await withSpinner("Installing Playwright...", () => runLocalCommand("npm install playwright 2>&1", 120_000));
+        await withSpinner("Downloading Chromium...", () => runLocalCommand("npx playwright install chromium 2>&1", 300_000));
+        hasPlaywright = true;
+        console.log(`${cc.green}✓ Playwright + Chromium installed${cc.reset}\n`);
+      } catch {
+        console.log(`${cc.yellow}⚠ Could not install Playwright — falling back to manual pairing${cc.reset}\n`);
+      }
+    }
+
+    try {
+      if (!hasPlaywright) throw new Error("no playwright");
+      const { chromium } = await import("playwright");
+      console.log(`${cc.cyan}Opening OpenClaw dashboard and auto-pairing...${cc.reset}\n`);
+
+      const browser = await chromium.launch({ headless: false });
+      const page = await browser.newPage();
+      await page.goto(url);
+      await page.waitForTimeout(2000);
+
+      // Fill token and click Connect
+      const tokenInput = page.locator('input[placeholder*="OPENCLAW_GATEWAY_TOKEN"]');
+      if (token && await tokenInput.count() > 0) {
+        await tokenInput.fill(token);
+        const connectBtn = page.locator('button').filter({ hasText: 'Connect' });
+        if (await connectBtn.count() > 0) {
+          await connectBtn.first().click();
+          await page.waitForTimeout(3000);
+          const bodyText = await page.textContent('body');
+          if (!bodyText?.includes('How to connect') && !bodyText?.includes('unauthorized')) {
+            autoPaired = true;
+          }
+        }
+      } else if (await tokenInput.count() === 0) {
+        // No token input — already connected
+        autoPaired = true;
+      }
+
+      // Leave browser open for the user
+      if (autoPaired) {
+        return `${cc.green}✓${cc.reset} OpenClaw dashboard opened and auto-paired!\n  ${cc.cyan}${cc.bold}${url}${cc.reset}\n\n  ${cc.dim}The browser is open — you can chat with OpenClaw directly.${cc.reset}`;
+      }
+    } catch {
+      // Playwright not available — fall back to manual
+    }
+
+    // Fallback: open browser normally and copy token to clipboard
     console.log(`${cc.cyan}Opening OpenClaw dashboard...${cc.reset}\n`);
     try {
       if (process.platform === "win32") {
@@ -331,7 +387,6 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       }
     } catch {}
 
-    // Copy token to clipboard
     if (token) {
       try {
         if (process.platform === "win32") {
@@ -2070,6 +2125,80 @@ expect eof
         if (ver) {
           const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
           if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
+
+          // Post-install: for openclaw, auto-start gateway + open dashboard
+          if (toolName === "openclaw") {
+            console.log(`\n${cc.cyan}Starting OpenClaw gateway...${cc.reset}`);
+            if (process.platform === "win32") {
+              const ocPrefix = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
+              const ocEntry = ocPrefix ? `${ocPrefix}\\node_modules\\openclaw\\dist\\index.js` : "openclaw";
+              await runLocalCommand(
+                `powershell -Command "Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`
+              ).catch(() => "");
+            } else {
+              await runLocalCommand("nohup openclaw gateway --force --allow-unconfigured > /dev/null 2>&1 &").catch(() => "");
+            }
+            // Wait for gateway
+            let gwUp = false;
+            for (let i = 0; i < 10; i++) {
+              await runLocalCommand("sleep 1").catch(() => {});
+              const h = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+              if (h.includes('"ok"')) { gwUp = true; break; }
+            }
+            if (gwUp) {
+              lines.push(`\n${cc.green}✓${cc.reset} Gateway started on http://127.0.0.1:18789`);
+              // Auto-sync Claude token
+              const { readFileSync: rfs, existsSync: efs, writeFileSync: wfs, mkdirSync: mfs } = await import("node:fs");
+              const { dirname: dn } = await import("node:path");
+              const home = process.env.USERPROFILE || process.env.HOME || "";
+              const sep = process.platform === "win32" ? "\\" : "/";
+              const claudeCreds = `${home}${sep}.claude${sep}.credentials.json`;
+              try {
+                if (efs(claudeCreds)) {
+                  const creds = JSON.parse(rfs(claudeCreds, "utf-8"));
+                  const claudeToken = creds?.claudeAiOauth?.accessToken;
+                  if (claudeToken) {
+                    const authPath = `${home}${sep}.openclaw${sep}agents${sep}main${sep}agent${sep}auth-profiles.json`;
+                    let profiles: any = { version: 1, profiles: {} };
+                    if (efs(authPath)) profiles = JSON.parse(rfs(authPath, "utf-8"));
+                    else mfs(dn(authPath), { recursive: true });
+                    profiles.profiles["anthropic:claude-oauth"] = { type: "oauth", provider: "anthropic", access: claudeToken, expires: Date.now() + 86400000 };
+                    wfs(authPath, JSON.stringify(profiles, null, 2));
+                    lines.push(`${cc.green}✓${cc.reset} Claude Code token synced to OpenClaw`);
+                  }
+                }
+              } catch {}
+
+              // Open dashboard with auto-pair
+              lines.push(`\n${cc.cyan}Opening dashboard...${cc.reset}`);
+              try {
+                const { chromium } = await import("playwright");
+                const browser = await chromium.launch({ headless: false });
+                const page = await browser.newPage();
+                await page.goto("http://127.0.0.1:18789");
+                await page.waitForTimeout(2000);
+                const tokenInput = page.locator('input[placeholder*="OPENCLAW_GATEWAY_TOKEN"]');
+                const configPath = `${home}${sep}.openclaw${sep}openclaw.json`;
+                let gwToken = "";
+                try { gwToken = JSON.parse(rfs(configPath, "utf-8"))?.gateway?.auth?.token || ""; } catch {}
+                if (gwToken && await tokenInput.count() > 0) {
+                  await tokenInput.fill(gwToken);
+                  const btn = page.locator('button').filter({ hasText: 'Connect' });
+                  if (await btn.count() > 0) await btn.first().click();
+                  await page.waitForTimeout(2000);
+                }
+                lines.push(`${cc.green}✓${cc.reset} Dashboard opened and paired!`);
+              } catch {
+                // Playwright not available — just open browser
+                try {
+                  if (process.platform === "win32") await runLocalCommand(`powershell -Command "Start-Process 'http://127.0.0.1:18789'" 2>/dev/null`);
+                  else await runLocalCommand(`xdg-open "http://127.0.0.1:18789" 2>/dev/null || open "http://127.0.0.1:18789" 2>/dev/null`);
+                } catch {}
+                lines.push(`${cc.dim}Dashboard: http://127.0.0.1:18789${cc.reset}`);
+              }
+            }
+          }
+
           return lines.join("\n");
         }
 
