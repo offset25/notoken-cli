@@ -19,6 +19,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
 
 const c = {
   reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",
@@ -75,14 +76,18 @@ async function discordApi(endpoint: string, token: string, method = "GET", body?
 }
 
 function getDiscordToken(): string {
-  const config = tryExec("cat /root/.openclaw/openclaw.json 2>/dev/null");
-  if (!config) return "";
+  const home = process.env.USERPROFILE || process.env.HOME || "/root";
+  const sep = process.platform === "win32" ? "\\" : "/";
+  const configPath = `${home}${sep}.openclaw${sep}openclaw.json`;
   try {
-    const parsed = JSON.parse(config);
-    return parsed?.channels?.discord?.token
-      ?? parsed?.channels?.discord?.accounts?.default?.token
-      ?? "";
-  } catch { return ""; }
+    if (existsSync(configPath)) {
+      const parsed = JSON.parse(readFileSync(configPath, "utf-8"));
+      return parsed?.channels?.discord?.token
+        ?? parsed?.channels?.discord?.accounts?.default?.token
+        ?? "";
+    }
+  } catch {}
+  return "";
 }
 
 /** Sleep helper */
@@ -437,7 +442,8 @@ export async function diagnoseDiscord(): Promise<string> {
   // ── 1. Token valid? ──
   token = getDiscordToken();
   if (!token) {
-    const savedResult = tryExec("cat /mnt/c/temp/discord-bot-result.json 2>/dev/null");
+    const resultPath = process.platform === "win32" ? "C:\\temp\\discord-bot-result.json" : "/mnt/c/temp/discord-bot-result.json";
+    const savedResult = tryExec(`cat "${resultPath}" 2>/dev/null`);
     try { token = JSON.parse(savedResult)?.token ?? ""; } catch {}
   }
 
@@ -477,7 +483,11 @@ export async function diagnoseDiscord(): Promise<string> {
       lines.push(`    ${c.dim}Patchright unavailable: ${e.message?.substring(0, 50)}${c.reset}`);
       // Fallback: open URL in browser
       const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${appId}&permissions=68608&scope=bot`;
-      tryExec(`/mnt/c/Windows/System32/cmd.exe /c "start ${inviteUrl}" 2>/dev/null`);
+      if (process.platform === "win32") {
+        tryExec(`powershell -Command "Start-Process '${inviteUrl}'" 2>/dev/null`);
+      } else {
+        tryExec(`/mnt/c/Windows/System32/cmd.exe /c "start ${inviteUrl}" 2>/dev/null`);
+      }
       lines.push(`    ${c.dim}Opened invite URL — add bot to server, then re-run this.${c.reset}`);
     }
 
