@@ -2685,25 +2685,142 @@ expect eof
       lines.push(`    ${cc.dim}No web server logs found${cc.reset}`);
     }
 
-    // 6. Summary
-    lines.push(`\n${cc.bold}${cc.cyan}── Summary ──${cc.reset}`);
+    // 6. Initial assessment summary
+    lines.push(`\n${cc.bold}${cc.cyan}── Initial Assessment ──${cc.reset}`);
     const hasBruteForce = authLog.split("\n").length > 50;
-    const hasFlood = false; // would be set above
     const hasFail2ban = fail2ban.includes("Banned");
 
     if (!authLog && !webLog.trim() && !connections.trim()) {
       lines.push(`  ${cc.green}✓ No attack indicators found. System looks clean.${cc.reset}`);
     } else if (hasBruteForce && !hasFail2ban) {
       lines.push(`  ${cc.yellow}⚠ SSH brute force attempts detected — recommend enabling fail2ban${cc.reset}`);
-      lines.push(`  ${cc.dim}  Say: "install fail2ban" or "enable fail2ban"${cc.reset}`);
     } else if (hasFail2ban) {
       lines.push(`  ${cc.green}✓ fail2ban is active and blocking attackers.${cc.reset}`);
     } else {
       lines.push(`  ${cc.green}✓ No significant attack patterns detected.${cc.reset}`);
     }
 
-    lines.push(`  ${cc.dim}For deeper analysis: "check firewall rules", "show open ports"${cc.reset}`);
-    return lines.join("\n");
+    // 7. Security tools — detect, install if missing, run deep scans
+    lines.push(`\n${cc.bold}${cc.cyan}── Security Tools ──${cc.reset}`);
+
+    interface ScanTool { name: string; pkg: string; check: string; scan: string; description: string; }
+    const tools: ScanTool[] = [
+      { name: "rkhunter", pkg: "rkhunter", check: "which rkhunter", scan: "rkhunter --check --skip-keypress --report-warnings-only 2>&1", description: "Rootkit scanner" },
+      { name: "chkrootkit", pkg: "chkrootkit", check: "which chkrootkit", scan: "chkrootkit 2>&1 | grep -i 'INFECTED\\|warning\\|suspicious' || echo 'No infections found'", description: "Rootkit checker" },
+      { name: "ClamAV", pkg: "clamav", check: "which clamscan", scan: "freshclam --quiet 2>/dev/null; clamscan --recursive --infected --no-summary /tmp /var/tmp /home 2>&1 | head -20", description: "Antivirus scanner" },
+      { name: "Lynis", pkg: "lynis", check: "which lynis", scan: "lynis audit system --quick --no-colors 2>&1 | tail -30", description: "Security auditing tool" },
+      { name: "fail2ban", pkg: "fail2ban", check: "which fail2ban-client", scan: "fail2ban-client status 2>&1", description: "Intrusion prevention" },
+    ];
+
+    const installed: ScanTool[] = [];
+    const missing: ScanTool[] = [];
+
+    for (const tool of tools) {
+      const exists = await runLocalCommand(`${tool.check} 2>/dev/null`).catch(() => "");
+      if (exists.trim()) {
+        installed.push(tool);
+        lines.push(`    ${cc.green}✓${cc.reset} ${cc.bold}${tool.name}${cc.reset} — ${tool.description}`);
+      } else {
+        missing.push(tool);
+        lines.push(`    ${cc.dim}○ ${tool.name}${cc.reset} — ${tool.description} ${cc.dim}(not installed)${cc.reset}`);
+      }
+    }
+
+    // Print initial assessment first
+    console.log(lines.join("\n"));
+
+    // Auto-install missing tools
+    if (missing.length > 0) {
+      console.log(`\n  ${cc.cyan}Installing ${missing.length} missing security tool(s)...${cc.reset}`);
+      const pkgMgr = await runLocalCommand("which apt-get >/dev/null 2>&1 && echo apt || which dnf >/dev/null 2>&1 && echo dnf || which yum >/dev/null 2>&1 && echo yum || echo none").catch(() => "none");
+      const mgr = pkgMgr.trim();
+
+      for (const tool of missing) {
+        if (mgr === "none") {
+          console.log(`    ${cc.yellow}⚠${cc.reset} Can't auto-install ${tool.name} — no package manager found`);
+          continue;
+        }
+        const installCmd = mgr === "apt" ? `DEBIAN_FRONTEND=noninteractive apt-get install -y ${tool.pkg}` : `${mgr} install -y ${tool.pkg}`;
+        console.log(`    ${cc.dim}Installing ${tool.name}...${cc.reset}`);
+        try {
+          await runLocalCommand(`${installCmd} 2>&1`, 120_000);
+          const verify = await runLocalCommand(`${tool.check} 2>/dev/null`).catch(() => "");
+          if (verify.trim()) {
+            console.log(`    ${cc.green}✓${cc.reset} ${tool.name} installed`);
+            installed.push(tool);
+            // Special: update rkhunter database after install
+            if (tool.name === "rkhunter") await runLocalCommand("rkhunter --update --propupd 2>/dev/null").catch(() => "");
+            // Special: update ClamAV database after install
+            if (tool.name === "ClamAV") {
+              console.log(`    ${cc.dim}Updating virus definitions...${cc.reset}`);
+              await runLocalCommand("freshclam --quiet 2>/dev/null", 120_000).catch(() => "");
+            }
+          } else {
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${tool.name} install may have failed`);
+          }
+        } catch {
+          console.log(`    ${cc.yellow}⚠${cc.reset} Could not install ${tool.name}`);
+        }
+      }
+    }
+
+    // Run deep scans as background jobs
+    if (installed.length > 0) {
+      console.log(`\n${cc.bold}${cc.cyan}── Running Deep Scans ──${cc.reset}`);
+      console.log(`  ${cc.dim}Scans run in background — results will appear when done.${cc.reset}`);
+      console.log(`  ${cc.dim}Type "/jobs" to check progress.${cc.reset}\n`);
+
+      const scanResults: string[] = [];
+      const scanPromises: Promise<void>[] = [];
+
+      for (const tool of installed) {
+        // Skip fail2ban — it's a service, not a scanner
+        if (tool.name === "fail2ban") continue;
+
+        console.log(`  ${cc.cyan}↗${cc.reset} Starting ${cc.bold}${tool.name}${cc.reset} scan...`);
+
+        const scanPromise = (async () => {
+          try {
+            const output = await runLocalCommand(tool.scan, 300_000);
+            const trimmed = output.trim();
+            const hasIssues = /infected|warning|suspicious|rootkit|backdoor|trojan/i.test(trimmed);
+
+            scanResults.push(`\n${hasIssues ? cc.red + "⚠" : cc.green + "✓"}${cc.reset} ${cc.bold}${tool.name} results:${cc.reset}`);
+            // Show first 15 lines of output
+            const outputLines = trimmed.split("\n").slice(0, 15);
+            for (const ol of outputLines) {
+              scanResults.push(`    ${cc.dim}${ol}${cc.reset}`);
+            }
+            if (trimmed.split("\n").length > 15) {
+              scanResults.push(`    ${cc.dim}... (${trimmed.split("\n").length - 15} more lines)${cc.reset}`);
+            }
+          } catch (err: unknown) {
+            scanResults.push(`  ${cc.yellow}⚠${cc.reset} ${tool.name} scan error: ${(err as Error).message.split("\n")[0]}`);
+          }
+        })();
+
+        scanPromises.push(scanPromise);
+      }
+
+      // Wait for all scans to complete
+      await Promise.all(scanPromises);
+
+      // Print all results
+      console.log(`\n${cc.bold}${cc.cyan}── Scan Results ──${cc.reset}`);
+      for (const r of scanResults) console.log(r);
+
+      // Final verdict
+      const allClean = !scanResults.some(r => /⚠/.test(r) && /infected|warning|suspicious|rootkit/i.test(r));
+      console.log(`\n${cc.bold}${cc.cyan}── Final Verdict ──${cc.reset}`);
+      if (allClean) {
+        console.log(`  ${cc.green}${cc.bold}✓ All scans passed. No threats detected.${cc.reset}`);
+      } else {
+        console.log(`  ${cc.red}${cc.bold}⚠ Issues found — review scan results above.${cc.reset}`);
+      }
+      console.log(`  ${cc.dim}For ongoing protection: "install fail2ban", "enable firewall"${cc.reset}`);
+    }
+
+    return "";
   }
 
   // Entity define/list
