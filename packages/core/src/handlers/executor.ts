@@ -2639,11 +2639,15 @@ expect eof
     const tryCmd = (cmd: string) => { try { return exDiag(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
 
-    const lines: string[] = [`${cc.bold}${cc.cyan}Image Generation Diagnosis${cc.reset}\n`];
+    const say = (msg: string) => { console.error(msg); lines.push(msg); };
+    const lines: string[] = [];
     let issues = 0;
     const wantsRestart = /restart/i.test(intent.rawText);
 
+    say(`\n${cc.bold}${cc.cyan}Running Image Generation Diagnosis...${cc.reset}\n`);
+
     // 1. GPU
+    say(`${cc.dim}Checking GPU...${cc.reset}`);
     const gpu = detectGpu();
     if (gpu.hasNvidia) {
       lines.push(`${cc.green}✓${cc.reset} GPU: ${gpu.gpuName} (${gpu.vram})`);
@@ -2654,6 +2658,7 @@ expect eof
     }
 
     // 2. Engine installed?
+    say(`${cc.dim}Checking if image engine is installed...${cc.reset}`);
     const engines = detectImageEngines();
     const installed = engines.find(e => e.installed && e.path && e.engine !== "docker");
     if (installed) {
@@ -2667,6 +2672,7 @@ expect eof
     }
 
     // 3. Model downloaded?
+    say(`${cc.dim}Checking if AI model is downloaded...${cc.reset}`);
     if (installed?.path) {
       const { readdirSync: rd } = await import("node:fs");
       const modelsDir = `${installed.path}/models/Stable-diffusion`;
@@ -2683,6 +2689,7 @@ expect eof
     }
 
     // 4. API running?
+    say(`${cc.dim}Checking if server is responding...${cc.reset}`);
     const apiUp = !!tryCmd("curl -sf --max-time 3 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
     if (apiUp) {
       lines.push(`${cc.green}✓${cc.reset} API: running at http://localhost:7860`);
@@ -2751,7 +2758,7 @@ expect eof
 
     // If not running, start it
     if (!apiUp) {
-      lines.push(`${cc.cyan}▶ Starting engine...${cc.reset}`);
+      say(`\n${cc.cyan}▶ Server is not running. Starting engine automatically...${cc.reset}`);
 
       const { resolve: rp } = await import("node:path");
       const { existsSync: fe } = await import("node:fs");
@@ -2810,10 +2817,11 @@ expect eof
     }
 
     // ── Phase 3: Test generation ──
-    lines.push("");
-    lines.push(`${cc.cyan}▶ Test generating image...${cc.reset}`);
+    say("");
+    say(`${cc.cyan}▶ Now testing: generating a test image to verify everything works...${cc.reset}`);
 
     // Check memory before
+    say(`${cc.dim}Checking GPU memory usage before generation...${cc.reset}`);
     const memBefore = tryCmd("PATH=/usr/lib/wsl/lib:$PATH nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null");
     if (memBefore) lines.push(`${cc.dim}  VRAM before: ${memBefore}${cc.reset}`);
 
@@ -2836,7 +2844,8 @@ expect eof
     }
 
     // ── Phase 4: Check if server survived ──
-    lines.push("");
+    say("");
+    say(`${cc.dim}Verifying server is still running after generation...${cc.reset}`);
     const stillUp = !!tryCmd("curl -sf --max-time 3 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
     if (stillUp) {
       lines.push(`${cc.green}  ✓ Server still running after test${cc.reset}`);
