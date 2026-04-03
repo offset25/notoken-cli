@@ -32,6 +32,16 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: attack/security/ddos queries → security.scan
+  if (/\b(attack|ddos|brute.?force|intrusion|hacked|breach|compromised|unauthorized|virus|malware|rootkit)\b/i.test(text)
+      || /\b(are we|am i|is .* being)\s+(under\s+)?attack/i.test(text)
+      || /\b(suspicious|failed)\s+(activity|login|connection|traffic|access)/i.test(text)
+      || /\bwho is (attacking|hacking|connecting|hitting)/i.test(text)
+      || /\bcheck (for )?(attacks|security|intrusion|viruses|malware)/i.test(text)
+      || /\b(any )?(viruses|malware|rootkits?) (on|in|running)/i.test(text)) {
+    return { intent: "security.scan", confidence: 0.95, rawText, fields: {} };
+  }
+
   // Pre-check: "can you generate an image" → ai.generate_image (not ai.image_status)
   if (/^(can you|could you|are you able to|do you)\s+(generate|create|make|draw)\s+(an?\s+)?(image|picture|photo|art)/i.test(text)) {
     return { intent: "ai.generate_image", confidence: 0.9, rawText, fields: {} };

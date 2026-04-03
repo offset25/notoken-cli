@@ -3784,6 +3784,40 @@
       ]
     },
     {
+      "name": "security.scan",
+      "description": "Check for attacks, DDoS, brute force attempts, suspicious network activity, and intrusion detection",
+      "synonyms": [
+        "are we under attack",
+        "ddos attack",
+        "check for attacks",
+        "security scan",
+        "any attacks",
+        "brute force",
+        "intrusion detection",
+        "suspicious activity",
+        "who is attacking",
+        "am i being attacked",
+        "check security",
+        "any unauthorized access",
+        "login attempts",
+        "failed logins",
+        "are we being attacked",
+        "heavy traffic",
+        "any suspicious connections"
+      ],
+      "fields": {},
+      "command": "echo 'Use security.scan handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "are we under attack?",
+        "any ddos attacks?",
+        "check for brute force attempts",
+        "who is attacking us?"
+      ]
+    },
+    {
       "name": "security.fail2ban",
       "description": "Check or manage fail2ban",
       "synonyms": [

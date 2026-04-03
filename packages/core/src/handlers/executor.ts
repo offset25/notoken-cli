@@ -2544,6 +2544,168 @@ expect eof
     return lines.join("\n");
   }
 
+  // Security scan — check for attacks, brute force, DDoS, suspicious activity
+  if (intent.intent === "security.scan") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}  Security Scan${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}\n`);
+
+    // 1. Identify user's own IP (SSH_CLIENT or who)
+    const sshClient = process.env.SSH_CLIENT?.split(" ")[0] ?? "";
+    const whoOutput = await runLocalCommand("who -u 2>/dev/null | head -5").catch(() => "");
+    const myIPs = new Set<string>();
+    if (sshClient) myIPs.add(sshClient);
+    for (const m of whoOutput.matchAll(/(\d+\.\d+\.\d+\.\d+)/g)) myIPs.add(m[1]);
+    // Also get local IPs
+    const localIPs = await runLocalCommand("hostname -I 2>/dev/null").catch(() => "");
+    for (const ip of localIPs.trim().split(/\s+/)) if (ip) myIPs.add(ip);
+
+    lines.push(`  ${cc.bold}Your IPs:${cc.reset} ${[...myIPs].join(", ") || "localhost"}`);
+
+    // 2. SSH brute force — failed login attempts
+    lines.push(`\n  ${cc.bold}── SSH (port 22) ──${cc.reset}`);
+    const authLog = await runLocalCommand("grep 'Failed password\\|Invalid user\\|authentication failure' /var/log/auth.log 2>/dev/null | tail -100").catch(() => "");
+    const authLogBtmp = await runLocalCommand("lastb 2>/dev/null | head -20").catch(() => "");
+
+    if (authLog) {
+      // Count failed attempts per IP in last 100 lines
+      const ipCounts: Record<string, number> = {};
+      for (const m of authLog.matchAll(/from\s+(\d+\.\d+\.\d+\.\d+)/g)) {
+        ipCounts[m[1]] = (ipCounts[m[1]] || 0) + 1;
+      }
+      const sorted = Object.entries(ipCounts).sort((a, b) => b[1] - a[1]);
+      const totalFailed = Object.values(ipCounts).reduce((a, b) => a + b, 0);
+
+      if (totalFailed > 0) {
+        const recentFailed = await runLocalCommand("grep -c 'Failed password' /var/log/auth.log 2>/dev/null").catch(() => "0");
+        lines.push(`    ${totalFailed > 50 ? cc.red + "⚠" : cc.yellow + "⚠"}${cc.reset} ${cc.bold}${recentFailed.trim()} total failed login attempts${cc.reset}`);
+
+        // Show top attackers
+        lines.push(`    ${cc.bold}Top sources:${cc.reset}`);
+        for (const [ip, count] of sorted.slice(0, 10)) {
+          const isMe = myIPs.has(ip);
+          const severity = count > 50 ? cc.red : count > 10 ? cc.yellow : cc.dim;
+          lines.push(`      ${severity}${count.toString().padStart(5)} attempts${cc.reset} from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← your IP${cc.reset}` : ""}`);
+        }
+
+        // Check if any IP has >100 attempts (likely brute force)
+        const bruteForce = sorted.filter(([, c]) => c > 100);
+        if (bruteForce.length > 0) {
+          lines.push(`\n    ${cc.red}${cc.bold}⚠ BRUTE FORCE DETECTED:${cc.reset} ${bruteForce.length} IP(s) with 100+ attempts`);
+          lines.push(`    ${cc.dim}Block with: "block ip ${bruteForce[0][0]}" or "enable fail2ban"${cc.reset}`);
+        }
+      } else {
+        lines.push(`    ${cc.green}✓${cc.reset} No failed SSH login attempts`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No auth log found (may need root access)${cc.reset}`);
+    }
+
+    // Check fail2ban status
+    const fail2ban = await runLocalCommand("fail2ban-client status sshd 2>/dev/null").catch(() => "");
+    if (fail2ban.includes("Banned")) {
+      const bannedMatch = fail2ban.match(/Currently banned:\s*(\d+)/);
+      const bannedIPs = fail2ban.match(/Banned IP list:\s*(.*)/);
+      lines.push(`    ${cc.green}✓${cc.reset} fail2ban active — ${bannedMatch?.[1] ?? "?"} IP(s) banned`);
+      if (bannedIPs?.[1]?.trim()) lines.push(`      ${cc.dim}Banned: ${bannedIPs[1].trim()}${cc.reset}`);
+    } else {
+      lines.push(`    ${cc.yellow}○${cc.reset} fail2ban not active ${cc.dim}(recommend: "install fail2ban")${cc.reset}`);
+    }
+
+    // 3. Active network connections — look for DDoS patterns
+    lines.push(`\n  ${cc.bold}── Network Connections ──${cc.reset}`);
+    const connections = await runLocalCommand("ss -tun state established 2>/dev/null | awk '{print $5}' | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+' | sort | uniq -c | sort -rn | head -15").catch(() => "");
+
+    if (connections.trim()) {
+      const connLines = connections.trim().split("\n");
+      let totalConns = 0;
+      let suspiciousConns = 0;
+
+      lines.push(`    ${cc.bold}Active connections by source IP:${cc.reset}`);
+      for (const cl of connLines) {
+        const match = cl.trim().match(/(\d+)\s+(\d+\.\d+\.\d+\.\d+)/);
+        if (!match) continue;
+        const [, countStr, ip] = match;
+        const count = parseInt(countStr);
+        totalConns += count;
+        const isMe = myIPs.has(ip);
+        const severity = count > 100 ? cc.red : count > 20 ? cc.yellow : cc.dim;
+
+        if (count > 20 && !isMe) suspiciousConns++;
+        lines.push(`      ${severity}${count.toString().padStart(5)} connections${cc.reset} from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← you${cc.reset}` : count > 50 ? ` ${cc.red}⚠ suspicious${cc.reset}` : ""}`);
+      }
+
+      lines.push(`    ${cc.dim}Total: ${totalConns} established connections${cc.reset}`);
+      if (suspiciousConns > 0) {
+        lines.push(`    ${cc.red}${cc.bold}⚠ ${suspiciousConns} source(s) with unusually high connection count${cc.reset}`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No established connections (or ss not available)${cc.reset}`);
+    }
+
+    // 4. Check listening ports for unexpected services
+    lines.push(`\n  ${cc.bold}── Open Ports ──${cc.reset}`);
+    const listening = await runLocalCommand("ss -tlnp 2>/dev/null | grep LISTEN | awk '{print $4, $6}' | head -15").catch(() => "");
+    if (listening.trim()) {
+      const knownPorts: Record<string, string> = { "22": "SSH", "53": "DNS", "80": "HTTP", "443": "HTTPS", "111": "RPC", "3000": "Dev server", "3306": "MySQL", "5432": "PostgreSQL", "6379": "Redis", "8080": "HTTP alt", "8443": "HTTPS alt", "9090": "Prometheus", "11434": "Ollama", "18789": "OpenClaw", "18791": "OpenClaw ws" };
+      for (const l of listening.trim().split("\n")) {
+        const portMatch = l.match(/:(\d+)\s/);
+        const procMatch = l.match(/users:\(\("([^"]+)"/);
+        if (portMatch) {
+          const port = portMatch[1];
+          const proc = procMatch?.[1] ?? "unknown";
+          const known = knownPorts[port];
+          lines.push(`    ${known ? cc.green + "✓" : cc.yellow + "?"}${cc.reset} :${port} ${cc.bold}${proc}${cc.reset}${known ? ` ${cc.dim}(${known})${cc.reset}` : ` ${cc.yellow}← unknown service${cc.reset}`}`);
+        }
+      }
+    }
+
+    // 5. Web server access — check for request floods
+    lines.push(`\n  ${cc.bold}── Web Traffic ──${cc.reset}`);
+    const webLog = await runLocalCommand("tail -500 /var/log/nginx/access.log 2>/dev/null || tail -500 /var/log/apache2/access.log 2>/dev/null || tail -500 /var/log/httpd/access_log 2>/dev/null").catch(() => "");
+    if (webLog.trim()) {
+      const webIPs: Record<string, number> = {};
+      for (const m of webLog.matchAll(/^(\d+\.\d+\.\d+\.\d+)/gm)) {
+        webIPs[m[1]] = (webIPs[m[1]] || 0) + 1;
+      }
+      const webSorted = Object.entries(webIPs).sort((a, b) => b[1] - a[1]);
+      const totalReqs = Object.values(webIPs).reduce((a, b) => a + b, 0);
+      lines.push(`    ${cc.dim}${totalReqs} requests in recent logs${cc.reset}`);
+
+      // Show top requesters
+      const floodThreshold = totalReqs * 0.5; // If one IP makes >50% of requests
+      for (const [ip, count] of webSorted.slice(0, 5)) {
+        const isMe = myIPs.has(ip);
+        const isFlood = count > floodThreshold && count > 50;
+        lines.push(`      ${isFlood ? cc.red + "⚠" : cc.dim + " "}${cc.reset} ${count.toString().padStart(5)} requests from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← you${cc.reset}` : ""}${isFlood ? ` ${cc.red}FLOOD${cc.reset}` : ""}`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No web server logs found${cc.reset}`);
+    }
+
+    // 6. Summary
+    lines.push(`\n${cc.bold}${cc.cyan}── Summary ──${cc.reset}`);
+    const hasBruteForce = authLog.split("\n").length > 50;
+    const hasFlood = false; // would be set above
+    const hasFail2ban = fail2ban.includes("Banned");
+
+    if (!authLog && !webLog.trim() && !connections.trim()) {
+      lines.push(`  ${cc.green}✓ No attack indicators found. System looks clean.${cc.reset}`);
+    } else if (hasBruteForce && !hasFail2ban) {
+      lines.push(`  ${cc.yellow}⚠ SSH brute force attempts detected — recommend enabling fail2ban${cc.reset}`);
+      lines.push(`  ${cc.dim}  Say: "install fail2ban" or "enable fail2ban"${cc.reset}`);
+    } else if (hasFail2ban) {
+      lines.push(`  ${cc.green}✓ fail2ban is active and blocking attackers.${cc.reset}`);
+    } else {
+      lines.push(`  ${cc.green}✓ No significant attack patterns detected.${cc.reset}`);
+    }
+
+    lines.push(`  ${cc.dim}For deeper analysis: "check firewall rules", "show open ports"${cc.reset}`);
+    return lines.join("\n");
+  }
+
   // Entity define/list
   if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
   if (intent.intent === "entity.list") return listEntities();
