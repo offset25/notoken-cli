@@ -13,6 +13,7 @@
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { discoverInstallations } from "./entityResolver.js";
 
 const execAsync = promisify(exec);
 
@@ -70,6 +71,9 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   const lines: string[] = [];
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
+
+  // Auto-discover and register all OpenClaw installations as entities
+  try { await discoverInstallations("openclaw"); } catch { /* non-critical */ }
 
   // Detect WSL environment
   const wslCheck = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");

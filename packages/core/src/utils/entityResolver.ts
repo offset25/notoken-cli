@@ -42,10 +42,23 @@ export interface ServiceGroupEntity {
   aliases: string[];
 }
 
+export interface InstallationEntity {
+  service: string;           // e.g. "openclaw", "ollama", "docker"
+  environment: string;       // e.g. "wsl", "windows", "remote:metroplex"
+  path?: string;             // e.g. "/usr/local/bin/openclaw" or "C:\\Users\\Dino\\...\\openclaw"
+  version?: string;          // e.g. "2026.3.28"
+  port?: number;             // e.g. 18789
+  model?: string;            // e.g. "anthropic/claude-opus-4-5" (for LLM services)
+  status?: "running" | "stopped" | "unknown";
+  lastSeen?: string;         // ISO timestamp
+  aliases: string[];         // e.g. ["the windows one", "openclaw #1"]
+}
+
 export interface EntitiesConfig {
   servers: Record<string, ServerEntity>;
   databases: Record<string, DatabaseEntity>;
   services: Record<string, ServiceGroupEntity>;
+  installations: Record<string, InstallationEntity>;
 }
 
 export interface ResolvedEntity {
@@ -83,7 +96,7 @@ export function loadEntities(forceReload = false): EntitiesConfig {
     }
   }
 
-  _cached = { servers: {}, databases: {}, services: {} };
+  _cached = { servers: {}, databases: {}, services: {}, installations: {} };
   return _cached;
 }
 
@@ -195,6 +208,18 @@ export function resolveEntity(input: string): ResolvedEntity | null {
   for (const [name, db] of Object.entries(entities.databases)) {
     if (name.toLowerCase().startsWith(lower) || lower.startsWith(name.toLowerCase())) {
       return { name, type: "database", data: db, confidence: "fuzzy", matchedOn: `partial name "${input}"` };
+    }
+  }
+
+  // 5. Installation match — "the windows openclaw", "openclaw #2", "the wsl one"
+  for (const [name, inst] of Object.entries(entities.installations ?? {})) {
+    if (lower === name.toLowerCase()) {
+      return { name, type: "service" as const, data: inst as unknown as ServiceGroupEntity, confidence: "exact", matchedOn: name };
+    }
+    for (const alias of inst.aliases) {
+      if (lower === alias.toLowerCase() || lower.includes(alias.toLowerCase())) {
+        return { name, type: "service" as const, data: inst as unknown as ServiceGroupEntity, confidence: "alias", matchedOn: alias };
+      }
     }
   }
 
@@ -319,11 +344,189 @@ export function listEntities(): string {
     }
   }
 
-  if (servers.length === 0 && dbs.length === 0 && svcs.length === 0) {
+  const installs = Object.entries(entities.installations ?? {});
+  if (installs.length > 0) {
+    lines.push(`\n  ${c.bold}Installations:${c.reset}`);
+    for (const [name, inst] of installs) {
+      const statusIcon = inst.status === "running" ? `${c.green}✓` : inst.status === "stopped" ? `${c.yellow}○` : `${c.dim}?`;
+      lines.push(`    ${statusIcon}${c.reset} ${c.cyan}${name}${c.reset} — ${c.bold}${inst.service}${c.reset} on ${inst.environment}${inst.version ? ` v${inst.version}` : ""}${inst.model ? ` [${inst.model}]` : ""}${inst.port ? ` :${inst.port}` : ""}`);
+      if (inst.path) lines.push(`      ${c.dim}path: ${inst.path}${c.reset}`);
+      if (inst.aliases.length > 0) lines.push(`      ${c.dim}aliases: ${inst.aliases.join(", ")}${c.reset}`);
+    }
+  }
+
+  if (servers.length === 0 && dbs.length === 0 && svcs.length === 0 && installs.length === 0) {
     lines.push(`  ${c.dim}No entities defined yet.${c.reset}`);
     lines.push(`  ${c.dim}Define one: "metroplex is the 66.94.115.165 server"${c.reset}`);
   }
 
+  return lines.join("\n");
+}
+
+// ─── Installation discovery ──────────────────────────────────────────────────
+
+/**
+ * Register a discovered service installation.
+ */
+export function registerInstallation(
+  id: string,
+  install: InstallationEntity,
+): string {
+  const entities = loadEntities();
+  if (!entities.installations) entities.installations = {};
+  entities.installations[id] = install;
+  saveEntities(entities);
+  return `${c.green}✓${c.reset} Registered ${c.bold}${id}${c.reset} — ${install.service} on ${install.environment}`;
+}
+
+/**
+ * Update an installation's status/version/model.
+ */
+export function updateInstallation(
+  id: string,
+  updates: Partial<Pick<InstallationEntity, "status" | "version" | "model" | "port" | "lastSeen">>,
+): void {
+  const entities = loadEntities();
+  if (!entities.installations?.[id]) return;
+  Object.assign(entities.installations[id], updates);
+  entities.installations[id].lastSeen = new Date().toISOString();
+  saveEntities(entities);
+}
+
+/**
+ * Get all installations for a service.
+ */
+export function getInstallationsForService(service: string): Array<[string, InstallationEntity]> {
+  const entities = loadEntities();
+  return Object.entries(entities.installations ?? {})
+    .filter(([_, inst]) => inst.service === service);
+}
+
+/**
+ * Auto-discover OpenClaw installations across WSL, Windows host, and remote servers.
+ * Registers them as entities with aliases like "the windows one", "openclaw #1".
+ */
+export async function discoverInstallations(service: string): Promise<string> {
+  const { execSync } = await import("node:child_process");
+  const lines: string[] = [];
+  const found: Array<{ id: string; inst: InstallationEntity }> = [];
+
+  function tryExec(cmd: string, timeout = 10_000): string {
+    try { return execSync(cmd, { timeout, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch { return ""; }
+  }
+
+  const isWSL = tryExec("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native") === "wsl";
+
+  if (service === "openclaw" || service === "all") {
+    // WSL / native Linux
+    const wslPath = tryExec("which openclaw 2>/dev/null");
+    if (wslPath) {
+      const wslVer = tryExec("bash -c 'for d in \"$HOME/.nvm\" \"/home/\"*\"/.nvm\" \"/root/.nvm\"; do [ -s \"$d/nvm.sh\" ] && export NVM_DIR=\"$d\" && . \"$d/nvm.sh\" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1; openclaw --version 2>/dev/null | head -1'");
+      const wslRunning = !!tryExec("pgrep -f openclaw-gateway 2>/dev/null");
+      const wslConfig = tryExec("cat /root/.openclaw/openclaw.json 2>/dev/null");
+      const wslModel = wslConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1];
+
+      found.push({
+        id: "openclaw-wsl",
+        inst: {
+          service: "openclaw", environment: "wsl", path: wslPath,
+          version: wslVer.replace(/^OpenClaw\s*/i, "").split(" ")[0] || undefined,
+          port: 18789, model: wslModel, status: wslRunning ? "running" : "stopped",
+          aliases: ["wsl openclaw", "the wsl one", "openclaw in wsl", "linux openclaw"],
+        },
+      });
+    }
+
+    // Windows host (only from WSL)
+    if (isWSL) {
+      const winPath = tryExec("/mnt/c/Windows/System32/cmd.exe /c \"where openclaw\" 2>/dev/null");
+      if (winPath.includes("openclaw")) {
+        const psExe = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+        const winPs = tryExec(`${psExe} -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select -Exp CommandLine" 2>/dev/null`);
+        const winRunning = winPs.includes("openclaw") && winPs.includes("gateway");
+        const winConfig = tryExec(`${psExe} -Command "Get-Content \\"$env:USERPROFILE\\.openclaw\\openclaw.json\\"" 2>/dev/null`);
+        const winModel = winConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1];
+        const winVer = tryExec("/mnt/c/Windows/System32/cmd.exe /c \"openclaw --version\" 2>/dev/null");
+
+        found.push({
+          id: "openclaw-windows",
+          inst: {
+            service: "openclaw", environment: "windows",
+            path: winPath.trim().split("\n")[0].replace(/\r/g, ""),
+            version: winVer.replace(/^OpenClaw\s*/i, "").split(" ")[0] || undefined,
+            port: 18789, model: winModel, status: winRunning ? "running" : "stopped",
+            aliases: ["windows openclaw", "the windows one", "openclaw on windows", "host openclaw", "the other openclaw"],
+          },
+        });
+      }
+    }
+  }
+
+  if (service === "ollama" || service === "all") {
+    // WSL Ollama
+    const ollamaPath = tryExec("which ollama 2>/dev/null");
+    if (ollamaPath) {
+      const ollamaVer = tryExec("ollama --version 2>/dev/null | head -1");
+      const ollamaRunning = !!tryExec("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1");
+      found.push({
+        id: "ollama-wsl",
+        inst: {
+          service: "ollama", environment: "wsl", path: ollamaPath,
+          version: ollamaVer.replace(/^ollama\s+version\s*/i, "").trim() || undefined,
+          port: 11434, status: ollamaRunning ? "running" : "stopped",
+          aliases: ["wsl ollama", "the wsl ollama", "ollama in wsl", "local ollama"],
+        },
+      });
+    }
+
+    // Windows Ollama
+    if (isWSL) {
+      const winOllama = tryExec("/mnt/c/Windows/System32/cmd.exe /c \"where ollama\" 2>/dev/null");
+      if (winOllama.includes("ollama")) {
+        const winOllamaRunning = tryExec("cmd.exe /c 'tasklist /FI \"IMAGENAME eq ollama.exe\" /NH' 2>/dev/null").includes("ollama");
+        found.push({
+          id: "ollama-windows",
+          inst: {
+            service: "ollama", environment: "windows",
+            path: winOllama.trim().split("\n")[0].replace(/\r/g, ""),
+            port: 11434, status: winOllamaRunning ? "running" : "stopped",
+            aliases: ["windows ollama", "the windows ollama", "ollama on windows"],
+          },
+        });
+      }
+    }
+  }
+
+  // Register all found installations
+  const entities = loadEntities();
+  if (!entities.installations) entities.installations = {};
+
+  for (let i = 0; i < found.length; i++) {
+    const { id, inst } = found[i];
+    // Add numbered alias
+    inst.aliases.push(`${inst.service} #${i + 1}`);
+    inst.lastSeen = new Date().toISOString();
+    entities.installations[id] = inst;
+  }
+  saveEntities(entities);
+  _cached = null; // force reload
+
+  // Format output
+  if (found.length === 0) {
+    return `${c.dim}No ${service} installations found.${c.reset}`;
+  }
+
+  lines.push(`\n${c.bold}${c.cyan}── Discovered ${found.length} Installation${found.length > 1 ? "s" : ""} ──${c.reset}\n`);
+  for (const { id, inst } of found) {
+    const statusIcon = inst.status === "running" ? `${c.green}✓` : `${c.yellow}○`;
+    lines.push(`  ${statusIcon}${c.reset} ${c.bold}${id}${c.reset}`);
+    lines.push(`    ${inst.service} on ${c.bold}${inst.environment}${c.reset}${inst.version ? ` v${inst.version}` : ""}`);
+    if (inst.model) lines.push(`    model: ${inst.model}`);
+    if (inst.path) lines.push(`    ${c.dim}path: ${inst.path}${c.reset}`);
+    lines.push(`    ${c.dim}aliases: ${inst.aliases.join(", ")}${c.reset}`);
+  }
+
+  lines.push(`\n  ${c.dim}Reference by: "${found[0].inst.service} #1", "the windows one", "${found[0].id}"${c.reset}`);
   return lines.join("\n");
 }
 
