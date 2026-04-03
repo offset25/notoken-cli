@@ -75,17 +75,37 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   const wslCheck = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
   const inWSL = wslCheck.trim() === "wsl";
 
+  let hostGatewayRunning = false;
+
   if (inWSL) {
     lines.push(`  ${c.dim}Environment: WSL${c.reset}`);
 
-    // Check for OpenClaw on Windows host
-    const hostCheck = await run("cmd.exe /c 'tasklist /FI \"IMAGENAME eq node.exe\" /V /NH' 2>/dev/null");
-    const hostHasOpenclaw = hostCheck.includes("openclaw");
+    // Check for OpenClaw on Windows host — use PowerShell to get command lines (tasklist doesn't show script args)
+    const hostPs = await run("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null");
+    const hostHasOpenclaw = hostPs.includes("openclaw");
     const hostNodeCheck = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
     const hostInstalled = hostNodeCheck.includes("openclaw");
 
     if (hostHasOpenclaw) {
       lines.push(`  ${c.green}✓${c.reset} OpenClaw detected on ${c.bold}Windows host${c.reset}`);
+      // Check if it's a gateway process
+      if (hostPs.includes("gateway")) {
+        hostGatewayRunning = true;
+        lines.push(`  ${c.green}✓${c.reset} Windows gateway is running on port 18789`);
+        // Check health via the Windows gateway (WSL shares network with host)
+        const hostHealth = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+        if (hostHealth.includes('"ok"')) {
+          lines.push(`  ${c.green}✓${c.reset} Windows gateway health: OK`);
+        } else {
+          lines.push(`  ${c.yellow}⚠${c.reset} Windows gateway running but health check failed`);
+        }
+        // Check Windows OpenClaw model config
+        const winConfig = await run("cmd.exe /c 'type \"%USERPROFILE%\\.openclaw\\openclaw.json\"' 2>/dev/null");
+        const winModelMatch = winConfig.match(/"primary"\s*:\s*"([^"]+)"/);
+        if (winModelMatch) {
+          lines.push(`  ${c.dim}  Windows model: ${winModelMatch[1]}${c.reset}`);
+        }
+      }
     } else if (hostInstalled) {
       lines.push(`  ${c.yellow}○${c.reset} OpenClaw installed on Windows host but ${c.bold}not running${c.reset}`);
     }
@@ -94,6 +114,28 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   // Step 1: Is process running?
   console.error(`${c.dim}Checking if openclaw is running...${c.reset}`);
   const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
+
+  // If Windows host gateway is already running, don't try to start another one in WSL
+  if (hostGatewayRunning && (!psOut || !psOut.includes("openclaw"))) {
+    lines.push(`\n  ${c.green}✓${c.reset} Using Windows host gateway (WSL gateway not needed — same port 18789)`);
+    // Skip WSL gateway startup, jump to CLI communication test
+    const nvmPrefix = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
+
+    // Test if WSL CLI can talk to Windows gateway
+    console.error(`${c.dim}Testing WSL CLI → Windows gateway...${c.reset}`);
+    const cliOut = await run(`bash -c '${nvmPrefix} openclaw health 2>&1 | head -5'`);
+    if (cliOut.includes("Agents:") || cliOut.includes("Heartbeat") || cliOut.includes("Session store")) {
+      lines.push(`  ${c.green}✓${c.reset} WSL CLI can communicate with Windows gateway`);
+    } else {
+      lines.push(`  ${c.yellow}⚠${c.reset} WSL CLI cannot reach Windows gateway — may need matching config`);
+      lines.push(`  ${c.dim}  WSL config: ~/.openclaw/openclaw.json${c.reset}`);
+      lines.push(`  ${c.dim}  Windows config: %USERPROFILE%\\.openclaw\\openclaw.json${c.reset}`);
+    }
+
+    await auditOpenclawComponents(run, nvmPrefix, lines);
+    return lines.join("\n");
+  }
+
   if (!psOut || !psOut.includes("openclaw")) {
     lines.push(`  ${c.yellow}✗${c.reset} Gateway is not running. ${c.bold}Starting now...${c.reset}`);
 
@@ -585,12 +627,17 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   if (diagInWSL) {
     steps.push({ name: "Environment", status: "pass", detail: "WSL (Windows Subsystem for Linux)" });
 
-    // Check OpenClaw on Windows host
+    // Check OpenClaw on Windows host — use PowerShell for command line detection
     const hostOC = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
     if (hostOC.includes("openclaw")) {
-      const hostRunning = await run("cmd.exe /c 'tasklist /FI \"IMAGENAME eq node.exe\" /V /NH' 2>/dev/null");
-      if (hostRunning.includes("openclaw")) {
-        steps.push({ name: "Windows host", status: "pass", detail: "OpenClaw running on Windows host" });
+      const hostPs = await run("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null");
+      if (hostPs.includes("openclaw")) {
+        const isGateway = hostPs.includes("gateway");
+        steps.push({ name: "Windows host", status: "pass", detail: `OpenClaw ${isGateway ? "gateway " : ""}running on Windows host` });
+        if (isGateway) {
+          const hostHealth = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+          steps.push({ name: "Windows gateway health", status: hostHealth.includes('"ok"') ? "pass" : "warn", detail: hostHealth.includes('"ok"') ? "Healthy on port 18789" : "Gateway running but health check failed" });
+        }
       } else {
         steps.push({ name: "Windows host", status: "warn", detail: "OpenClaw installed on Windows but not running" });
       }
