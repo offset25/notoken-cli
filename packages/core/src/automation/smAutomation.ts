@@ -335,6 +335,157 @@ export async function automateLaunch(): Promise<{ success: boolean; message: str
   return { success: true, message: `${c.green}✓${c.reset} Package launching...` };
 }
 
+// ─── Status & Diagnostics ──────────────────────────────────────────────────
+
+/**
+ * Check SD API from the Windows side (bypasses WSL networking issues).
+ */
+export function checkAPIFromWindows(port = 7860): { running: boolean; statusCode: number; models?: string[] } {
+  const result = ps(`
+    try {
+      $r = Invoke-WebRequest -Uri "http://127.0.0.1:${port}/sdapi/v1/sd-models" -TimeoutSec 5
+      Write-Output "OK:$($r.StatusCode):$($r.Content.Substring(0, [Math]::Min(500, $r.Content.Length)))"
+    } catch {
+      $code = 0
+      if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+      Write-Output "FAIL:$code:$($_.Exception.Message)"
+    }
+  `, 10000);
+
+  if (!result) return { running: false, statusCode: 0 };
+
+  const [status, code, body] = result.split(":", 3);
+  if (status === "OK") {
+    try {
+      const models = JSON.parse(body).map((m: { model_name: string }) => m.model_name);
+      return { running: true, statusCode: parseInt(code), models };
+    } catch {
+      return { running: true, statusCode: parseInt(code) };
+    }
+  }
+  return { running: false, statusCode: parseInt(code) || 0 };
+}
+
+/**
+ * Check what port SD is listening on from Windows.
+ */
+export function findSDPort(): number | null {
+  const result = ps(`
+    $ports = @(7860, 7861, 8188, 9090)
+    foreach ($p in $ports) {
+      $tcp = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue
+      if ($tcp) { Write-Output $p; exit }
+    }
+    Write-Output "NONE"
+  `, 10000);
+  if (!result || result === "NONE") return null;
+  return parseInt(result);
+}
+
+/**
+ * Get Python process info from Windows.
+ */
+export function getPythonProcesses(): Array<{ pid: number; ram: number; path: string }> {
+  const result = ps(`
+    Get-Process python* -ErrorAction SilentlyContinue | ForEach-Object {
+      Write-Output "$($_.Id)|$($_.WorkingSet64)|$($_.Path)"
+    }
+  `, 10000);
+  if (!result) return [];
+  return result.split("\n").filter(l => l.includes("|")).map(line => {
+    const [pid, ram, path] = line.split("|");
+    return { pid: parseInt(pid), ram: parseInt(ram), path: path?.trim() ?? "" };
+  });
+}
+
+/**
+ * Full diagnostic — check everything and report.
+ */
+export async function diagnoseSD(): Promise<string> {
+  const lines: string[] = [];
+  lines.push(`${c.bold}${c.cyan}SD Diagnostic Report${c.reset}\n`);
+
+  // 1. SM process
+  const smRunning = isSMRunning();
+  lines.push(`${smRunning ? c.green + "✓" : c.red + "✗"}${c.reset} Stability Matrix: ${smRunning ? "running" : "not running"}`);
+
+  // 2. Python processes
+  const pythons = getPythonProcesses();
+  const sdPython = pythons.filter(p => p.path.includes("reforge") || p.path.includes("StabilityMatrix") || p.ram > 1_000_000_000);
+  lines.push(`${sdPython.length > 0 ? c.green + "✓" : c.red + "✗"}${c.reset} Python processes: ${sdPython.length} SD-related`);
+  for (const p of sdPython) {
+    lines.push(`  ${c.dim}PID ${p.pid} — ${(p.ram / 1073741824).toFixed(1)}GB RAM — ${p.path}${c.reset}`);
+  }
+
+  // 3. Port
+  const port = findSDPort();
+  lines.push(`${port ? c.green + "✓" : c.yellow + "⚠"}${c.reset} Port: ${port ? `${port} listening` : "no SD port detected"}`);
+
+  // 4. API
+  if (port) {
+    const api = checkAPIFromWindows(port);
+    lines.push(`${api.running ? c.green + "✓" : c.yellow + "⚠"}${c.reset} API: ${api.running ? `responding (HTTP ${api.statusCode})` : `not ready (HTTP ${api.statusCode}) — still loading`}`);
+    if (api.models) {
+      lines.push(`  ${c.dim}Models: ${api.models.join(", ")}${c.reset}`);
+    }
+  } else {
+    lines.push(`${c.red}✗${c.reset} API: no port listening — SD may have failed to start`);
+  }
+
+  // 5. WSL↔Windows connectivity
+  if (port && isWSL()) {
+    const winIP = tryExec("cat /etc/resolv.conf | grep nameserver | awk '{print $2}'");
+    const wslReach = tryExec(`curl -sf --max-time 2 http://${winIP}:${port}/ 2>/dev/null`);
+    const localReach = tryExec(`curl -sf --max-time 2 http://localhost:${port}/ 2>/dev/null`);
+    lines.push(`${localReach ? c.green + "✓" : c.yellow + "⚠"}${c.reset} WSL localhost:${port}: ${localReach ? "reachable" : "not reachable"}`);
+    lines.push(`${wslReach ? c.green + "✓" : c.yellow + "⚠"}${c.reset} WSL→Windows (${winIP}:${port}): ${wslReach ? "reachable" : "not reachable — need --listen flag"}`);
+  }
+
+  // 6. SM settings check
+  const sm = findStabilityMatrix();
+  if (sm) {
+    const { getActivePackage: getActive } = await import("../utils/stabilityMatrixManager.js");
+    const active = getActive(sm);
+    if (active) {
+      const hasApi = active.LaunchArgs.some(a => a.Name === "--api" && a.OptionValue === true);
+      const hasListen = active.LaunchArgs.some(a => a.Name === "--listen" && a.OptionValue === true);
+      lines.push(`${hasApi ? c.green + "✓" : c.red + "✗"}${c.reset} --api flag: ${hasApi ? "enabled" : "DISABLED — enable with: notoken sd config --api"}`);
+      lines.push(`${hasListen ? c.green + "✓" : c.yellow + "⚠"}${c.reset} --listen flag: ${hasListen ? "enabled" : "disabled — needed for WSL access"}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Stop SD — kill Python processes running the package.
+ */
+export function stopSD(): string {
+  ps(`
+    Get-Process python* -ErrorAction SilentlyContinue | Where-Object {
+      $_.Path -like '*reforge*' -or $_.Path -like '*StabilityMatrix*'
+    } | Stop-Process -Force
+  `, 10000);
+  return `${c.green}✓${c.reset} SD processes stopped`;
+}
+
+/**
+ * Restart SD — stop then launch.
+ */
+export async function restartSD(): Promise<string> {
+  stopSD();
+  await sleep(2000);
+
+  const sm = findStabilityMatrix();
+  if (!sm) return `${c.red}✗${c.reset} SM not found`;
+
+  if (!isSMRunning()) launchSM(sm);
+  await sleep(3000);
+
+  clickButton("LaunchButton");
+  return `${c.green}✓${c.reset} SD restarting — check status in a minute`;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
