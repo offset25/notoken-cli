@@ -15,6 +15,18 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     if (statusDef) return { intent: "notoken.status", confidence: 0.95, rawText, fields: {} };
   }
 
+  // Pre-check: server/system queries — "what is load", "what is cpu usage", "what is memory", "how much ram"
+  if (/^(what is |what's |show |check |how much |how's )?(the )?(load|cpu|cpu usage|uptime|server load)( right now| currently| on this)?\??$/.test(text)
+      || /^(what is |show )?(the )?(load|cpu) (average|right now|currently)/.test(text)) {
+    return { intent: "server.uptime", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^(what is |what's |show |check |how much )?(the )?(memory|ram|memory usage|ram usage)( right now| left| free| used| currently)?\??$/.test(text)) {
+    return { intent: "server.check_memory", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^(what is |what's |show |check |how much )?(the )?(disk|disk space|storage|space)( left| free| used| right now| currently)?\??$/.test(text)) {
+    return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
+  }
+
   // Pre-check: "can you generate an image" → ai.generate_image (not ai.image_status)
   if (/^(can you|could you|are you able to|do you)\s+(generate|create|make|draw)\s+(an?\s+)?(image|picture|photo|art)/i.test(text)) {
     return { intent: "ai.generate_image", confidence: 0.9, rawText, fields: {} };
