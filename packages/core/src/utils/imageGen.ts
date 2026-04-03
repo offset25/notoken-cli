@@ -263,6 +263,12 @@ export interface GpuInfo {
   hasAmd: boolean;
   gpuName?: string;
   vram?: string;
+  vramFree?: string;
+  gpuTemp?: string;
+  gpuUtil?: string;
+  driverVersion?: string;
+  gpuError?: string;
+  wslCuda?: boolean;
   cudaVersion?: string;
   cpuOnly: boolean;
 }
@@ -285,31 +291,93 @@ function tryExec(cmd: string, timeout = 5000): string | null {
 }
 
 export function detectGpu(): GpuInfo {
-  const nvidia = tryExec("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null");
-  const cuda = tryExec("nvcc --version 2>/dev/null");
-  const amd = tryExec("rocm-smi --showproductname 2>/dev/null");
-  // WSL check
-  const wslNvidia = !nvidia ? tryExec("nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null") : null;
+  // Find nvidia-smi — check PATH first, then known locations
+  const nvidiaSmiPaths = [
+    "nvidia-smi",                                           // in PATH
+    "/usr/lib/wsl/lib/nvidia-smi",                         // WSL2
+    "/usr/lib/wsl/drivers/*/nvidia-smi",                   // WSL2 driver dir
+    "/mnt/c/Windows/System32/nvidia-smi.exe",              // Windows side
+    "nvidia-smi.exe",                                       // Windows in PATH
+    "/usr/bin/nvidia-smi",                                  // Linux standard
+    "/usr/local/bin/nvidia-smi",                            // Linux local
+  ];
 
-  const gpuLine = nvidia ?? wslNvidia;
-  let gpuName: string | undefined;
-  let vram: string | undefined;
-
-  if (gpuLine) {
-    const parts = gpuLine.split(",").map(s => s.trim());
-    gpuName = parts[0];
-    vram = parts[1] ? `${parts[1]} MB` : undefined;
+  let nvidiaSmi: string | null = null;
+  for (const smiPath of nvidiaSmiPaths) {
+    if (smiPath.includes("*")) {
+      // Glob — try to find it
+      const found = tryExec(`ls ${smiPath} 2>/dev/null | head -1`);
+      if (found) { nvidiaSmi = found; break; }
+    } else {
+      const test = tryExec(`${smiPath} --query-gpu=name --format=csv,noheader 2>/dev/null`);
+      if (test) { nvidiaSmi = smiPath; break; }
+    }
   }
 
+  // If found but not in PATH, add it
+  if (nvidiaSmi && nvidiaSmi !== "nvidia-smi" && !tryExec("nvidia-smi --version 2>/dev/null")) {
+    const smiDir = nvidiaSmi.replace(/\/nvidia-smi.*$/, "");
+    if (smiDir && !process.env.PATH?.includes(smiDir)) {
+      process.env.PATH = `${smiDir}:${process.env.PATH}`;
+    }
+  }
+
+  // Query GPU info
+  let gpuName: string | undefined;
+  let vram: string | undefined;
+  let vramFree: string | undefined;
+  let gpuTemp: string | undefined;
+  let gpuUtil: string | undefined;
+  let driverVersion: string | undefined;
+  let gpuError: string | undefined;
+
+  if (nvidiaSmi) {
+    try {
+      const info = tryExec(`${nvidiaSmi} --query-gpu=name,memory.total,memory.free,temperature.gpu,utilization.gpu,driver_version --format=csv,noheader,nounits 2>/dev/null`);
+      if (info) {
+        const parts = info.split(",").map(s => s.trim());
+        gpuName = parts[0];
+        vram = parts[1] ? `${parts[1]} MB` : undefined;
+        vramFree = parts[2] ? `${parts[2]} MB` : undefined;
+        gpuTemp = parts[3] ? `${parts[3]}°C` : undefined;
+        gpuUtil = parts[4] ? `${parts[4]}%` : undefined;
+        driverVersion = parts[5];
+      }
+    } catch (err) {
+      gpuError = `nvidia-smi found but failed: ${err instanceof Error ? err.message : err}`;
+    }
+
+    // Check for GPU errors
+    const errCheck = tryExec(`${nvidiaSmi} --query-gpu=gpu_bus_id,ecc.errors.corrected.aggregate.total --format=csv,noheader 2>/dev/null`);
+    if (errCheck?.includes("ERR") || errCheck?.includes("Unknown Error")) {
+      gpuError = "GPU reporting errors — may be unstable";
+    }
+  }
+
+  // Check for WSL CUDA libs
+  const wslCuda = existsSync("/usr/lib/wsl/lib/libcuda.so");
+
+  // CUDA toolkit version
+  const cuda = tryExec("nvcc --version 2>/dev/null");
   const cudaMatch = cuda?.match(/release ([\d.]+)/);
+  // Also check nvidia-smi CUDA version
+  const smiCuda = nvidiaSmi ? tryExec(`${nvidiaSmi} --query-gpu=driver_version --format=csv,noheader 2>/dev/null`) : null;
+
+  const amd = tryExec("rocm-smi --showproductname 2>/dev/null");
 
   return {
-    hasNvidia: !!(nvidia || wslNvidia),
+    hasNvidia: !!nvidiaSmi,
     hasAmd: !!amd,
     gpuName,
     vram,
+    vramFree,
+    gpuTemp,
+    gpuUtil,
+    driverVersion,
+    gpuError,
+    wslCuda,
     cudaVersion: cudaMatch?.[1],
-    cpuOnly: !(nvidia || wslNvidia || amd),
+    cpuOnly: !nvidiaSmi && !amd,
   };
 }
 
