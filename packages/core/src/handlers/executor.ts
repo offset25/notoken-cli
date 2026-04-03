@@ -103,7 +103,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
     if (!isWSL) return { inWSL: false, wslInstalled: true, winInstalled: false };
     const wslOC = await runLocalCommand("which openclaw 2>/dev/null").catch(() => "");
-    const winOC = await runLocalCommand("cmd.exe /c 'where openclaw' 2>/dev/null").catch(() => "");
+    const winOC = await runLocalCommand("/mnt/c/Windows/System32/cmd.exe /c \"where openclaw\" 2>/dev/null").catch(() => "");
     return { inWSL: true, wslInstalled: !!wslOC.includes("openclaw"), winInstalled: !!winOC.includes("openclaw") };
   }
 
@@ -149,6 +149,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     // Replace "openclaw" at start of cmd with node22 + ocBin
     const wslCmd = cmd.replace(/^openclaw\b/, `${node22} ${ocBin}`);
 
+    // Build Windows command — use cmd.exe (PowerShell blocks .ps1 scripts due to execution policy)
+    function buildWinCmd(ocCmd: string): string {
+      const escaped = ocCmd.replace(/"/g, '\\"');
+      return `/mnt/c/Windows/System32/cmd.exe /c "${escaped}" 2>/dev/null`;
+    }
+
     if (effective === "both") {
       const results: string[] = [];
       if (env.wslInstalled) {
@@ -159,8 +165,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       }
       if (env.winInstalled) {
         results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset}`);
-        const winCmd = cmd.replace(/'/g, '"');
-        results.push(await runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, timeout).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
+        results.push(await runLocalCommand(buildWinCmd(cmd), timeout).catch(e => `${cc.yellow}⚠ ${(e as Error).message.split("\n")[0]}${cc.reset}`));
       } else {
         results.push(`\n${cc.bold}${cc.cyan}[Windows]${cc.reset} ${cc.dim}Not installed${cc.reset}`);
       }
@@ -171,8 +176,14 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       if (!env.inWSL) return `${cc.yellow}⚠ Not in WSL — can't target Windows host.${cc.reset}`;
       if (!env.winInstalled) return `${cc.yellow}⚠ OpenClaw not installed on Windows host.${cc.reset}\n${cc.dim}Install: open PowerShell and run: npm install -g openclaw${cc.reset}`;
       setLastOcEnv("windows");
-      const winCmd = cmd.replace(/'/g, '"');
-      return runLocalCommand(`cmd.exe /c '${winCmd}' 2>&1`, timeout);
+      try {
+        return await runLocalCommand(buildWinCmd(cmd), timeout);
+      } catch (err: unknown) {
+        const e = err as { stdout?: string; stderr?: string; message?: string };
+        if (e.stdout?.trim()) return e.stdout.trim();
+        if (e.stderr?.trim()) return e.stderr.trim();
+        throw err;
+      }
     }
 
     // WSL / native Linux — use Node 22 directly
