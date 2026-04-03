@@ -15,6 +15,12 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     if (statusDef) return { intent: "notoken.status", confidence: 0.95, rawText, fields: {} };
   }
 
+  // Pre-check: "cd /path" → shell cd (change directory)
+  const cdMatch = text.match(/^cd\s+(\/\S+|~\S*|\.\S*)$/);
+  if (cdMatch) {
+    return { intent: "shell.cd", confidence: 0.95, rawText, fields: { path: cdMatch[1] } };
+  }
+
   // Pre-check: "what is in my documents/folder/drive" → dir.list
   const whatIsInMatch = text.match(/^(?:what is |what's |show me what(?:'s| is) )in (?:my |the |this )?(.*?)(?:\?|$)/);
   if (whatIsInMatch) {
@@ -168,6 +174,11 @@ function extractStringFields(
       remaining = remaining.replace(v, " ");
     }
   }
+  remaining = remaining.replace(/\s+/g, " ").trim();
+
+  // Strip filler words that aren't meaningful field values
+  remaining = remaining.replace(/^(can you |could you |would you |please |hey |yo |just )+/i, "").trim();
+  remaining = remaining.replace(/\b(please|for me|for errors|for issues)\b/gi, "").trim();
   remaining = remaining.replace(/\s+/g, " ").trim();
 
   // Check for quoted strings first

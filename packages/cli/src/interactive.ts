@@ -445,6 +445,18 @@ async function handleMetaCommand(
   const parts = cmd.split(/\s+/);
   const command = parts[0];
 
+  // Handle "cd /path" directly — change working directory
+  if (command === "cd" && parts[1]) {
+    try {
+      const target = parts[1].replace(/^~/, process.env.HOME ?? "/root");
+      process.chdir(target);
+      console.log(`${c.green}✓${c.reset} ${process.cwd()}`);
+    } catch (e: any) {
+      console.error(`${c.red}✗${c.reset} ${e.message}`);
+    }
+    return;
+  }
+
   switch (command) {
     case ":quit":
     case ":q":
