@@ -703,7 +703,40 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         return `${cc.green}✓${cc.reset} Slack channel configured!\n  ${cc.dim}Test it by messaging the bot in Slack.${cc.reset}`;
 
       } else {
-        // Telegram, Discord — single token
+        // Discord — try automated bot creation via Patchright first
+        if (channel === "discord") {
+          console.log(`\n${cc.cyan}Attempting automated Discord bot setup...${cc.reset}\n`);
+          try {
+            const { createDiscordBot, ensurePatchright } = await import("../automation/discordPatchright.js");
+            if (ensurePatchright()) {
+              const result = await createDiscordBot("OpenClaw");
+              if (result.success && result.token) {
+                console.log(`${cc.green}✓ Bot created automatically!${cc.reset}`);
+                console.log(`\n${cc.cyan}Adding to OpenClaw...${cc.reset}`);
+                await withSpinner("Adding Discord channel...", () => runLocalCommand(
+                  `openclaw channels add --channel discord --token "${result.token}" 2>&1`, 30_000
+                ));
+                await runLocalCommand("openclaw gateway reload 2>&1").catch(() => "");
+                const status = await runLocalCommand("openclaw channels status 2>&1").catch(() => "");
+                if (status.toLowerCase().includes("discord")) {
+                  return [
+                    `${cc.green}✓${cc.reset} Discord bot created and connected to OpenClaw!`,
+                    `  ${cc.dim}App ID: ${result.appId}${cc.reset}`,
+                    `\n  ${cc.bold}Next:${cc.reset} Invite the bot to your Discord server:`,
+                    `  ${cc.cyan}https://discord.com/oauth2/authorize?client_id=${result.appId}&scope=bot&permissions=2048${cc.reset}`,
+                    `\n  ${cc.dim}Then send a message in a channel the bot can see to test.${cc.reset}`,
+                  ].join("\n");
+                }
+                return `${cc.green}✓${cc.reset} Discord bot created (App: ${result.appId}).\n  ${cc.yellow}⚠${cc.reset} Gateway may need restart: "restart openclaw"`;
+              }
+            }
+          } catch (autoErr: unknown) {
+            console.log(`${cc.yellow}⚠ Automated setup failed — falling back to manual token entry.${cc.reset}`);
+            console.log(`${cc.dim}  ${(autoErr as Error).message?.split("\n")[0] ?? ""}${cc.reset}\n`);
+          }
+        }
+
+        // Manual token entry — Telegram, Discord (fallback)
         const tokenLabel = channel === "telegram" ? "Bot token from BotFather" : "Bot token";
         const token = await rl.question(`${cc.cyan}${tokenLabel}${cc.reset}: `);
 
@@ -716,7 +749,6 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
           `openclaw channels add --channel ${channel} ${info.tokenFlag} "${token.trim()}" 2>&1`, 30_000
         ));
 
-        // Restart gateway to pick up new channel
         await runLocalCommand("openclaw gateway reload 2>&1").catch(() => "");
 
         const status = await runLocalCommand("openclaw channels status 2>&1").catch(() => "");

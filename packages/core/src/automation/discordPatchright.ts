@@ -28,21 +28,28 @@ function tryExec(cmd: string, timeout = 15_000): string {
   }
 }
 
+const isNativeWin = process.platform === "win32";
+const tempDir = isNativeWin ? "C:\\temp" : "/mnt/c/temp";
+const tempDirPosix = isNativeWin ? "/c/temp" : "/mnt/c/temp";
+const cmdPrefix = isNativeWin ? `cmd.exe /c "cd ${tempDir} &&` : `/mnt/c/Windows/System32/cmd.exe /c "cd ${tempDir} &&`;
+
 function winExec(script: string, timeout = 300_000): string {
-  // Write script to C:\temp, run via Windows Node
-  const scriptPath = "/mnt/c/temp/notoken-discord-script.js";
+  // Write script to temp dir, run via Node
+  const scriptPath = isNativeWin ? `${tempDir}\\notoken-discord-script.js` : `${tempDir}/notoken-discord-script.js`;
+  try { execSync(`mkdir ${isNativeWin ? tempDir : "-p " + tempDir}`, { stdio: "pipe" }); } catch {}
   writeFileSync(scriptPath, script);
-  return tryExec(`/mnt/c/Windows/System32/cmd.exe /c "cd C:\\temp && node notoken-discord-script.js"`, timeout);
+  return tryExec(`${cmdPrefix} node notoken-discord-script.js"`, timeout);
 }
 
 /**
  * Ensure patchright is installed on Windows.
  */
 export function ensurePatchright(): boolean {
-  const check = tryExec('/mnt/c/Windows/System32/cmd.exe /c "cd C:\\temp && node -e \\"require(\'patchright\');\\"" 2>&1');
+  try { execSync(`mkdir ${isNativeWin ? tempDir : "-p " + tempDir}`, { stdio: "pipe" }); } catch {}
+  const check = tryExec(`${cmdPrefix} node -e \\"require('patchright');\\"" 2>&1`);
   if (check.includes("Cannot find")) {
-    console.log(`  ${c.dim}Installing patchright on Windows...${c.reset}`);
-    tryExec('/mnt/c/Windows/System32/cmd.exe /c "cd C:\\temp && npm install patchright" 2>&1', 60_000);
+    console.log(`  ${c.dim}Installing patchright...${c.reset}`);
+    tryExec(`${cmdPrefix} npm install patchright" 2>&1`, 60_000);
     return true;
   }
   return true;
@@ -204,7 +211,7 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
   // Also try saved result
   if (!token) {
     try {
-      const saved = JSON.parse(readFileSync("/mnt/c/temp/discord-bot-result.json", "utf-8"));
+      const saved = JSON.parse(readFileSync(`${tempDirPosix}/discord-bot-result.json`, "utf-8"));
       if (saved.token) token = saved.token;
       if (saved.appId && !appId) appId = saved.appId;
     } catch {}
