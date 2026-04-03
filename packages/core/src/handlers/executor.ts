@@ -302,9 +302,11 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       }
     }
 
-    // Check if openclaw is installed and running
-    const ocVer = await runLocalCommand("openclaw --version 2>/dev/null").catch(() => "");
-    if (!ocVer) {
+    // Check if openclaw is installed — use Node 22 directly (openclaw --version fails on Node 18)
+    const node22ForChannel = await getNode22();
+    const ocBinForChannel = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "")).trim();
+    const ocVer = await runLocalCommand(`${node22ForChannel} ${ocBinForChannel} --version 2>/dev/null`).catch(() => "");
+    if (!ocVer && !ocBinForChannel.includes("openclaw")) {
       return `${cc.red}✗ OpenClaw is not installed.${cc.reset}\n  ${cc.dim}Say: "install openclaw" first.${cc.reset}`;
     }
 
@@ -2091,6 +2093,57 @@ expect eof
       }
     }
     return `${cc.red}✗ Installation failed after ${maxAttempts} attempts.${cc.reset}\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
+  }
+
+  // Discord/channel setup — "setup discord", "add discord channel", "connect discord"
+  if ((intent.intent === "openclaw.configure" || intent.intent === "openclaw.channel.setup" || intent.intent === "tool.install") &&
+      intent.rawText.match(/\bdiscord\b/i)) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Check if user provided a token directly: "setup discord with token abc123"
+    const tokenMatch = intent.rawText.match(/token\s+(\S+)/i);
+    if (tokenMatch) {
+      const token = tokenMatch[1];
+      console.log(`${cc.dim}Registering Discord bot token with OpenClaw...${cc.reset}`);
+      const node22 = await getNode22();
+      const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+      try {
+        await runLocalCommand(`${node22} ${ocBin} channels add --channel discord --token "${token}" 2>&1`, 15_000);
+        return `${cc.green}✓${cc.reset} Discord channel registered!\n  ${cc.dim}Restart OpenClaw: "restart openclaw"${cc.reset}`;
+      } catch (err: unknown) {
+        return `${cc.red}✗ Failed to register: ${(err as Error).message.split("\n")[0]}${cc.reset}`;
+      }
+    }
+
+    // Try Playwright automation
+    try {
+      const { setupDiscordChannel } = await import("../automation/discordSetup.js");
+      return await setupDiscordChannel();
+    } catch {
+      // Playwright not available — show manual instructions
+    }
+
+    // Manual instructions
+    const lines = [
+      `\n${cc.bold}${cc.cyan}── Discord Bot Setup ──${cc.reset}\n`,
+      `  ${cc.bold}Step 1:${cc.reset} Open ${cc.cyan}https://discord.com/developers/applications${cc.reset}`,
+      `  ${cc.bold}Step 2:${cc.reset} Click ${cc.bold}"New Application"${cc.reset} → name it "OpenClaw" → Create`,
+      `  ${cc.bold}Step 3:${cc.reset} Left sidebar → ${cc.bold}"Bot"${cc.reset} → click ${cc.bold}"Reset Token"${cc.reset} → ${cc.yellow}Copy the token${cc.reset}`,
+      `  ${cc.bold}Step 4:${cc.reset} Scroll down → enable ${cc.bold}"Message Content Intent"${cc.reset} → Save`,
+      `  ${cc.bold}Step 5:${cc.reset} Left sidebar → ${cc.bold}"OAuth2" → "URL Generator"${cc.reset}`,
+      `          Check: ${cc.cyan}bot${cc.reset} scope → then: ${cc.cyan}Send Messages${cc.reset} + ${cc.cyan}Read Messages/View Channels${cc.reset}`,
+      `  ${cc.bold}Step 6:${cc.reset} Copy the generated URL → open it → pick your server → Authorize\n`,
+      `  ${cc.bold}Then tell notoken:${cc.reset}`,
+      `  ${cc.cyan}"setup discord with token YOUR_BOT_TOKEN"${cc.reset}\n`,
+      `  ${cc.dim}notoken will register it with OpenClaw and restart the gateway.${cc.reset}`,
+    ];
+    // Open browser for the user
+    try {
+      await runLocalCommand(`/mnt/c/Windows/System32/cmd.exe /c "start https://discord.com/developers/applications" 2>/dev/null`).catch(() => "");
+      lines.push(`\n  ${cc.green}✓${cc.reset} Opened Discord Developer Portal in your browser.`);
+    } catch { /* */ }
+
+    return lines.join("\n");
   }
 
   // Entity define/list
