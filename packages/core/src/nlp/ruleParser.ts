@@ -20,6 +20,11 @@ export function parseByRules(rawText: string): DynamicIntent | null {
       || /^(what is |show )?(the )?(load|cpu) (average|right now|currently)/.test(text)) {
     return { intent: "server.uptime", confidence: 0.9, rawText, fields: {} };
   }
+  // "what is using heavy cpu" / "what is eating cpu" / "any heavy load processes"
+  if (/\b(what|which|any)\b.*(using|eating|taking|hogging|consuming)\b.*(cpu|processing|resources|memory|ram|load)\b/i.test(text)
+      || /\b(heavy|high)\s+(load|cpu|processing|processes)\b/i.test(text)) {
+    return { intent: "process.list", confidence: 0.9, rawText, fields: {} };
+  }
   if (/^(what is |what's |show |check |how much )?(the )?(memory|ram|memory usage|ram usage)( right now| left| free| used| currently)?\??$/.test(text)) {
     return { intent: "server.check_memory", confidence: 0.9, rawText, fields: {} };
   }

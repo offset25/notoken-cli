@@ -80,6 +80,30 @@ export function analyzeLoad(output: string): string {
     lines.push(`  ${c.dim}→ Load is stable.${c.reset}`);
   }
 
+  // Extract top CPU-heavy processes from the output
+  const psLines = output.split("\n").filter(l => /^\S+\s+\d+\s+\d+/.test(l));
+  const heavyProcs = psLines
+    .map(l => {
+      const parts = l.trim().split(/\s+/);
+      const cpu = parseFloat(parts[2]);
+      const mem = parseFloat(parts[3]);
+      const cmd = parts.slice(10).join(" ").replace(/^\/\S+\//, "").split(" ")[0]; // basename
+      return { user: parts[0], pid: parts[1], cpu, mem, cmd };
+    })
+    .filter(p => p.cpu > 5) // Only show processes using >5% CPU
+    .filter((p, i, arr) => arr.findIndex(x => x.pid === p.pid) === i) // Dedup by PID
+    .slice(0, 5);
+
+  if (heavyProcs.length > 0) {
+    lines.push(`\n  ${c.bold}Heavy processes:${c.reset}`);
+    for (const p of heavyProcs) {
+      const cpuBar = p.cpu > 50 ? c.red : p.cpu > 20 ? c.yellow : c.dim;
+      lines.push(`    ${cpuBar}${p.cpu.toFixed(0)}% CPU${c.reset}  ${p.mem.toFixed(0)}% RAM  ${c.bold}${p.cmd}${c.reset} ${c.dim}(${p.user}, PID ${p.pid})${c.reset}`);
+    }
+  } else if (ratio1 < 0.3) {
+    lines.push(`\n  ${c.green}No heavy processes — system is idle.${c.reset}`);
+  }
+
   return lines.join("\n");
 }
 
