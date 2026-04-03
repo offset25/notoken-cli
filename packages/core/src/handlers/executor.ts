@@ -344,6 +344,34 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
           return `${cc.red}✗ Ollama is not running.${cc.reset}\n  ${cc.dim}Start it: "start ollama"${cc.reset}`;
         }
 
+        // Performance check — GPU, WSL, and cross-environment benchmarking
+        const hasGpu = !!(await runLocalCommand("nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null").catch(() => "")).trim();
+        const checkIsWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+        const ollamaPs = await runLocalCommand("curl -sf http://localhost:11434/api/ps 2>/dev/null").catch(() => "{}");
+        const usingVram = ollamaPs.includes('"size_vram":') && !ollamaPs.includes('"size_vram":0');
+
+        const perfWarnings: string[] = [];
+        if (!hasGpu) {
+          perfWarnings.push(`${cc.yellow}⚠ No CUDA GPU detected — Ollama will use CPU only.${cc.reset}`);
+          perfWarnings.push(`  ${cc.dim}OpenClaw agent calls may take 3-5 minutes on CPU.${cc.reset}`);
+        } else if (!usingVram) {
+          perfWarnings.push(`${cc.yellow}⚠ GPU available but Ollama is not using VRAM.${cc.reset}`);
+          perfWarnings.push(`  ${cc.dim}Check CUDA drivers or restart Ollama.${cc.reset}`);
+        }
+        if (checkIsWSL) {
+          perfWarnings.push(`${cc.yellow}⚠ Running in WSL — filesystem bridge adds latency for model loading.${cc.reset}`);
+          if (!hasGpu) {
+            perfWarnings.push(`  ${cc.dim}Recommend using Claude/Codex for OpenClaw (fast, cloud-hosted).${cc.reset}`);
+            perfWarnings.push(`  ${cc.dim}Ollama works best for notoken's own LLM fallback (simpler prompts).${cc.reset}`);
+          }
+        }
+
+        if (perfWarnings.length > 0) {
+          console.log(`\n${cc.bold}Performance check:${cc.reset}`);
+          for (const w of perfWarnings) console.log(`  ${w}`);
+          console.log(`  ${cc.dim}Estimated response time: ${hasGpu ? "5-15s" : checkIsWSL ? "3-5 min" : "1-3 min"}${cc.reset}\n`);
+        }
+
         // Load model database for context window info
         let modelDb: Record<string, any> = {};
         try {
