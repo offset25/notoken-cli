@@ -70,7 +70,9 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     // For ambiguous intents (diagnose, fix, check, status, restart, etc.)
     // without an explicit service name — resolve from entity focus
     const ambiguousVerbs = /^(diagnose|fix|check|troubleshoot|repair|restart|start|stop|status|update)\s*$/i;
-    if (ambiguousVerbs.test(rawLower.trim()) || (rawLower.match(/^(diagnose|fix|check|troubleshoot|repair)\s+(it|this|that)$/i))) {
+    // Don't override notoken.status — bare "status" should stay as system dashboard
+    if (intent.intent === "notoken.status") { /* skip context injection */ }
+    else if (ambiguousVerbs.test(rawLower.trim()) || (rawLower.match(/^(diagnose|fix|check|troubleshoot|repair)\s+(it|this|that)$/i))) {
       const focus = getEntityFocus(conv);
       if (focus) {
         const target = focus.entityId;

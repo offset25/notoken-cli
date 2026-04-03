@@ -7,6 +7,69 @@ export function parseByRules(rawText: string): DynamicIntent | null {
   const intents = loadIntents();
   const text = rawText.trim().toLowerCase();
 
+  // Pre-check: status queries → notoken.status (not knowledge.lookup or service.status)
+  if (/^(what is |what's |show |check |give me )?(the )?(system |computer |machine |notoken )?status( of)?( this| the| my)?( machine| computer| system| server)?[?.!]?$/.test(text)
+      || /^(how is |how's )?(this |the |my )?(system|machine|computer|server) doing/.test(text)
+      || /^system status$/.test(text)) {
+    const statusDef = intents.find(i => i.name === "notoken.status");
+    if (statusDef) return { intent: "notoken.status", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Pre-check: "what is in my documents/folder/drive" → dir.list
+  const whatIsInMatch = text.match(/^(?:what is |what's |show me what(?:'s| is) )in (?:my |the |this )?(.*?)(?:\?|$)/);
+  if (whatIsInMatch) {
+    const target = whatIsInMatch[1].trim();
+    // Resolve common folder names
+    const folderMap: Record<string, string> = {
+      "documents": process.platform === "win32" ? "%USERPROFILE%\\Documents" : "~/Documents",
+      "documents folder": process.platform === "win32" ? "%USERPROFILE%\\Documents" : "~/Documents",
+      "downloads": process.platform === "win32" ? "%USERPROFILE%\\Downloads" : "~/Downloads",
+      "downloads folder": process.platform === "win32" ? "%USERPROFILE%\\Downloads" : "~/Downloads",
+      "desktop": process.platform === "win32" ? "%USERPROFILE%\\Desktop" : "~/Desktop",
+      "home": "~",
+      "home folder": "~",
+      "home directory": "~",
+      "root": "/",
+      "root folder": "/",
+      "root c drive": "/mnt/c/",
+      "c drive": "/mnt/c/",
+      "d drive": "/mnt/d/",
+      "e drive": "/mnt/e/",
+    };
+    const path = folderMap[target] ?? target;
+    if (target.includes("drive")) {
+      return { intent: "disk.scan", confidence: 0.9, rawText, fields: { path } };
+    }
+    return { intent: "dir.list", confidence: 0.9, rawText, fields: { path } };
+  }
+
+  // Pre-check: "what projects are on this drive" → project.scan
+  if (/\bwhat projects\b.*\b(on|in)\b.*\b(this|the|my|c|d)\b/.test(text)) {
+    return { intent: "project.scan", confidence: 0.9, rawText, fields: { path: "." } };
+  }
+
+  // Pre-check: "what's on this drive" / "show me whats on this drive" → disk.scan
+  if (/\b(what.?s|show me what.?s|what is) on (this|the|my|c|d) drive\b/.test(text)
+      || /\bshow me (this|the|my) drive\b/.test(text)) {
+    return { intent: "disk.scan", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Pre-check: "what files" / "what are files in this folder" → dir.list or project.detect
+  if (/^(what are |what's in |show me |list |show )(the )?(files|contents)( in| of)?( this| the| my| current)?( folder| directory| dir| project)?[?.!]?$/.test(text)
+      || /^(show me |list )(project |all )?files$/.test(text)) {
+    const isDirList = text.includes("folder") || text.includes("directory") || text.includes("dir");
+    const intentName = isDirList ? "dir.list" : "project.detect";
+    return { intent: intentName, confidence: 0.9, rawText, fields: { path: "." } };
+  }
+
+  // Pre-check: "how is openclaw doing" / "how is discord doing" → *.status
+  const howIsMatch = text.match(/^how(?:'s| is| are) (openclaw|claw|discord|ollama|notoken) (?:doing|going|running|working)/);
+  if (howIsMatch) {
+    const target = howIsMatch[1] === "claw" ? "openclaw" : howIsMatch[1];
+    const intentName = target === "notoken" ? "notoken.status" : `${target}.status`;
+    return { intent: intentName, confidence: 0.9, rawText, fields: {} };
+  }
+
   // Match intent by synonyms defined in intents.json
   const matched = matchIntent(text, intents);
   if (!matched) return null;
