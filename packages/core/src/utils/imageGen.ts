@@ -498,6 +498,25 @@ async function autoStartEngine(engine: ImageEngineStatus): Promise<boolean> {
         hasModel = files.some(f => f.endsWith(".safetensors") || f.endsWith(".ckpt"));
       } catch {}
 
+      // Health check: fix corrupted packages from interrupted installs
+      try {
+        const spDir = resolve(engine.path, "venv", "lib");
+        const pyDirs = readdirSync(spDir).filter(d => d.startsWith("python"));
+        for (const pyDir of pyDirs) {
+          const pkgDir = resolve(spDir, pyDir, "site-packages");
+          try {
+            const corrupted = readdirSync(pkgDir).filter(e => e.startsWith("~"));
+            if (corrupted.length > 0) {
+              console.error(`${c.yellow}Fixing ${corrupted.length} corrupted package(s)...${c.reset}`);
+              const { rmSync } = await import("node:fs");
+              for (const dir of corrupted) {
+                try { rmSync(resolve(pkgDir, dir), { recursive: true }); } catch {}
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+
       const timeout = hasModel ? 180 : 600; // 3 min with model, 10 min without
       console.error(`${c.dim}Starting Stable Diffusion...${hasModel ? "" : " (first launch — downloading model, this takes several minutes)"}${c.reset}`);
 
