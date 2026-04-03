@@ -48,7 +48,30 @@ export async function runCli(
     } catch { /* no conversation store available */ }
   }
 
+  // ── Context injection BEFORE parsing ──
+  // If the input is an ambiguous verb ("diagnose", "fix it", "check", "restart")
+  // and the conversation has an active entity focus, inject the target so the
+  // parser can resolve it to the right intent (e.g. "diagnose" → "diagnose discord").
+  let contextAnnouncement = "";
+  try {
+    const { getOrCreateConversation, getEntityFocus } = await import("notoken-core");
+    const conv = getOrCreateConversation(process.cwd());
+    const trimmed = rawText.trim().toLowerCase();
+    const ambiguous = /^(diagnose|fix|check|troubleshoot|repair|restart|start|stop|status|update)\s*(it|this|that)?$/i;
+    if (ambiguous.test(trimmed)) {
+      const focus = getEntityFocus(conv);
+      if (focus) {
+        const verb = trimmed.replace(/\s+(it|this|that)$/i, "");
+        rawText = `${verb} ${focus.entityId}`;
+        contextAnnouncement = `\x1b[2m  → ${verb} targeting \x1b[1m${focus.entityId}\x1b[0m\x1b[2m (based on conversation)\x1b[0m\n\x1b[2m    Say "not that" or specify a different target\x1b[0m`;
+      }
+    }
+  } catch { /* conversation store not available */ }
+
   let parsed = await parseIntent(rawText);
+
+  // Show context announcement after parsing (so user sees it before execution output)
+  if (contextAnnouncement) console.log(contextAnnouncement);
 
   // Record to conversation store (so "try again" works)
   try {

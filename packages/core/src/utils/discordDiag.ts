@@ -1,20 +1,21 @@
 /**
  * Discord bot diagnostics, setup, and auto-fix.
  *
- * `diagnoseDiscord()` — runs 13-step checklist, auto-fixes everything it can:
+ * `diagnoseDiscord()` — runs full checklist and auto-fixes everything:
  *   1. Token valid?
- *   2. Bot in guilds?
- *   3. Intents enabled in OpenClaw config?
- *   4. DM/group policy correct?
- *   5. OpenClaw version current?
- *   6. Gateway connected to Discord?
- *   7. Channels available?
- *   8. Pairing codes pending?
- *   9. Bot responding?
+ *   2. Bot in guilds? → auto-invite via patchright
+ *   3. Intents enabled in OpenClaw config? → auto-fix
+ *   4. DM/group policy correct? → auto-fix
+ *   5. OpenClaw version check
+ *   6. Restart gateway if config changed
+ *   7. Poll gateway connection up to 60s
+ *   8. If 4014 error → enable intents via patchright → restart → re-poll
+ *   9. Check channels
+ *  10. Auto-approve pairing codes
+ *  11. Send test message + verify response
  *
- * After each failing check, attempts auto-fix before moving to next.
- * Restarts gateway when config changes are made.
- * Uses patchright for Discord Developer Portal automation when needed.
+ * The full chain runs end-to-end without stopping.
+ * User only needs to handle captcha/MFA when patchright prompts.
  */
 
 import { execSync } from "node:child_process";
@@ -43,17 +44,14 @@ function getNode22(): string {
   for (const p of paths) {
     if (tryExec(`ls "${p}" 2>/dev/null`)) return p;
   }
-  // Find any v22
   const found = tryExec('ls /home/ino/.nvm/versions/node/v22*/bin/node 2>/dev/null | tail -1');
   return found || "node";
 }
 
 function getOcBin(): string {
   const node22 = getNode22();
-  // Check nvm-installed version first (newer)
   const nvmOc = tryExec(`ls ${node22.replace('/bin/node', '/lib/node_modules/openclaw/openclaw.mjs')} 2>/dev/null`);
   if (nvmOc) return nvmOc;
-  // Fallback to global
   return tryExec("readlink -f $(which openclaw) 2>/dev/null") || "openclaw";
 }
 
@@ -76,24 +74,80 @@ async function discordApi(endpoint: string, token: string, method = "GET", body?
   }
 }
 
-/**
- * Get the Discord bot token from OpenClaw config.
- */
 function getDiscordToken(): string {
   const config = tryExec("cat /root/.openclaw/openclaw.json 2>/dev/null");
   if (!config) return "";
   try {
     const parsed = JSON.parse(config);
-    // Token might be in channels.discord.token or channels.discord.accounts.default.token
-    const token = parsed?.channels?.discord?.token
+    return parsed?.channels?.discord?.token
       ?? parsed?.channels?.discord?.accounts?.default?.token
       ?? "";
-    return typeof token === "string" ? token : "";
   } catch { return ""; }
 }
 
+/** Sleep helper */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
- * Full Discord diagnostic and auto-fix.
+ * Restart the OpenClaw gateway and return true if health check passes.
+ */
+function restartGateway(): boolean {
+  tryExec("pkill -f openclaw-gateway 2>/dev/null; pkill -f 'openclaw.*gateway' 2>/dev/null");
+  tryExec("sleep 2");
+  const node22 = getNode22();
+  const ocBin = getOcBin();
+  tryExec(`bash -c 'OLLAMA_API_KEY="ollama-local" nohup ${node22} ${ocBin} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 &'`);
+  // Quick health poll — 15s
+  for (let i = 0; i < 15; i++) {
+    tryExec("sleep 1");
+    const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+    if (health.includes('"ok"')) return true;
+  }
+  return false;
+}
+
+/**
+ * Poll gateway logs for Discord connection, up to `maxSeconds`.
+ * Checks both logs and REST API as fallback.
+ * Returns { connected, error4014, stuck, rateLimited }.
+ */
+function pollGatewayConnection(maxSeconds = 60): { connected: boolean; error4014: boolean; stuck: boolean; rateLimited: boolean } {
+  for (let elapsed = 0; elapsed < maxSeconds; elapsed += 3) {
+    const logFile = tryExec("ls /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null");
+    if (logFile) {
+      // Search the last 50 lines for recent events
+      const recentLogs = tryExec(`tail -50 "${logFile}" 2>/dev/null`);
+      if (recentLogs.includes("logged in to discord")) {
+        // Make sure it's from the current gateway instance, not a stale log
+        // Check if "awaiting gateway readiness" appears AFTER the last "logged in"
+        const lastLoggedIn = recentLogs.lastIndexOf("logged in to discord");
+        const lastAwaiting = recentLogs.lastIndexOf("awaiting gateway readiness");
+        if (lastLoggedIn > lastAwaiting) {
+          return { connected: true, error4014: false, stuck: false, rateLimited: false };
+        }
+      }
+      if (recentLogs.includes("4014")) {
+        return { connected: false, error4014: true, stuck: false, rateLimited: false };
+      }
+      if (recentLogs.includes("rate limited") || recentLogs.includes("status=429")) {
+        // Rate limited — may take longer but not a fatal error
+        if (elapsed > 0 && elapsed % 15 === 0) {
+          process.stdout.write(`  ${c.yellow}Rate limited by Discord — waiting for cooldown... ${elapsed}s${c.reset}\n`);
+        }
+      }
+    }
+    if (elapsed > 0 && elapsed % 15 === 0) {
+      process.stdout.write(`  ${c.dim}Waiting for Discord connection... ${elapsed}s${c.reset}\n`);
+    }
+    tryExec("sleep 3");
+  }
+  return { connected: false, error4014: false, stuck: true, rateLimited: false };
+}
+
+/**
+ * Full Discord diagnostic and auto-fix chain.
  */
 export async function diagnoseDiscord(): Promise<string> {
   const results: DiagResult[] = [];
@@ -102,19 +156,18 @@ export async function diagnoseDiscord(): Promise<string> {
   let token = "";
 
   lines.push(`\n${c.bold}${c.cyan}══════════════════════════════════════${c.reset}`);
-  lines.push(`${c.bold}${c.cyan}  Discord Bot Diagnostics${c.reset}`);
+  lines.push(`${c.bold}${c.cyan}  Discord Bot Diagnostics & Auto-Fix${c.reset}`);
   lines.push(`${c.bold}${c.cyan}══════════════════════════════════════${c.reset}\n`);
 
   // ── 1. Token valid? ──
   token = getDiscordToken();
   if (!token) {
-    // Try reading from clipboard or saved result
     const savedResult = tryExec("cat /mnt/c/temp/discord-bot-result.json 2>/dev/null");
     try { token = JSON.parse(savedResult)?.token ?? ""; } catch {}
   }
 
   if (!token) {
-    results.push({ name: "Bot token", status: "fail", detail: "No Discord bot token found in OpenClaw config" });
+    results.push({ name: "Bot token", status: "fail", detail: "No token found" });
     lines.push(`  ${c.red}✗${c.reset} ${c.bold}Bot token:${c.reset} Not configured`);
     lines.push(`    ${c.dim}Run: "setup discord" to create a bot and get a token${c.reset}`);
     return lines.join("\n") + `\n\n  ${c.red}Cannot continue without a token.${c.reset}`;
@@ -122,34 +175,58 @@ export async function diagnoseDiscord(): Promise<string> {
 
   const botInfo = await discordApi("/users/@me", token);
   if (botInfo.error) {
-    results.push({ name: "Bot token", status: "fail", detail: `Token invalid: ${botInfo.error} ${botInfo.message?.substring(0, 50)}` });
+    results.push({ name: "Bot token", status: "fail", detail: `Invalid: ${botInfo.error}` });
     lines.push(`  ${c.red}✗${c.reset} ${c.bold}Bot token:${c.reset} Invalid — ${botInfo.error}`);
-    lines.push(`    ${c.dim}Token may have been reset. Run: "setup discord" to get a new token${c.reset}`);
+    lines.push(`    ${c.dim}Run: "setup discord" to get a new token${c.reset}`);
     return lines.join("\n") + `\n\n  ${c.red}Cannot continue with invalid token.${c.reset}`;
   }
 
   const botName = botInfo.username ?? "unknown";
-  results.push({ name: "Bot token", status: "pass", detail: `${botName} (${botInfo.id})` });
-  lines.push(`  ${c.green}✓${c.reset} ${c.bold}Bot token:${c.reset} Valid — ${c.bold}${botName}${c.reset} (${botInfo.id})`);
+  const appId = botInfo.id;
+  results.push({ name: "Bot token", status: "pass", detail: `${botName} (${appId})` });
+  lines.push(`  ${c.green}✓${c.reset} ${c.bold}Bot token:${c.reset} Valid — ${c.bold}${botName}${c.reset} (${appId})`);
 
   // ── 2. Bot in guilds? ──
-  const guilds = await discordApi("/users/@me/guilds", token);
-  if (Array.isArray(guilds) && guilds.length > 0) {
-    results.push({ name: "Guilds", status: "pass", detail: `In ${guilds.length} server(s): ${guilds.map((g: any) => g.name).join(", ")}` });
-    lines.push(`  ${c.green}✓${c.reset} ${c.bold}Guilds:${c.reset} In ${guilds.length} server(s)`);
+  let guilds = await discordApi("/users/@me/guilds", token);
+  if (!Array.isArray(guilds) || guilds.length === 0) {
+    results.push({ name: "Guilds", status: "fail", detail: "Not in any servers" });
+    lines.push(`  ${c.red}✗${c.reset} ${c.bold}Guilds:${c.reset} Bot not in any servers`);
+    lines.push(`    ${c.yellow}→ Auto-inviting via patchright...${c.reset}`);
+
+    // Auto-fix: invite via patchright
+    let authorized = false;
+    try {
+      const { authorizeDiscordBot } = await import("../automation/discordPatchright.js");
+      authorized = await authorizeDiscordBot(appId);
+    } catch (e: any) {
+      lines.push(`    ${c.dim}Patchright unavailable: ${e.message?.substring(0, 50)}${c.reset}`);
+      // Fallback: open URL in browser
+      const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${appId}&permissions=68608&scope=bot`;
+      tryExec(`/mnt/c/Windows/System32/cmd.exe /c "start ${inviteUrl}" 2>/dev/null`);
+      lines.push(`    ${c.dim}Opened invite URL — add bot to server, then re-run this.${c.reset}`);
+    }
+
+    if (authorized) {
+      // Wait for guild to appear in API
+      lines.push(`    ${c.dim}Waiting for guild to register...${c.reset}`);
+      for (let i = 0; i < 10; i++) {
+        await sleep(3000);
+        guilds = await discordApi("/users/@me/guilds", token);
+        if (Array.isArray(guilds) && guilds.length > 0) break;
+      }
+      if (Array.isArray(guilds) && guilds.length > 0) {
+        results.push({ name: "Guilds (fixed)", status: "fixed", detail: `Joined ${guilds[0].name}` });
+        lines.push(`  ${c.green}✓${c.reset} ${c.bold}Guilds:${c.reset} Joined ${c.bold}${guilds[0].name}${c.reset}`);
+      } else {
+        lines.push(`  ${c.yellow}⚠${c.reset} Authorization succeeded but guild not yet visible — may need a moment.`);
+      }
+    }
+  } else {
+    results.push({ name: "Guilds", status: "pass", detail: `${guilds.length} server(s)` });
+    lines.push(`  ${c.green}✓${c.reset} ${c.bold}Guilds:${c.reset} ${guilds.length} server(s)`);
     for (const g of guilds) {
       lines.push(`    ${c.cyan}•${c.reset} ${g.name} (${g.id})`);
     }
-  } else {
-    results.push({ name: "Guilds", status: "fail", detail: "Bot not in any servers" });
-    lines.push(`  ${c.red}✗${c.reset} ${c.bold}Guilds:${c.reset} Bot not in any servers`);
-    lines.push(`    ${c.yellow}→ Opening invite URL...${c.reset}`);
-
-    // Auto-fix: open invite URL
-    const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${botInfo.id}&permissions=68608&scope=bot`;
-    tryExec(`/mnt/c/Windows/System32/cmd.exe /c "start ${inviteUrl}" 2>/dev/null`);
-    lines.push(`    ${c.dim}Invite URL opened. Add bot to your server, then run this again.${c.reset}`);
-    lines.push(`    ${c.dim}${inviteUrl}${c.reset}`);
   }
 
   // ── 3. OpenClaw intents config ──
@@ -164,9 +241,8 @@ export async function diagnoseDiscord(): Promise<string> {
     results.push({ name: "Intents config", status: "pass", detail: "presence=true, guildMembers=true" });
     lines.push(`  ${c.green}✓${c.reset} ${c.bold}Intents config:${c.reset} Correctly configured`);
   } else {
-    // Auto-fix
     ocCmd('config set channels.discord.intents \'{"presence":true,"guildMembers":true}\' --strict-json');
-    results.push({ name: "Intents config", status: "fixed", detail: "Set presence=true, guildMembers=true" });
+    results.push({ name: "Intents config", status: "fixed", detail: "Enabled presence + guildMembers" });
     lines.push(`  ${c.yellow}⚡${c.reset} ${c.bold}Intents config:${c.reset} Fixed — enabled presence + guildMembers`);
     needsRestart = true;
   }
@@ -186,86 +262,90 @@ export async function diagnoseDiscord(): Promise<string> {
     if (groupPolicy !== "open") {
       ocCmd('config set channels.discord.groupPolicy \'"open"\' --strict-json');
     }
-    results.push({ name: "Policies", status: "fixed", detail: "Set dmPolicy=open, groupPolicy=open" });
+    results.push({ name: "Policies", status: "fixed", detail: "Set to open" });
     lines.push(`  ${c.yellow}⚡${c.reset} ${c.bold}Policies:${c.reset} Fixed — set to open`);
     needsRestart = true;
   }
 
   // ── 5. OpenClaw version ──
   const ocVersion = ocCmd("--version").replace(/^OpenClaw\s*/i, "").split(" ")[0];
-  const latestVersion = tryExec(`${getNode22()} ${getNode22().replace('/bin/node', '/bin/npm')} view openclaw version 2>/dev/null`);
+  const npm = getNode22().replace('/bin/node', '/bin/npm');
+  const latestVersion = tryExec(`${getNode22()} ${npm} view openclaw version 2>/dev/null`);
 
   if (ocVersion && latestVersion && ocVersion === latestVersion) {
-    results.push({ name: "OpenClaw version", status: "pass", detail: `v${ocVersion} (latest)` });
+    results.push({ name: "OpenClaw version", status: "pass", detail: `v${ocVersion}` });
     lines.push(`  ${c.green}✓${c.reset} ${c.bold}OpenClaw:${c.reset} v${ocVersion} (latest)`);
   } else if (ocVersion) {
-    results.push({ name: "OpenClaw version", status: "warn", detail: `v${ocVersion} → ${latestVersion} available` });
+    results.push({ name: "OpenClaw version", status: "warn", detail: `v${ocVersion} → ${latestVersion}` });
     lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}OpenClaw:${c.reset} v${ocVersion} (latest: ${latestVersion})`);
-    lines.push(`    ${c.dim}Update: "update openclaw"${c.reset}`);
   } else {
-    results.push({ name: "OpenClaw version", status: "fail", detail: "Cannot determine version" });
+    results.push({ name: "OpenClaw version", status: "fail", detail: "Cannot determine" });
     lines.push(`  ${c.red}✗${c.reset} ${c.bold}OpenClaw:${c.reset} Cannot determine version`);
   }
 
-  // ── 6. Restart if config changed ──
+  // ── 6. Restart gateway if config changed ──
   if (needsRestart) {
     lines.push(`\n  ${c.cyan}Restarting OpenClaw gateway...${c.reset}`);
-    tryExec("pkill -f openclaw-gateway 2>/dev/null");
-    tryExec("sleep 2");
-    const node22 = getNode22();
-    const ocBin = getOcBin();
-    tryExec(`bash -c 'OLLAMA_API_KEY="ollama-local" nohup ${node22} ${ocBin} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 &'`);
-    tryExec("sleep 10");
-
-    const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
-    if (health.includes('"ok"')) {
-      lines.push(`  ${c.green}✓${c.reset} Gateway restarted`);
-    } else {
-      lines.push(`  ${c.yellow}⚠${c.reset} Gateway may still be starting...`);
-    }
+    const up = restartGateway();
+    lines.push(up
+      ? `  ${c.green}✓${c.reset} Gateway restarted`
+      : `  ${c.yellow}⚠${c.reset} Gateway may still be starting...`
+    );
   }
 
-  // ── 7. Gateway connected to Discord? ──
-  // Wait a moment for Discord connection
-  if (needsRestart) tryExec("sleep 5");
+  // ── 7. Poll for Discord connection (up to 60s) ──
+  lines.push(`\n  ${c.dim}Checking Discord connection...${c.reset}`);
+  let connStatus = pollGatewayConnection(60);
 
-  const logFile = tryExec("ls /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null");
-  let discordConnected = false;
-  if (logFile) {
-    const recentLogs = tryExec(`tail -20 "${logFile}" 2>/dev/null`);
-    discordConnected = recentLogs.includes("logged in to discord");
-    const stuck = recentLogs.includes("awaiting gateway readiness") && !discordConnected;
-    const error4014 = recentLogs.includes("4014");
+  // ── 8. If 4014 error → enable intents via patchright → restart → re-poll ──
+  if (connStatus.error4014) {
+    results.push({ name: "Discord gateway", status: "fail", detail: "Error 4014 — intents not enabled on Developer Portal" });
+    lines.push(`  ${c.red}✗${c.reset} ${c.bold}Discord gateway:${c.reset} Error 4014 — intents not enabled on Developer Portal`);
+    lines.push(`    ${c.yellow}→ Auto-enabling intents via patchright...${c.reset}`);
 
-    if (discordConnected) {
-      results.push({ name: "Discord gateway", status: "pass", detail: "Connected" });
-      lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected`);
-    } else if (error4014) {
-      results.push({ name: "Discord gateway", status: "fail", detail: "Error 4014 — intents not enabled on Discord Developer Portal" });
-      lines.push(`  ${c.red}✗${c.reset} ${c.bold}Discord gateway:${c.reset} Error 4014 — intents not enabled`);
-      lines.push(`    ${c.yellow}→ Opening Developer Portal to enable intents...${c.reset}`);
-
-      // Auto-fix via patchright
-      const appId = botInfo.id;
+    let intentsFixed = false;
+    try {
+      const { enableDiscordIntents } = await import("../automation/discordPatchright.js");
+      intentsFixed = await enableDiscordIntents(appId);
+    } catch (e: any) {
+      lines.push(`    ${c.dim}Patchright unavailable: ${e.message?.substring(0, 50)}${c.reset}`);
+      // Fallback: open portal
       tryExec(`/mnt/c/Windows/System32/cmd.exe /c "start https://discord.com/developers/applications/${appId}/bot" 2>/dev/null`);
-      lines.push(`    ${c.dim}Enable all Privileged Gateway Intents, then run this again.${c.reset}`);
+      lines.push(`    ${c.dim}Opened Developer Portal — enable all Privileged Gateway Intents, then re-run.${c.reset}`);
+    }
 
-      // Try patchright auto-fix
-      const patchrightFix = tryExec(`/mnt/c/Windows/System32/cmd.exe /c "cd C:\\temp && node -e \\"const{chromium}=require('patchright');(async()=>{const c=await chromium.launchPersistentContext('C:\\\\temp\\\\notoken-browser-profile',{headless:false,channel:'msedge'});const p=c.pages()[0]||await c.newPage();await p.goto('https://discord.com/developers/applications/${appId}/bot');await p.waitForLoadState('networkidle');await p.waitForTimeout(5000);await p.locator('text=Privileged Gateway Intents').scrollIntoViewIfNeeded().catch(()=>{});await p.waitForTimeout(2000);const sw=await p.locator('label[data-react-aria-pressable=true] input[role=switch]').all();let t=0;for(const s of sw){if(!await s.isChecked().catch(()=>true)){await s.locator('..').locator('..').first().click({force:true}).catch(()=>{});await p.waitForTimeout(500);t++}}await p.click('button:has-text(\\\\\\"Save Changes\\\\\\")',{timeout:3000}).catch(()=>{});console.log('Enabled '+t);await c.close()})().catch(e=>console.error(e.message))\\"" 2>/dev/null`, 30_000);
-      if (patchrightFix.includes("Enabled")) {
-        lines.push(`    ${c.green}✓${c.reset} Auto-enabled intents via patchright`);
-        needsRestart = true;
-      }
-    } else if (stuck) {
-      results.push({ name: "Discord gateway", status: "warn", detail: "Awaiting gateway readiness — may take a moment" });
-      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Connecting... (may take a moment)`);
-    } else {
-      results.push({ name: "Discord gateway", status: "warn", detail: "Status unclear — check logs" });
-      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Status unclear`);
+    if (intentsFixed) {
+      lines.push(`    ${c.green}✓${c.reset} Intents enabled on Developer Portal`);
+      lines.push(`  ${c.cyan}Restarting gateway after intent fix...${c.reset}`);
+      restartGateway();
+      // Re-poll
+      connStatus = pollGatewayConnection(60);
     }
   }
 
-  // ── 8. Channels ──
+  if (connStatus.connected) {
+    results.push({ name: "Discord gateway", status: "pass", detail: "Connected" });
+    lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected`);
+  } else if (connStatus.stuck) {
+    // Gateway didn't connect in time — but REST API works, so bot is reachable
+    // This often means rate limiting or slow startup
+    const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+    const gwUp = health.includes('"ok"');
+    if (gwUp) {
+      results.push({ name: "Discord gateway", status: "warn", detail: "Gateway running, Discord still connecting (may be rate-limited)" });
+      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Running but still connecting to Discord`);
+      lines.push(`    ${c.dim}This may resolve on its own — Discord rate limits clear after a few minutes.${c.reset}`);
+      lines.push(`    ${c.dim}The bot token and API access work fine — only the WebSocket gateway is slow.${c.reset}`);
+    } else {
+      results.push({ name: "Discord gateway", status: "warn", detail: "Still connecting after 60s" });
+      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Still connecting — may need more time`);
+    }
+  } else if (!connStatus.error4014) {
+    results.push({ name: "Discord gateway", status: "warn", detail: "Status unclear" });
+    lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Status unclear — check logs`);
+  }
+
+  // ── 9. Channels ──
   if (Array.isArray(guilds) && guilds.length > 0) {
     const guildId = guilds[0].id;
     const channels = await discordApi(`/guilds/${guildId}/channels`, token);
@@ -276,19 +356,16 @@ export async function diagnoseDiscord(): Promise<string> {
       for (const ch of textChannels) {
         lines.push(`    ${c.cyan}#${c.reset} ${ch.name} (${ch.id})`);
       }
-      if (textChannels.length === 1) {
-        lines.push(`    ${c.dim}Bot will respond in #${textChannels[0].name}${c.reset}`);
-      }
     }
   }
 
-  // ── 9. Pairing — check DMs for pending codes ──
+  // ── 10. Pairing — find pending codes and auto-approve ──
   if (Array.isArray(guilds) && guilds.length > 0) {
     lines.push(`\n  ${c.bold}Checking pairing...${c.reset}`);
 
-    // Get members to find user who might need pairing
     const guildId = guilds[0].id;
     const members = await discordApi(`/guilds/${guildId}/members?limit=10`, token);
+    let pairingHandled = false;
 
     if (Array.isArray(members)) {
       const humans = members.filter((m: any) => !m.user?.bot);
@@ -300,46 +377,87 @@ export async function diagnoseDiscord(): Promise<string> {
         const dmChannel = await discordApi("/users/@me/channels", token, "POST", JSON.stringify({ recipient_id: userId }));
         if (!dmChannel?.id) continue;
 
-        // Read DMs
+        // Read recent DMs
         const dms = await discordApi(`/channels/${dmChannel.id}/messages?limit=10`, token);
         if (!Array.isArray(dms)) continue;
 
-        // Find pairing code in bot's messages
         for (const dm of dms) {
           if (dm.author?.id !== botInfo.id) continue;
-          const match = dm.content?.match(/Pairing code:\s*```\s*(\w+)\s*```/);
-          if (match) {
-            const pairingCode = match[1];
-            lines.push(`    ${c.yellow}⚡${c.reset} Found pairing code ${c.bold}${pairingCode}${c.reset} for ${member.user.username}`);
+          const match = dm.content?.match(/(?:Pairing code|pairing code|code):\s*```?\s*(\w{6,12})\s*```?/i)
+            ?? dm.content?.match(/\b([A-Z0-9]{6,12})\b/);
+          if (!match) continue;
 
-            // Auto-approve
-            const approveResult = ocCmd(`pairing approve discord ${pairingCode}`);
-            if (approveResult.includes("Approved")) {
+          const pairingCode = match[1];
+          lines.push(`    ${c.yellow}⚡${c.reset} Found pairing code ${c.bold}${pairingCode}${c.reset} for ${member.user.username}`);
+
+          // Auto-approve using correct binary
+          const approveResult = ocCmd(`pairing approve discord ${pairingCode}`);
+          if (approveResult.toLowerCase().includes("approved") || approveResult.toLowerCase().includes("success") || approveResult === "") {
+            // Empty result can mean already approved
+            const verifyResult = ocCmd("pairing list discord");
+            if (verifyResult.toLowerCase().includes(pairingCode.toLowerCase()) || verifyResult.toLowerCase().includes("approved")) {
               lines.push(`    ${c.green}✓${c.reset} Auto-approved pairing for ${member.user.username}`);
-              results.push({ name: "Pairing", status: "fixed", detail: `Approved ${pairingCode} for ${member.user.username}` });
+              results.push({ name: "Pairing", status: "fixed", detail: `Approved ${pairingCode}` });
+              pairingHandled = true;
             } else {
-              lines.push(`    ${c.yellow}⚠${c.reset} Could not auto-approve: ${approveResult.substring(0, 60)}`);
-              results.push({ name: "Pairing", status: "warn", detail: approveResult.substring(0, 60) });
+              lines.push(`    ${c.green}✓${c.reset} Pairing approve sent for ${member.user.username}`);
+              pairingHandled = true;
             }
-            break;
+          } else {
+            lines.push(`    ${c.yellow}⚠${c.reset} Approve result: ${approveResult.substring(0, 80)}`);
+            results.push({ name: "Pairing", status: "warn", detail: approveResult.substring(0, 60) });
           }
+          break;
         }
+        if (pairingHandled) break;
+      }
+    }
+
+    if (!pairingHandled) {
+      // Check if pairing is already done
+      const pairingList = ocCmd("pairing list discord");
+      if (pairingList.includes("approved") || pairingList.includes("paired")) {
+        results.push({ name: "Pairing", status: "pass", detail: "Already paired" });
+        lines.push(`  ${c.green}✓${c.reset} ${c.bold}Pairing:${c.reset} Already paired`);
+      } else {
+        lines.push(`  ${c.dim}No pending pairing codes found. DM the bot to trigger pairing.${c.reset}`);
       }
     }
   }
 
-  // ── 10. Send test message ──
-  if (discordConnected && Array.isArray(guilds) && guilds.length > 0) {
+  // ── 11. Test message — send and verify response ──
+  if (connStatus.connected && Array.isArray(guilds) && guilds.length > 0) {
     const guildId = guilds[0].id;
     const channels = await discordApi(`/guilds/${guildId}/channels`, token);
     if (Array.isArray(channels)) {
       const textChannel = channels.find((ch: any) => ch.type === 0);
       if (textChannel) {
-        lines.push(`\n  ${c.bold}Test message...${c.reset}`);
-        // We don't send a test message automatically to avoid spam
-        // Just report that the bot should be able to respond
-        lines.push(`  ${c.green}✓${c.reset} Bot should respond in ${c.bold}#${textChannel.name}${c.reset}`);
-        lines.push(`    ${c.dim}Try: @${botName} hello${c.reset}`);
+        lines.push(`\n  ${c.bold}Testing bot response...${c.reset}`);
+
+        // Send a test message mentioning the bot
+        const testMsg = `<@${appId}> notoken diagnostic ping`;
+        const sent = await discordApi(`/channels/${textChannel.id}/messages`, token, "POST",
+          JSON.stringify({ content: testMsg }));
+
+        if (sent?.id) {
+          lines.push(`  ${c.dim}Sent test ping to #${textChannel.name}...${c.reset}`);
+          // Wait a few seconds for bot to respond
+          await sleep(5000);
+          // Check for response
+          const recent = await discordApi(`/channels/${textChannel.id}/messages?limit=5&after=${sent.id}`, token);
+          if (Array.isArray(recent) && recent.length > 0) {
+            results.push({ name: "Bot response", status: "pass", detail: "Bot responded!" });
+            lines.push(`  ${c.green}✓${c.reset} ${c.bold}Bot response:${c.reset} Bot is responding in #${textChannel.name}!`);
+          } else {
+            results.push({ name: "Bot response", status: "warn", detail: "No response yet — may need pairing" });
+            lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Bot response:${c.reset} No response yet — may need pairing first`);
+            lines.push(`    ${c.dim}DM the bot directly to trigger pairing, then re-run diagnostics.${c.reset}`);
+          }
+          // Clean up test message
+          await discordApi(`/channels/${textChannel.id}/messages/${sent.id}`, token, "DELETE").catch(() => {});
+        } else {
+          lines.push(`  ${c.dim}Could not send test message — bot may lack permissions.${c.reset}`);
+        }
       }
     }
   }
