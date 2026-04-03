@@ -154,8 +154,10 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    if (trimmed.startsWith(":")) {
-      await handleMetaCommand(trimmed, conv, dryRun, verbose, adaptRules, pendingNotifications, (k, v) => {
+    // Accept both :command and /command for meta commands
+    if (trimmed.startsWith(":") || trimmed.startsWith("/")) {
+      const metaCmd = trimmed.startsWith("/") ? ":" + trimmed.slice(1) : trimmed;
+      await handleMetaCommand(metaCmd, conv, dryRun, verbose, adaptRules, pendingNotifications, (k, v) => {
         if (k === "dryRun") dryRun = v as boolean;
         if (k === "verbose") verbose = v as boolean;
         if (k === "adaptRules") adaptRules = v as boolean;
@@ -371,7 +373,7 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
           sentToBackground = true;
           process.stdin.removeListener("data", onData);
           if (process.stdin.isRaw) process.stdin.setRawMode(false);
-          console.log(`\n${c.yellow}↗ Moved to background.${c.reset} ${c.dim}Type ":jobs" to check status.${c.reset}`);
+          console.log(`\n${c.yellow}↗ Moved to background.${c.reset} ${c.dim}Type "/jobs" to check status.${c.reset}`);
         }
       };
       process.stdin.setRawMode(true);
