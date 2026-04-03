@@ -255,6 +255,22 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     console.log(`\n  ${ocLabel}\n`);
   }
 
+  // Discord diagnose/fix/check — intercept BEFORE general OpenClaw handlers
+  if (intent.rawText.match(/\b(diagnose|fix|check|troubleshoot|repair)\b.*\bdiscord\b|\bdiscord\b.*\b(diagnose|fix|check|troubleshoot|status)\b/i)) {
+    const isQuick = !!intent.rawText.match(/\b(check|status)\b/i) && !intent.rawText.match(/\b(fix|diagnose|troubleshoot|repair)\b/i);
+    try {
+      if (isQuick) {
+        const { quickDiscordCheck } = await import("../utils/discordDiag.js");
+        return await quickDiscordCheck();
+      } else {
+        const { diagnoseDiscord } = await import("../utils/discordDiag.js");
+        return await diagnoseDiscord();
+      }
+    } catch (err: unknown) {
+      return `\x1b[31m✗ Discord diagnostics error: ${(err as Error).message.split("\n")[0]}\x1b[0m`;
+    }
+  }
+
   // OpenClaw status
   if (intent.intent === "openclaw.status") {
     const diagRemote = environment !== "local" && environment !== "localhost" && hasRealHost(environment);
@@ -2367,6 +2383,22 @@ expect eof
       }
     }
     return `${cc.red}✗ Installation failed after ${maxAttempts} attempts.${cc.reset}\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
+  }
+
+  // Discord diagnose/fix/check — "diagnose discord", "fix discord", "check discord"
+  if (intent.rawText.match(/\b(diagnose|fix|check|troubleshoot|repair)\b.*\bdiscord\b|\bdiscord\b.*\b(diagnose|fix|check|troubleshoot|status)\b/i)) {
+    const isQuick = !!intent.rawText.match(/\b(check|status)\b/i) && !intent.rawText.match(/\b(fix|diagnose|troubleshoot|repair)\b/i);
+    try {
+      if (isQuick) {
+        const { quickDiscordCheck } = await import("../utils/discordDiag.js");
+        return await quickDiscordCheck();
+      } else {
+        const { diagnoseDiscord } = await import("../utils/discordDiag.js");
+        return await diagnoseDiscord();
+      }
+    } catch (err: unknown) {
+      return `\x1b[31m✗ Discord diagnostics error: ${(err as Error).message.split("\n")[0]}\x1b[0m`;
+    }
   }
 
   // Discord/channel setup — "setup discord", "add discord channel", "connect discord"
