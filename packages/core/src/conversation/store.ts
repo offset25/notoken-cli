@@ -34,6 +34,19 @@ export interface UncertaintyReport {
   overallConfidence: number;
 }
 
+export interface EntityFocus {
+  /** The entity/installation currently being discussed */
+  entityId: string;
+  /** What type — "installation", "server", "database", "service" */
+  entityType: string;
+  /** When it became the focus */
+  focusedAt: string;
+  /** Turn ID when it became the focus */
+  focusedAtTurn: number;
+  /** Conversation history of discussed entities (most recent first) */
+  history: Array<{ entityId: string; entityType: string; turnId: number }>;
+}
+
 export interface Conversation {
   id: string;
   folderPath: string;
@@ -42,6 +55,8 @@ export interface Conversation {
   turns: ConversationTurn[];
   /** Running knowledge of entities mentioned across turns */
   knowledgeTree: KnowledgeNode[];
+  /** Currently focused entity — for "it", "that one", "restart it" resolution */
+  focus?: EntityFocus;
   /** Files loaded into context — content available to LLM and command analysis */
   contextFiles?: Array<{ path: string; name: string; content: string; loadedAt: string }>;
 }
@@ -253,6 +268,81 @@ function updateKnowledge(
       node.coOccurrences.push(co);
     }
   }
+}
+
+// ─── Entity Focus ──────────────────────────────────────────────────────────
+
+/**
+ * Set the currently discussed entity. Called when the user explicitly
+ * references an entity/installation (e.g., "the windows openclaw",
+ * "openclaw #2", "start openclaw on windows").
+ */
+export function setEntityFocus(
+  conv: Conversation,
+  entityId: string,
+  entityType: string,
+  turnId?: number,
+): void {
+  const turn = turnId ?? conv.turns.length;
+  const entry = { entityId, entityType, turnId: turn };
+
+  if (!conv.focus) {
+    conv.focus = { entityId, entityType, focusedAt: new Date().toISOString(), focusedAtTurn: turn, history: [] };
+  } else {
+    // Push previous focus to history
+    if (conv.focus.entityId !== entityId) {
+      conv.focus.history.unshift({ entityId: conv.focus.entityId, entityType: conv.focus.entityType, turnId: conv.focus.focusedAtTurn });
+      // Keep last 10
+      if (conv.focus.history.length > 10) conv.focus.history = conv.focus.history.slice(0, 10);
+    }
+    conv.focus.entityId = entityId;
+    conv.focus.entityType = entityType;
+    conv.focus.focusedAt = new Date().toISOString();
+    conv.focus.focusedAtTurn = turn;
+  }
+  saveConversation(conv);
+}
+
+/**
+ * Get the currently focused entity.
+ * Returns null if nothing is focused or focus is stale (>5 min).
+ */
+export function getEntityFocus(conv: Conversation): EntityFocus | null {
+  if (!conv.focus) return null;
+  // Focus expires after 5 minutes of no updates
+  const age = Date.now() - new Date(conv.focus.focusedAt).getTime();
+  if (age > 5 * 60 * 1000) return null;
+  return conv.focus;
+}
+
+/**
+ * Get the previously discussed entity (for "the other one" resolution).
+ * Returns the entity that was focused before the current one.
+ */
+export function getPreviousFocus(conv: Conversation): { entityId: string; entityType: string } | null {
+  if (!conv.focus?.history?.length) return null;
+  return conv.focus.history[0];
+}
+
+/**
+ * Resolve "it", "that one", "this one" to the focused entity.
+ * Resolve "the other one" to the previously focused entity.
+ */
+export function resolveFocusReference(conv: Conversation, text: string): { entityId: string; entityType: string } | null {
+  const lower = text.toLowerCase();
+
+  // "the other one", "the previous one", "not this one"
+  if (/\bthe\s+other\s+(one|entity|install|openclaw|ollama)\b|\bnot\s+this\s+one\b|\bthe\s+previous\s+one\b/.test(lower)) {
+    return getPreviousFocus(conv);
+  }
+
+  // "it", "this one", "that one", "the same one" — return current focus
+  if (/\b(restart|stop|start|check|update|configure|diagnose|fix)\s+(it|this|that)\b|\bthis\s+one\b|\bthat\s+one\b|\bthe\s+same\s+one\b/.test(lower)) {
+    const focus = getEntityFocus(conv);
+    if (focus) return { entityId: focus.entityId, entityType: focus.entityType };
+  }
+
+  return null;
 }
 
 // ─── Context Files ──────────────────────────────────────────────────────────

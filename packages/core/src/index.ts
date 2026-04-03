@@ -45,8 +45,8 @@ export { parseFile, formatParsedFile, detectFileType } from "./parsers/index.js"
 export { findKnownLocations, searchRemoteFile } from "./parsers/fileFinder.js";
 
 // ── Conversation ──
-export { getOrCreateConversation, addUserTurn, addSystemTurn, saveConversation, getLastEntity, getRecentEntities, getRecentTurns, listConversations, loadContextFile, unloadContextFile, listContextFiles } from "./conversation/store.js";
-export type { Conversation, ConversationTurn, KnowledgeNode, UncertaintyReport } from "./conversation/store.js";
+export { getOrCreateConversation, addUserTurn, addSystemTurn, saveConversation, getLastEntity, getRecentEntities, getRecentTurns, listConversations, loadContextFile, unloadContextFile, listContextFiles, setEntityFocus, getEntityFocus, getPreviousFocus, resolveFocusReference } from "./conversation/store.js";
+export type { Conversation, ConversationTurn, KnowledgeNode, UncertaintyReport, EntityFocus } from "./conversation/store.js";
 export { resolveCoreferences, extractEntitiesFromFields } from "./conversation/coreference.js";
 export { redactSecrets, listSecrets, clearSecrets, saveSecretsToFile, resolvePlaceholders } from "./conversation/secrets.js";
 
