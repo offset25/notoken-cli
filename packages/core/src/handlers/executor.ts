@@ -2761,28 +2761,94 @@ expect eof
         type: "intent",
       });
 
-      // Strategy: pick best approach based on what's available and disk space
+      // Strategy: Stability Matrix first (frictionless), then Docker, then Python
       let installResult: { success: boolean; message: string } | null = null;
 
-      // Check if Docker data root has enough space (~15GB needed)
-      let dockerHasSpace = false;
-      if (hasDocker) {
+      // 1. Stability Matrix — all-in-one, no pip/git/build tools needed
+      const isWSL = !!exec("grep -qi microsoft /proc/version && echo wsl");
+      const os = (await import("node:os")).platform();
+
+      if (os === "win32" || isWSL) {
+        console.error(`\x1b[1mStrategy: Stability Matrix\x1b[0m — all-in-one launcher, zero dependencies\n`);
+        const smUrl = "https://github.com/LykosAI/StabilityMatrix/releases/latest/download/StabilityMatrix-win-x64.zip";
         const { getDriveInfo } = await import("../utils/imageGen.js");
-        const dockerRoot = exec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'") ?? "/var/lib/docker";
-        const dockerDrive = getDriveInfo(dockerRoot);
-        dockerHasSpace = (dockerDrive?.freeGB ?? 0) >= 16;
-        if (!dockerHasSpace) {
-          console.error(`\x1b[33m⚠ Docker data root (${dockerRoot}) only has ${dockerDrive?.freeGB ?? 0}GB free — need ~15GB for image\x1b[0m`);
-          console.error(`\x1b[2m  Skipping Docker — using Python install on ${process.env.NOTOKEN_INSTALL_DIR ?? "best available drive"} instead\x1b[0m\n`);
+        const installDir = process.env.NOTOKEN_INSTALL_DIR ?? (isWSL ? "/mnt/d/notoken/ai" : "D:\\notoken\\ai");
+        const smDir = isWSL ? `${installDir}/StabilityMatrix` : `${installDir}\\StabilityMatrix`;
+        const smZip = isWSL ? "/tmp/StabilityMatrix.zip" : `${process.env.TEMP ?? "C:\\Temp"}\\StabilityMatrix.zip`;
+
+        console.error(`  Downloading Stability Matrix...`);
+        try {
+          if (isWSL) {
+            exec(`mkdir -p "${installDir}"`);
+            // Download via curl in WSL
+            const { execSync: exSync } = await import("node:child_process");
+            exSync(`curl -L -o "${smZip}" "${smUrl}"`, { stdio: "inherit", timeout: 300000 });
+            exSync(`unzip -o -q "${smZip}" -d "${smDir}"`, { stdio: "inherit", timeout: 60000 });
+            console.error(`\x1b[32m✓\x1b[0m Downloaded to ${smDir}`);
+
+            // Open it on Windows side
+            try {
+              const winPath = exec(`wslpath -w "${smDir}"`);
+              exSync(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore" });
+              console.error(`\x1b[32m✓\x1b[0m Launched on Windows!`);
+            } catch {}
+
+            installResult = {
+              success: true,
+              message: [
+                `\x1b[32m✓\x1b[0m Stability Matrix installed at ${smDir}`,
+                ``,
+                `It's now open on your Windows desktop.`,
+                `  1. Choose a UI (Forge, ComfyUI, or Fooocus)`,
+                `  2. It downloads everything automatically`,
+                `  3. Once running, say "generate a picture of a cat"`,
+                ``,
+                `\x1b[1mStability Matrix handles ALL dependencies — no Python, pip, or git needed.\x1b[0m`,
+              ].join("\n"),
+            };
+          } else {
+            // Native Windows
+            const { execSync: exSync } = await import("node:child_process");
+            exSync(`powershell -Command "Invoke-WebRequest -Uri '${smUrl}' -OutFile '${smZip}'"`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+            exSync(`powershell -Command "Expand-Archive -Path '${smZip}' -DestinationPath '${smDir}' -Force"`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+            exSync(`start "" "${smDir}\\StabilityMatrix.exe"`, { stdio: "ignore", shell: "cmd.exe" });
+
+            installResult = {
+              success: true,
+              message: [
+                `\x1b[32m✓\x1b[0m Stability Matrix installed at ${smDir}`,
+                `  It's now open — choose a UI and it downloads everything.`,
+                `  Say "generate a picture of a cat" when ready.`,
+              ].join("\n"),
+            };
+          }
+        } catch (smErr) {
+          console.error(`\x1b[33m⚠ Stability Matrix download failed: ${smErr instanceof Error ? smErr.message : smErr}\x1b[0m`);
+          console.error(`  Manual download: https://lykos.ai\n`);
         }
       }
 
-      if (hasDocker && dockerHasSpace) {
-        console.error(`\x1b[1mStrategy: Using Docker\x1b[0m — fastest, everything pre-built\n`);
-        installResult = await installImageEngine("docker");
+      // 2. Docker fallback
+      if (!installResult?.success) {
+        let dockerHasSpace = false;
+        if (hasDocker) {
+          const { getDriveInfo } = await import("../utils/imageGen.js");
+          const dockerRoot = exec("docker info 2>/dev/null | grep 'Docker Root Dir' | awk '{print $NF}'") ?? "/var/lib/docker";
+          const dockerDrive = getDriveInfo(dockerRoot);
+          dockerHasSpace = (dockerDrive?.freeGB ?? 0) >= 16;
+          if (!dockerHasSpace) {
+            console.error(`\x1b[33m⚠ Docker: only ${dockerDrive?.freeGB ?? 0}GB free (need ~15GB)\x1b[0m\n`);
+          }
+        }
+
+        if (hasDocker && dockerHasSpace) {
+          console.error(`\x1b[1mStrategy: Docker\x1b[0m — containerized, pre-built\n`);
+          installResult = await installImageEngine("docker");
+        }
       }
 
-      if ((!installResult || !installResult.success) && hasPython) {
+      // 3. Python fallback
+      if (!installResult?.success && hasPython) {
         console.error(`\x1b[1mStrategy: Using Python + git\x1b[0m — installing directly to ${process.env.NOTOKEN_INSTALL_DIR ?? "best drive"}\n`);
         installResult = await installImageEngine("auto1111");
       }
