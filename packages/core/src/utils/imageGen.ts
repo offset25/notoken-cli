@@ -271,8 +271,10 @@ export interface GpuInfo {
   gpuTemp?: string;
   gpuUtil?: string;
   driverVersion?: string;
+  maxCudaVersion?: string;
   gpuError?: string;
   wslCuda?: boolean;
+  recommendedTorch?: string;
   cudaVersion?: string;
   cpuOnly: boolean;
 }
@@ -401,8 +403,32 @@ export function detectGpu(): GpuInfo {
     gpuError,
     wslCuda,
     cudaVersion: cudaMatch?.[1],
+    maxCudaVersion: driverVersion ? getMaxCudaForDriver(parseFloat(driverVersion)) : undefined,
+    recommendedTorch: driverVersion ? getRecommendedTorch(parseFloat(driverVersion)) : undefined,
     cpuOnly: !nvidiaSmi && !amd,
   };
+}
+
+function getMaxCudaForDriver(driverVer: number): string {
+  // NVIDIA driver → max CUDA version mapping
+  if (driverVer >= 570) return "13.0";
+  if (driverVer >= 560) return "12.6";
+  if (driverVer >= 550) return "12.4";
+  if (driverVer >= 545) return "12.3";
+  if (driverVer >= 535) return "12.2";
+  if (driverVer >= 525) return "12.0";
+  if (driverVer >= 520) return "11.8";
+  if (driverVer >= 510) return "11.6";
+  return "11.4";
+}
+
+function getRecommendedTorch(driverVer: number): string {
+  // Recommend the right PyTorch CUDA version for this driver
+  if (driverVer >= 570) return "cu130";
+  if (driverVer >= 550) return "cu124";
+  if (driverVer >= 535) return "cu121";
+  if (driverVer >= 520) return "cu118";
+  return "cpu";
 }
 
 export function detectImageEngines(): ImageEngineStatus[] {
@@ -1288,7 +1314,12 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         const winPath = tryExec(`wslpath -w "${smDir}" 2>/dev/null`);
         if (winPath) {
           execSync(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore", timeout: 10000 });
-          return { success: true, message: `${c.green}✓${c.reset} Stability Matrix launched!\n  Choose a UI inside SM and it handles everything.\n  Once running, say "generate a picture of a cat"` };
+          const gpuRec = detectGpu();
+          const dv = parseFloat(gpuRec.driverVersion ?? "0");
+          const pkgRec = dv > 0 && dv < 570
+            ? `\n  ${c.yellow}⚠ Your GPU driver (${gpuRec.driverVersion}) does NOT support Forge Neo (needs driver 570+).${c.reset}\n  ${c.bold}Choose "Reforge" — it works with your driver (CUDA ${gpuRec.maxCudaVersion}).${c.reset}\n  ${c.dim}Do NOT choose "Forge Neo" — it will fail.${c.reset}`
+            : `\n  ${c.bold}Choose "Forge Neo" for best performance.${c.reset}`;
+          return { success: true, message: `${c.green}✓${c.reset} Stability Matrix launched!${pkgRec}\n  SM downloads everything automatically. Click "Launch" when ready.\n  ${c.dim}Then say "generate a picture of a cat"${c.reset}` };
         }
       } catch {}
     }
@@ -1706,13 +1737,23 @@ async function installStabilityMatrix(platform: "win32" | "wsl"): Promise<{ succ
 
       trackInstall({ name: "StabilityMatrix", type: "engine", method: "curl", path: smDir, uninstallCmd: `rm -rf "${smDir}"` });
 
+      // Detect driver to recommend the right package
+      const gpuCheck = detectGpu();
+      const maxCuda = gpuCheck.maxCudaVersion ?? "unknown";
+      const recommended = gpuCheck.driverVersion && parseFloat(gpuCheck.driverVersion) < 570
+        ? `"Stable Diffusion WebUI Forge"` // uses cu121/cu124, works with older drivers
+        : `"Forge Neo"`;                    // uses cu130, needs driver 570+
+      const driverNote = gpuCheck.driverVersion && parseFloat(gpuCheck.driverVersion) < 570
+        ? `\n  ${c.yellow}⚠ Your driver (${gpuCheck.driverVersion}) supports CUDA ${maxCuda} — do NOT choose "Forge Neo" (needs CUDA 13.0)${c.reset}`
+        : "";
+
       return {
         success: true,
         message: [
           `${c.green}✓${c.reset} Stability Matrix installed at ${smDir}`,
           ``,
           `${c.bold}It's now open on your Windows desktop.${c.reset}`,
-          `  1. Click the "+" button to add an image engine (Forge recommended)`,
+          `  1. Click "+" and choose ${c.bold}${recommended}${c.reset}${driverNote}`,
           `  2. SM downloads Python, models, and everything automatically`,
           `  3. Click "Launch" when it's done installing`,
           `  4. Once running, come back and say "generate a picture of a cat"`,
