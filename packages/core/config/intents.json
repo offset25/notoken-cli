@@ -7128,6 +7128,45 @@
       ]
     },
     {
+      "name": "codex.message",
+      "description": "Send a message or prompt to OpenAI Codex CLI and get a response",
+      "synonyms": [
+        "tell codex",
+        "ask codex",
+        "message codex",
+        "send to codex",
+        "say to codex",
+        "say hello to codex",
+        "codex tell me",
+        "codex ask",
+        "talk to codex",
+        "talk to codex about",
+        "send codex a message",
+        "ask codex to",
+        "tell codex to",
+        "codex say",
+        "say hi to codex",
+        "hello codex"
+      ],
+      "fields": {
+        "message": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "[codex-message]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "say hello to codex",
+        "tell codex to check the server",
+        "ask codex what time is it",
+        "message codex hello how are you",
+        "talk to codex about this project"
+      ]
+    },
+    {
       "name": "openclaw.diagnose",
       "description": "Full OpenClaw diagnostic — checks gateway, connectivity, channels, config, and services",
       "synonyms": [

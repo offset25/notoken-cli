@@ -249,6 +249,49 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return isLocal ? await autoFixOpenclaw() : await autoFixOpenclaw((cmd: string) => runRemoteCommand(environment, cmd));
   }
 
+  // Codex message — send a prompt to OpenAI Codex CLI
+  if (intent.intent === "codex.message") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Check if codex is installed
+    const codexVer = await runLocalCommand("codex --version 2>/dev/null").catch(() => "");
+    if (!codexVer) {
+      return `${cc.red}✗ Codex CLI is not installed.${cc.reset}\n  ${cc.dim}Say: "install codex" first.${cc.reset}`;
+    }
+
+    // Check if authenticated — if not, auto-launch login
+    const authCheck = await runLocalCommand("codex login status 2>&1").catch(() => "");
+    if (!authCheck || /not logged/i.test(authCheck)) {
+      console.log(`${cc.yellow}⚠ Codex is not authenticated. Opening browser to log in...${cc.reset}`);
+      try {
+        const { execSync } = await import("node:child_process");
+        execSync("codex login", { stdio: "inherit", timeout: 120_000 });
+        // Verify login succeeded
+        const recheck = await runLocalCommand("codex login status 2>&1").catch(() => "");
+        if (/not logged/i.test(recheck)) {
+          return `${cc.red}✗ Authentication failed. Please try again with ${cc.bold}codex login${cc.reset}`;
+        }
+        console.log(`${cc.green}✓ Codex authenticated successfully.${cc.reset}\n`);
+      } catch {
+        return `${cc.red}✗ Authentication was cancelled or timed out.${cc.reset}\n  Run ${cc.bold}codex login${cc.reset} manually to authenticate.`;
+      }
+    }
+
+    // Extract the message from the raw text
+    const msgMatch = intent.rawText.match(/(?:tell|ask|message|say(?:\s+hello)?\s+to|send|talk\s+to)\s+codex\s+(.*)/i);
+    const message = msgMatch?.[1]?.trim() || (fields.message as string) || intent.rawText;
+    console.log(`${cc.dim}Sending to Codex: "${message}"${cc.reset}`);
+    try {
+      const codexOut = await runLocalCommand(`codex exec ${JSON.stringify(message)} 2>&1`, 120_000);
+      if (codexOut.trim()) {
+        return `\n${cc.bold}${cc.cyan}Codex:${cc.reset} ${codexOut.trim()}`;
+      }
+      return `${cc.yellow}⚠ Codex returned no output.${cc.reset}`;
+    } catch (err: unknown) {
+      return `${cc.red}✗ ${(err as Error).message.split("\n")[0]}${cc.reset}`;
+    }
+  }
+
   // OpenClaw message — send to the targeted env
   if (intent.intent === "openclaw.message") {
     const msgMatch = intent.rawText.match(/(?:tell|ask|message|say to|send)\s+(?:openclaw|claw)\s+(.*)/i);

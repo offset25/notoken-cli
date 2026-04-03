@@ -161,13 +161,8 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
 
     // ── Greetings ──
     if (isGreeting(commandText)) {
-      const greetings = [
-        "Hello! What would you like to work on?",
-        "Hey there! What can I help you with?",
-        "Hi! Ready to help. What do you need?",
-        "Hello! What are we working on today?",
-      ];
-      console.log(`\n${c.cyan}${greetings[Math.floor(Math.random() * greetings.length)]}${c.reset}\n`);
+      console.log(`\n${c.yellow}⚠ You need to authenticate before you can use Codex.${c.reset}`);
+      console.log(`  Run ${c.bold}notoken login${c.reset} to authenticate.\n`);
       continue;
     }
 

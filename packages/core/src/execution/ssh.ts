@@ -322,7 +322,8 @@ export async function runRemoteCommand(
 }
 
 export async function runLocalCommand(command: string, timeout = 30_000): Promise<string> {
-  const { stdout, stderr } = await execAsync(command, { timeout });
+  const shell = process.platform === "win32" ? "bash" : undefined;
+  const { stdout, stderr } = await execAsync(command, { timeout, shell });
   return stderr ? `${stdout}\n${stderr}` : stdout;
 }
 
