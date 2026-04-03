@@ -144,30 +144,42 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
   await page.click('button:has-text("Yes, do it!")', { timeout: 5000 }).catch(() => {});
   console.log('TOKEN_RESET');
 
-  // Wait for MFA/token — poll
+  // Wait for MFA/token — poll DOM, inputs, spans, divs, clipboard
   let token = '';
   for (let i = 0; i < 150; i++) {
     await page.waitForTimeout(2000);
+
+    // Check input elements
     token = await page.evaluate(() => {
-      for (const inp of document.querySelectorAll('input')) {
-        const val = inp.getAttribute('value') || inp.value;
-        if (val && val.includes('.') && val.length > 50 && val !== '0') return val;
+      for (const el of document.querySelectorAll('input, span, code, div[class*="token"], div[class*="Token"]')) {
+        const val = el.getAttribute('value') || el.textContent || '';
+        if (val && val.includes('.') && val.length > 50 && val.length < 200 && val !== '0' && !val.includes(' ')) return val.trim();
       }
       return '';
     }).catch(() => '');
-    if (token) break;
+    if (token) { console.log('TOKEN_FROM_DOM'); break; }
 
-    // Try Copy + clipboard
-    if (i % 3 === 2) {
+    // Try clicking Copy button and checking clipboard
+    if (i % 2 === 1) {
+      await page.locator('button:has-text("Copy")').first().click({ timeout: 500 }).catch(() => {});
       await page.locator('div[class*="copyButton"] button').first().click({ timeout: 500 }).catch(() => {});
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
+      // Check clipboard via PowerShell
+      try {
+        const { execSync: es } = require('child_process');
+        const clip = es('powershell -Command "Get-Clipboard"', { encoding: 'utf-8', timeout: 3000 }).trim();
+        if (clip && clip.includes('.') && clip.length > 50 && clip.length < 200 && !clip.includes(' ')) {
+          token = clip;
+          console.log('TOKEN_FROM_CLIPBOARD');
+          break;
+        }
+      } catch {}
     }
     if (i % 10 === 0 && i > 0) console.log('POLLING:' + (i * 2) + 's');
   }
 
-  // If no token from DOM, try clipboard
   if (!token) {
-    console.log('TRYING_CLIPBOARD');
+    console.log('TOKEN_NOT_FOUND');
   }
 
   // Enable intents
