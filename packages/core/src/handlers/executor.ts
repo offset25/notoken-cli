@@ -400,72 +400,192 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
         }
       }
 
+      // If Ollama model — ensure provider auth is registered first
+      if (requestedModel.startsWith("ollama/")) {
+        console.log(`${cc.dim}Registering Ollama provider auth...${cc.reset}`);
+
+        // Use expect to non-interactively register Ollama auth token
+        const expectAvailable = await runLocalCommand("which expect 2>/dev/null").catch(() => "");
+        const node22 = await getNode22();
+        const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+
+        if (expectAvailable) {
+          await runLocalCommand(`expect -c '
+set timeout 10
+spawn ${node22} ${ocBin} models auth paste-token --provider ollama
+expect "Paste token"
+send "ollama-local\\r"
+expect eof
+' 2>&1`, 15_000).catch(() => "");
+        } else {
+          // Fallback: write auth profile directly to the auth-profiles.json
+          try {
+            const { readFileSync, writeFileSync, existsSync } = await import("node:fs");
+            const authFile = `${process.env.HOME}/.openclaw/agents/main/agent/auth-profiles.json`;
+            let profiles: any = {};
+            if (existsSync(authFile)) profiles = JSON.parse(readFileSync(authFile, "utf-8"));
+            if (!profiles["ollama:manual"]) {
+              profiles["ollama:manual"] = { provider: "ollama", mode: "token", token: "ollama-local", created: new Date().toISOString() };
+              writeFileSync(authFile, JSON.stringify(profiles, null, 2));
+              console.log(`${cc.green}✓${cc.reset} Ollama auth profile written`);
+            }
+          } catch { /* */ }
+        }
+      }
+
       const switchCmd = `openclaw models set "${requestedModel}"`;
       result = await withSpinner(`Switching to ${requestedModel}...`, () => runOcCmd(switchCmd, ocTarget, ocEnv!));
+
+      // If Ollama model — also restart gateway so it picks up the new config
+      if (requestedModel.startsWith("ollama/")) {
+        console.log(`${cc.dim}Restarting gateway to pick up Ollama model...${cc.reset}`);
+        await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
+        await runLocalCommand("sleep 2");
+
+        const node22 = await getNode22();
+        const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+        const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'").catch(() => "{}");
+        const ollamaEnv = ocConfig.includes('"ollama/') ? 'OLLAMA_API_KEY="ollama-local" OLLAMA_HOST="http://localhost:11434" ' : "";
+        await runLocalCommand(`bash -c '${ollamaEnv}nohup ${node22} ${ocBin} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 &'`).catch(() => "");
+
+        // Wait for health
+        for (let i = 0; i < 8; i++) {
+          await runLocalCommand("sleep 1");
+          const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (health.includes('"ok"')) break;
+        }
+      }
+
       return result + `\n${cc.green}✓${cc.reset} OpenClaw now using: ${cc.bold}${requestedModel}${cc.reset}`;
     }
     result = await withSpinner("Checking model...", () => runOcCmd("openclaw models status --plain", ocTarget, ocEnv!));
     return `\n\x1b[1m\x1b[36m── OpenClaw LLM ──\x1b[0m\n\n  Current: \x1b[32m${result.trim()}\x1b[0m\n\n  Switch: opus, sonnet, haiku, gpt-4o, codex, gemini, llama, ollama\n  \x1b[2mSay: "switch openclaw to sonnet" or "switch openclaw to sonnet on windows"\x1b[0m`;
   }
 
-  // OpenClaw service management (start/stop/restart)
+  // OpenClaw service management (start/stop/restart) — environment-aware
   if (intent.intent === "openclaw.start" || intent.intent === "openclaw.stop" || intent.intent === "openclaw.restart") {
     const action = intent.intent.split(".")[1];
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const targetEnv = ocTarget ?? (ocEnv?.inWSL ? "wsl" : "wsl");
 
-    if (action === "stop" || action === "restart") {
-      // Kill existing gateway
-      await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
-      await runLocalCommand("bash -c 'sleep 1'");
-      if (action === "stop") {
-        const check = await runLocalCommand("pgrep -f openclaw-gateway 2>/dev/null").catch(() => "");
-        return check ? `${cc.yellow}⚠ Gateway still running (PID ${check.trim()})${cc.reset}` : `${cc.green}✓${cc.reset} OpenClaw gateway stopped.`;
+    // ── Windows host actions ──
+    if (targetEnv === "windows" || targetEnv === "both") {
+      if (!ocEnv?.inWSL) {
+        if (targetEnv === "windows") return `${cc.yellow}⚠ Not in WSL — can't target Windows host.${cc.reset}`;
+      } else {
+        const winLabel = targetEnv === "both" ? `${cc.bold}${cc.cyan}[Windows]${cc.reset} ` : "";
+
+        if (action === "stop" || action === "restart") {
+          // Find and kill OpenClaw node processes on Windows
+          const killOut = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where { \\$_.CommandLine -match 'openclaw' } | ForEach { \\$_.Terminate() }" 2>/dev/null`).catch(() => "");
+          await runLocalCommand("sleep 2");
+          if (action === "stop") {
+            // Verify stopped
+            const checkPs = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select -Exp CommandLine" 2>/dev/null`).catch(() => "");
+            const stillRunning = checkPs.includes("openclaw");
+            if (targetEnv !== "both") {
+              return stillRunning
+                ? `${cc.yellow}⚠ Windows OpenClaw may still be running.${cc.reset}`
+                : `${cc.green}✓${cc.reset} OpenClaw stopped on Windows host.`;
+            }
+            console.log(stillRunning
+              ? `${winLabel}${cc.yellow}⚠ May still be running${cc.reset}`
+              : `${winLabel}${cc.green}✓${cc.reset} Stopped`);
+          }
+        }
+
+        if (action === "start" || action === "restart") {
+          // Start OpenClaw on Windows host via PowerShell
+          await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process node -ArgumentList 'C:\\Users\\Dino\\AppData\\Roaming\\npm\\node_modules\\openclaw\\dist\\index.js','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`).catch(() => "");
+
+          // Wait for health
+          let winHealthy = false;
+          for (let i = 0; i < 8; i++) {
+            await runLocalCommand("sleep 1");
+            const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+            if (health.includes('"ok"')) { winHealthy = true; break; }
+          }
+
+          // Get Windows model
+          const winConfig = await runLocalCommand("cmd.exe /c 'type \"%USERPROFILE%\\.openclaw\\openclaw.json\"' 2>/dev/null").catch(() => "");
+          const winModel = winConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1] ?? "unknown";
+
+          if (targetEnv !== "both") {
+            return winHealthy
+              ? `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed on Windows host.\n  ${cc.bold}Model:${cc.reset} ${winModel}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}`
+              : `${cc.yellow}⚠${cc.reset} Windows gateway ${action}ing but not healthy yet.\n  ${cc.dim}Check: "is openclaw running on windows"${cc.reset}`;
+          }
+          console.log(winHealthy
+            ? `${winLabel}${cc.green}✓${cc.reset} ${action}ed — model: ${winModel}`
+            : `${winLabel}${cc.yellow}⚠${cc.reset} ${action}ing but not healthy yet`);
+        }
       }
     }
 
-    if (action === "start" || action === "restart") {
-      // Find Node 22+ binary directly — nvm sourcing doesn't survive nohup
-      let node22 = "";
-      const nvmDirs = ["/home/ino/.nvm", `${process.env.HOME}/.nvm`, "/root/.nvm"];
-      for (const dir of nvmDirs) {
-        const found = await runLocalCommand(`ls -1 ${dir}/versions/node/v22*/bin/node 2>/dev/null | tail -1`).catch(() => "");
-        if (found.trim()) { node22 = found.trim(); break; }
-      }
-      if (!node22) {
-        // Fallback: try fnm or system node
-        node22 = await runLocalCommand("which node").catch(() => "node");
-      }
+    // ── WSL actions ──
+    if (targetEnv === "wsl" || targetEnv === "both") {
+      const wslLabel = targetEnv === "both" ? `${cc.bold}${cc.cyan}[WSL]${cc.reset} ` : "";
 
-      // Find openclaw entry point
-      const ocPath = await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw");
-
-      // Check if using Ollama model — set OLLAMA_API_KEY so openclaw registers the provider
-      const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'").catch(() => "{}");
-      const isOllamaModel = ocConfig.includes('"ollama/');
-      const ollamaEnv = isOllamaModel ? 'OLLAMA_API_KEY="ollama-local" OLLAMA_HOST="http://localhost:11434" ' : "";
-
-      const startCmd = `bash -c '${ollamaEnv}nohup ${node22} ${ocPath.trim()} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 & echo $!'`;
-      await runLocalCommand(startCmd).catch(() => "");
-
-      // Wait for health
-      let healthy = false;
-      for (let i = 0; i < 8; i++) {
+      if (action === "stop" || action === "restart") {
+        await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
         await runLocalCommand("sleep 1");
-        const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
-        if (health.includes('"ok"')) { healthy = true; break; }
+        if (action === "stop") {
+          const check = await runLocalCommand("pgrep -f openclaw-gateway 2>/dev/null").catch(() => "");
+          const msg = check ? `${cc.yellow}⚠ Still running (PID ${check.trim()})${cc.reset}` : `${cc.green}✓${cc.reset} Stopped`;
+          if (targetEnv !== "both") return `${msg.replace("Stopped", "OpenClaw gateway stopped.")}`;
+          console.log(`${wslLabel}${msg}`);
+          if (targetEnv === "both") return ""; // both sides reported above
+        }
       }
 
-      if (healthy) {
-        // Show what model it's using
+      if (action === "start" || action === "restart") {
+        // Check if Windows gateway already owns port 18789
+        if (targetEnv === "wsl") {
+          const portCheck = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (portCheck.includes('"ok"')) {
+            // Something already on 18789 — check if it's Windows
+            const hostPs = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select -Exp CommandLine" 2>/dev/null`).catch(() => "");
+            if (hostPs.includes("openclaw") && hostPs.includes("gateway")) {
+              return `${cc.yellow}⚠${cc.reset} Port 18789 is in use by Windows host OpenClaw.\n  ${cc.dim}Stop it first: "stop openclaw on windows"\n  Or use the Windows gateway: "tell openclaw hello"${cc.reset}`;
+            }
+          }
+        }
+
+        const node22 = await getNode22();
+        const ocPath = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+        const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'").catch(() => "{}");
+        const isOllamaModel = ocConfig.includes('"ollama/');
+        const ollamaEnv = isOllamaModel ? 'OLLAMA_API_KEY="ollama-local" OLLAMA_HOST="http://localhost:11434" ' : "";
+
+        const startCmd = `bash -c '${ollamaEnv}nohup ${node22} ${ocPath} gateway --force --allow-unconfigured > /tmp/openclaw-start.log 2>&1 & echo $!'`;
+        await runLocalCommand(startCmd).catch(() => "");
+
+        let healthy = false;
+        for (let i = 0; i < 8; i++) {
+          await runLocalCommand("sleep 1");
+          const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (health.includes('"ok"')) { healthy = true; break; }
+        }
+
         const configModel = await runLocalCommand("grep -o '\"primary\":\"[^\"]*\"' /root/.openclaw/openclaw.json 2>/dev/null").catch(() => "");
         const modelName = configModel.match(/"primary":"([^"]+)"/)?.[1] ?? "unknown";
-        return `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`;
+
+        if (healthy) {
+          const msg = `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`;
+          if (targetEnv !== "both") return msg;
+          console.log(`${wslLabel}${cc.green}✓${cc.reset} ${action}ed — model: ${modelName}`);
+        } else {
+          const logs = await runLocalCommand("cat /tmp/openclaw-start.log 2>/dev/null | tail -5").catch(() => "");
+          const msg = `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n${cc.dim}${logs}${cc.reset}\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
+          if (targetEnv !== "both") return msg;
+          console.log(`${wslLabel}${cc.yellow}⚠${cc.reset} not healthy yet`);
+        }
       }
-      // Check logs for error
-      const logs = await runLocalCommand("cat /tmp/openclaw-start.log 2>/dev/null | tail -5").catch(() => "");
-      return `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n${cc.dim}${logs}${cc.reset}\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
+
+      if (targetEnv === "both" && action === "stop") return "";
     }
-    return `${cc.yellow}Unknown action: ${action}${cc.reset}`;
+
+    return "";
   }
 
   // Notoken model — check or switch LLM backend
