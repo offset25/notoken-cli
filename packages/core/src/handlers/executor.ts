@@ -1227,6 +1227,214 @@ expect eof
     return result;
   }
 
+  // ── Node.js upgrade helper — tries multiple strategies, finds new binary even if PATH is stale ──
+  async function upgradeNode(
+    minMajor: number,
+    cc: Record<string, string>,
+    run: typeof runLocalCommand,
+    spin: typeof withSpinner,
+  ): Promise<{ ok: boolean; message: string; nodePath?: string }> {
+    const isWin = process.platform === "win32";
+
+    // Helper: find Node binary >= minMajor, even if not on current PATH
+    async function findNodeBinary(): Promise<string | null> {
+      // Check current PATH first
+      const ver = await run("node --version 2>/dev/null").catch(() => "");
+      if (ver && parseInt(ver.replace("v", "")) >= minMajor) return "node";
+
+      if (isWin) {
+        // Search common Windows install locations
+        const paths = [
+          "C:/Program Files/nodejs/node.exe",
+          "C:/Program Files (x86)/nodejs/node.exe",
+        ];
+        for (const p of paths) {
+          const v = await run(`"${p}" --version 2>/dev/null`).catch(() => "");
+          if (v && parseInt(v.replace("v", "")) >= minMajor) return p;
+        }
+        // Check nvm-windows install paths
+        const nvmRoot = (await run(`powershell -Command 'Write-Output $env:NVM_HOME' 2>/dev/null`).catch(() => "")).trim();
+        if (nvmRoot) {
+          const found = await run(`ls -1d "${nvmRoot}"/v${minMajor}* 2>/dev/null | head -1`).catch(() => "");
+          if (found.trim()) {
+            const p = `${found.trim()}/node.exe`;
+            const v = await run(`"${p}" --version 2>/dev/null`).catch(() => "");
+            if (v && parseInt(v.replace("v", "")) >= minMajor) return p;
+          }
+        }
+      } else {
+        // Check nvm directories
+        const nvmDirs = [`${process.env.HOME}/.nvm`, "/home/ino/.nvm", "/root/.nvm"];
+        for (const dir of nvmDirs) {
+          const found = await run(`ls -1 ${dir}/versions/node/v${minMajor}*/bin/node 2>/dev/null | tail -1`).catch(() => "");
+          if (found.trim()) return found.trim();
+        }
+      }
+      return null;
+    }
+
+    // Step 0: Maybe it's already installed but not on PATH
+    const existing = await findNodeBinary();
+    if (existing) {
+      if (existing !== "node") {
+        const dir = existing.replace(/[/\\]node(\.exe)?$/, "");
+        process.env.PATH = `${dir}${isWin ? ";" : ":"}${process.env.PATH}`;
+      }
+      return { ok: true, message: `Node.js ${minMajor}+ already available`, nodePath: existing };
+    }
+
+    // Step 1: Try version managers
+    if (isWin) {
+      // nvm-windows
+      const nvmWin = await run("nvm version 2>/dev/null").catch(() => "");
+      if (nvmWin && /\d+\.\d+/.test(nvmWin)) {
+        await spin(`Installing Node ${minMajor} via nvm-windows...`, () => run(`nvm install ${minMajor} 2>&1`, 120_000));
+        await run(`nvm use ${minMajor} 2>&1`).catch(() => "");
+        const found = await findNodeBinary();
+        if (found) {
+          if (found !== "node") { const dir = found.replace(/[/\\]node(\.exe)?$/, ""); process.env.PATH = `${dir};${process.env.PATH}`; }
+          return { ok: true, message: `Node.js ${minMajor} installed via nvm-windows`, nodePath: found };
+        }
+      }
+
+      // fnm
+      const fnm = await run("fnm --version 2>/dev/null").catch(() => "");
+      if (fnm && fnm.includes("fnm")) {
+        await spin(`Installing Node ${minMajor} via fnm...`, () => run(`fnm install ${minMajor} && fnm use ${minMajor} 2>&1`, 120_000));
+        const found = await findNodeBinary();
+        if (found) return { ok: true, message: `Node.js ${minMajor} installed via fnm`, nodePath: found };
+      }
+    } else {
+      // nvm (Linux/WSL)
+      const nvmSrc = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done`;
+      const nvmVer = await run(`bash -c '${nvmSrc} 2>/dev/null && nvm --version' 2>/dev/null`).catch(() => "");
+      if (nvmVer && /\d+\.\d+/.test(nvmVer)) {
+        await spin(`Installing Node ${minMajor} via nvm...`, () => run(`bash -c '${nvmSrc} && nvm install ${minMajor}' 2>&1`, 120_000));
+        const found = await findNodeBinary();
+        if (found) {
+          if (found !== "node") { const dir = found.replace(/\/node$/, ""); process.env.PATH = `${dir}:${process.env.PATH}`; }
+          return { ok: true, message: `Node.js ${minMajor} installed via nvm`, nodePath: found };
+        }
+      }
+    }
+
+    // Step 2: No version manager found — install one, then use it
+    if (isWin) {
+      // Try installing nvm-windows first (doesn't require admin, allows version switching)
+      console.log(`${cc.cyan}No version manager found. Installing nvm-windows...${cc.reset}`);
+      try {
+        const nvmInstallUrl = "https://github.com/coreybutler/nvm-windows/releases/latest/download/nvm-noinstall.zip";
+        const winTemp = (await run(`powershell -Command 'Write-Output $env:TEMP' 2>/dev/null`).catch(() => "")).trim() || "C:\\Windows\\Temp";
+        const nvmDir = `${process.env.APPDATA || winTemp}\\nvm`;
+        const nvmZipBash = `$(cygpath '${winTemp}')/nvm-noinstall.zip`;
+        const nvmDirBash = `$(cygpath '${nvmDir}')`;
+
+        // Download nvm-windows
+        const hasCurl = await run("curl --version 2>/dev/null").catch(() => "");
+        if (hasCurl && hasCurl.includes("curl")) {
+          await spin("Downloading nvm-windows...", () => run(`curl -fsSL -o "${nvmZipBash}" "${nvmInstallUrl}" 2>&1`, 60_000));
+        } else {
+          await spin("Downloading nvm-windows...", () => run(
+            `powershell -Command "& { Invoke-WebRequest -Uri '${nvmInstallUrl}' -OutFile '${winTemp}\\nvm-noinstall.zip' }" 2>&1`, 60_000
+          ));
+        }
+
+        // Extract and configure
+        await run(`mkdir -p "${nvmDirBash}" && unzip -o "${nvmZipBash}" -d "${nvmDirBash}" 2>&1`).catch(() => "");
+        // Add to PATH for this session
+        process.env.NVM_HOME = nvmDir;
+        process.env.PATH = `${nvmDir};${process.env.PATH}`;
+
+        // Verify nvm works
+        const nvmCheck = await run("nvm version 2>/dev/null").catch(() => "");
+        if (nvmCheck && /\d+\.\d+/.test(nvmCheck)) {
+          console.log(`${cc.green}✓ nvm-windows installed${cc.reset}`);
+          await spin(`Installing Node ${minMajor} via nvm-windows...`, () => run(`nvm install ${minMajor} 2>&1`, 120_000));
+          await run(`nvm use ${minMajor} 2>&1`).catch(() => "");
+          const found = await findNodeBinary();
+          if (found) {
+            if (found !== "node") { const dir = found.replace(/[/\\]node(\.exe)?$/, ""); process.env.PATH = `${dir};${process.env.PATH}`; }
+            return { ok: true, message: `Node.js ${minMajor} installed via nvm-windows`, nodePath: found };
+          }
+        }
+      } catch {
+        console.log(`${cc.yellow}⚠ nvm-windows install failed, trying direct Node installer...${cc.reset}`);
+      }
+
+      // Fallback: direct MSI install (requires admin)
+      const adminCheck = await run(
+        `powershell -Command "& { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }" 2>&1`
+      ).catch(() => "False");
+      if (adminCheck.trim() !== "True") {
+        return { ok: false, message: `${cc.red}✗ Node.js ${minMajor}+ required but current Node is too old.${cc.reset}\n  ${cc.dim}Admin privileges required to upgrade. Run as Administrator, or install manually:${cc.reset}\n  ${cc.dim}  • nvm-windows: https://github.com/coreybutler/nvm-windows${cc.reset}\n  ${cc.dim}  • Node.js:     https://nodejs.org/${cc.reset}` };
+      }
+
+      // Download MSI — try curl first, fall back to PowerShell
+      const msiUrl = `https://nodejs.org/dist/v${minMajor}.15.0/node-v${minMajor}.15.0-x64.msi`;
+      const msiTemp = (await run(`powershell -Command 'Write-Output $env:TEMP' 2>/dev/null`).catch(() => "")).trim() || "C:\\Windows\\Temp";
+      const msiWinPath = `${msiTemp}\\node${minMajor}.msi`;
+      const msiBashPath = `$(cygpath '${msiTemp}')/node${minMajor}.msi`;
+
+      const hasCurlMsi = await run("curl --version 2>/dev/null").catch(() => "");
+      try {
+        if (hasCurlMsi && hasCurlMsi.includes("curl")) {
+          await spin(`Downloading Node ${minMajor}...`, () => run(`curl -fsSL -o "${msiBashPath}" "${msiUrl}" 2>&1`, 180_000));
+        } else {
+          await spin(`Downloading Node ${minMajor}...`, () => run(`powershell -Command "& { Invoke-WebRequest -Uri '${msiUrl}' -OutFile '${msiWinPath}' }" 2>&1`, 180_000));
+        }
+      } catch (dlErr: unknown) {
+        // Download failed with first method — try the other
+        console.log(`${cc.yellow}⚠ Download failed, trying alternate method...${cc.reset}`);
+        try {
+          if (hasCurlMsi && hasCurlMsi.includes("curl")) {
+            await spin(`Downloading (PowerShell)...`, () => run(`powershell -Command "& { Invoke-WebRequest -Uri '${msiUrl}' -OutFile '${msiWinPath}' }" 2>&1`, 180_000));
+          } else {
+            await spin(`Downloading (curl)...`, () => run(`curl -fsSL -o "${msiBashPath}" "${msiUrl}" 2>&1`, 180_000));
+          }
+        } catch {
+          return { ok: false, message: `${cc.red}✗ Could not download Node.js ${minMajor} installer.${cc.reset}\n  ${cc.dim}Download manually: ${msiUrl}${cc.reset}` };
+        }
+      }
+
+      // Install MSI
+      try {
+        await spin(`Installing Node ${minMajor}...`, () => run(
+          `powershell -Command "Start-Process msiexec.exe -ArgumentList '/i','${msiWinPath}','/qn' -Wait; Remove-Item '${msiWinPath}' -ErrorAction SilentlyContinue" 2>&1`, 180_000
+        ));
+      } catch {
+        return { ok: false, message: `${cc.red}✗ MSI installer failed.${cc.reset}\n  ${cc.dim}Try installing manually: ${msiUrl}${cc.reset}` };
+      }
+
+      // Find the new binary (PATH may be stale)
+      const found = await findNodeBinary();
+      if (found) {
+        if (found !== "node") {
+          const dir = found.replace(/[/\\]node(\.exe)?$/, "");
+          process.env.PATH = `${dir};${process.env.PATH}`;
+        }
+        return { ok: true, message: `Node.js ${minMajor} installed successfully`, nodePath: found };
+      }
+
+      return { ok: false, message: `${cc.yellow}⚠ Node ${minMajor} installer ran but couldn't find the binary.${cc.reset}\n  ${cc.dim}Restart your terminal, then try again.${cc.reset}` };
+    } else {
+      // Linux: install nvm + Node
+      const nvmSrc = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done`;
+      try {
+        await spin(`Installing nvm + Node ${minMajor}...`, () => run(
+          `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh 2>/dev/null | bash 2>&1; bash -c '${nvmSrc} && nvm install ${minMajor}' 2>&1`, 180_000
+        ));
+      } catch {
+        return { ok: false, message: `${cc.red}✗ Failed to install nvm + Node ${minMajor}.${cc.reset}\n  ${cc.dim}Install manually: curl -o- https://nvm.sh | bash && nvm install ${minMajor}${cc.reset}` };
+      }
+      const found = await findNodeBinary();
+      if (found) {
+        if (found !== "node") { const dir = found.replace(/\/node$/, ""); process.env.PATH = `${dir}:${process.env.PATH}`; }
+        return { ok: true, message: `Node.js ${minMajor} installed via nvm`, nodePath: found };
+      }
+      return { ok: false, message: `${cc.red}✗ Node ${minMajor} installed but not found on PATH.${cc.reset}\n  ${cc.dim}Restart your terminal, then try again.${cc.reset}` };
+    }
+  }
+
   // Shared tool install registry
   const INSTALL_INFO: Record<string, { name: string; install: string; check: string; description: string; notes?: string }> = {
     claude: { name: "Claude Code CLI", install: "npm install -g @anthropic-ai/claude-code", check: "claude --version", description: "Anthropic's Claude Code — AI-assisted development", notes: "Requires Node.js 18+. After install, run `claude` to authenticate." },
@@ -1325,6 +1533,23 @@ expect eof
       if (!nodeVer) {
         return `${cc.red}✗ Node.js is required to install ${info.name}.${cc.reset}\n  ${cc.dim}Say: "install node" first.${cc.reset}`;
       }
+
+      // Check minimum Node version from notes (e.g. "Requires Node.js 22+")
+      const minNodeMatch = info.notes?.match(/Node\.js\s+(\d+)\+/);
+      if (minNodeMatch) {
+        const minMajor = parseInt(minNodeMatch[1]);
+        const currentMajor = parseInt(nodeVer.replace("v", ""));
+        if (currentMajor < minMajor) {
+          console.log(`${cc.yellow}⚠ ${info.name} requires Node.js ${minMajor}+ (current: ${nodeVer.trim()})${cc.reset}`);
+          console.log(`${cc.cyan}Upgrading Node.js to ${minMajor}...${cc.reset}\n`);
+
+          const upgraded = await upgradeNode(minMajor, cc, runLocalCommand, withSpinner);
+          if (!upgraded.ok) {
+            return upgraded.message;
+          }
+          console.log(`${cc.green}✓ ${upgraded.message}${cc.reset}\n`);
+        }
+      }
     }
 
     // ── Special handling: Ollama in WSL — recommend/install Windows native for GPU ──
@@ -1408,20 +1633,118 @@ expect eof
     console.log(`\n${cc.cyan}Installing ${info.name}...${cc.reset}`);
     console.log(`${cc.dim}  Running: ${info.install}${cc.reset}\n`);
 
-    try {
-      result = await withSpinner(`Installing ${info.name}...`, () => runLocalCommand(info.install + " 2>&1", 300_000));
+    // ── Install with retry and self-healing ──
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        result = await withSpinner(`Installing ${info.name}...`, () => runLocalCommand(info.install + " 2>&1", 300_000));
 
-      // Verify installation
-      const ver = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
-      if (ver) {
-        const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
-        if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
-        return lines.join("\n");
+        // Verify installation
+        let ver = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+
+        if (ver) {
+          const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
+          if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
+          return lines.join("\n");
+        }
+
+        // ── Verification failed — diagnose and retry ──
+        if (attempt < maxAttempts) {
+          console.log(`${cc.yellow}⚠ Installed but verification failed. Diagnosing...${cc.reset}`);
+
+          // Scenario 1: Node version mismatch after MSI install (shell has stale PATH)
+          const minNodeMatch2 = info.notes?.match(/Node\.js\s+(\d+)\+/);
+          if (minNodeMatch2 && process.platform === "win32") {
+            const minMajor2 = parseInt(minNodeMatch2[1]);
+            // Search for the newly installed Node binary directly
+            const searchPaths = [
+              `C:/Program Files/nodejs/node.exe`,
+              `C:/Program Files (x86)/nodejs/node.exe`,
+            ];
+            let newNodePath = "";
+            for (const p of searchPaths) {
+              const found = await runLocalCommand(`test -f "${p}" && "${p}" --version 2>/dev/null`).catch(() => "");
+              if (found && parseInt(found.replace("v", "")) >= minMajor2) {
+                newNodePath = p;
+                break;
+              }
+            }
+            // Also check nvm-windows install paths
+            if (!newNodePath) {
+              const nvmRoot = (await runLocalCommand(`powershell -Command 'Write-Output $env:NVM_HOME' 2>/dev/null`).catch(() => "")).trim();
+              if (nvmRoot) {
+                const found = await runLocalCommand(`ls -1 "${nvmRoot}"/v${minMajor2}*/node.exe 2>/dev/null | head -1`).catch(() => "");
+                if (found.trim()) newNodePath = found.trim();
+              }
+            }
+
+            if (newNodePath) {
+              console.log(`${cc.cyan}Found Node ${minMajor2}+ at ${newNodePath} — refreshing PATH...${cc.reset}`);
+              // Update PATH for this process and retry
+              const nodeDir = newNodePath.replace(/\/node\.exe$/, "").replace(/\\node\.exe$/, "");
+              process.env.PATH = `${nodeDir};${process.env.PATH}`;
+              // Re-run npm install with the new Node
+              console.log(`${cc.cyan}Retrying installation with Node ${minMajor2}+...${cc.reset}\n`);
+              continue;
+            }
+          }
+
+          // Scenario 2: Binary installed but not on PATH (npm global bin not in PATH)
+          const npmBin = await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "");
+          if (npmBin.trim()) {
+            const binDir = process.platform === "win32" ? npmBin.trim() : `${npmBin.trim()}/bin`;
+            if (!process.env.PATH?.includes(binDir)) {
+              console.log(`${cc.cyan}Adding npm global bin to PATH: ${binDir}${cc.reset}`);
+              process.env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`;
+              // Retry verification
+              ver = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+              if (ver) {
+                const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
+                if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
+                return lines.join("\n");
+              }
+            }
+          }
+
+          // Scenario 3: Tool needs a specific Node but `node` on PATH is still old
+          // Try running the check with the tool's expected Node directly
+          if (minNodeMatch2 && process.platform === "win32") {
+            const curVer = await runLocalCommand("node --version 2>/dev/null").catch(() => "unknown");
+            console.log(`${cc.yellow}Node ${minNodeMatch2[1]}+ may have installed but this shell still uses ${curVer.trim()}.${cc.reset}`);
+            console.log(`${cc.cyan}Searching for the new Node binary...${cc.reset}`);
+          }
+        }
+
+        return `${cc.yellow}⚠${cc.reset} Install completed but could not verify. Try: ${cc.cyan}${info.check}${cc.reset}\n\n${cc.dim}Output:\n${result.substring(0, 500)}${cc.reset}\n\n  ${cc.dim}If Node was just upgraded, restart your terminal and try again.${cc.reset}`;
+      } catch (err: unknown) {
+        const errMsg = (err as Error).message.split("\n")[0];
+
+        // Self-healing: if npm install failed, diagnose why
+        if (attempt < maxAttempts) {
+          // Check if it's a permissions error
+          if (errMsg.includes("EACCES") || errMsg.includes("permission denied")) {
+            console.log(`${cc.yellow}⚠ Permission error — retrying with sudo...${cc.reset}`);
+            try {
+              result = await withSpinner(`Installing ${info.name} (sudo)...`, () => runLocalCommand(`sudo ${info.install} 2>&1`, 300_000));
+              const ver = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+              if (ver) {
+                return `${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`;
+              }
+            } catch { /* fall through to error */ }
+          }
+
+          // Check if it's a network/registry error
+          if (errMsg.includes("ETIMEDOUT") || errMsg.includes("ENOTFOUND") || errMsg.includes("fetch failed")) {
+            console.log(`${cc.yellow}⚠ Network error — retrying in 3s...${cc.reset}`);
+            await runLocalCommand("sleep 3").catch(() => {});
+            continue;
+          }
+        }
+
+        return `${cc.red}✗ Installation failed:${cc.reset} ${errMsg}\n\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
       }
-      return `${cc.yellow}⚠${cc.reset} Install completed but could not verify. Try: ${cc.cyan}${info.check}${cc.reset}\n\n${cc.dim}Output:\n${result.substring(0, 500)}${cc.reset}`;
-    } catch (err: unknown) {
-      return `${cc.red}✗ Installation failed:${cc.reset} ${(err as Error).message.split("\n")[0]}\n\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
     }
+    return `${cc.red}✗ Installation failed after ${maxAttempts} attempts.${cc.reset}\n  ${cc.dim}Try manually: ${info.install}${cc.reset}`;
   }
 
   // Entity define/list

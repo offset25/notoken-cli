@@ -646,10 +646,22 @@ async function ensureNodeVersion(
 
     lines.push(`  ${c.cyan}Downloading Node 22 installer (admin)...${c.reset}`);
     console.error(`${c.dim}→ Downloading Node.js 22 for Windows${c.reset}`);
+    const msiUrl = "https://nodejs.org/dist/v22.15.0/node-v22.15.0-x64.msi";
+    // Resolve temp dir: use Windows %TEMP% for PowerShell, bash-compatible path for curl
+    const winTemp = (await run(`powershell -Command 'Write-Output $env:TEMP' 2>/dev/null`)).trim() || "C:\\Windows\\Temp";
+    const msiWinPath = `${winTemp}\\node22.msi`;
+    const msiBashPath = `$(cygpath '${winTemp}')/node22.msi`;
+    // Try curl first — Invoke-WebRequest doesn't work on Windows Server 2016 (old TLS/IE engine)
+    const curlCheck = await run("curl --version 2>/dev/null");
+    if (curlCheck && curlCheck.includes("curl")) {
+      await run(`curl -fsSL -o "${msiBashPath}" "${msiUrl}" 2>&1`);
+    } else {
+      await run(
+        `powershell -Command "& { Invoke-WebRequest -Uri '${msiUrl}' -OutFile '${msiWinPath}' }" 2>&1`
+      );
+    }
     const dlOut = await run(
-      `powershell -Command "& { $url='https://nodejs.org/dist/v22.15.0/node-v22.15.0-x64.msi'; ` +
-      `$out=\\"$env:TEMP\\\\node22.msi\\"; Invoke-WebRequest -Uri $url -OutFile $out; ` +
-      `Start-Process msiexec.exe -ArgumentList '/i',$out,'/qn' -Wait; Remove-Item $out }" 2>&1`
+      `powershell -Command "Start-Process msiexec.exe -ArgumentList '/i','${msiWinPath}','/qn' -Wait; Remove-Item '${msiWinPath}'" 2>&1`
     );
 
     // Verify after install
