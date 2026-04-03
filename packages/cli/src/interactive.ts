@@ -93,7 +93,7 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   console.log(`${c.bold}${c.cyan}NoToken${c.reset}${updateTag}`);
   console.log(`${c.dim}${platform.distro}${wslTag} | ${platform.shell} | ${platform.packageManager} | ${platform.arch}${llmTag}${c.reset}`);
   console.log(`${c.dim}Conversation: ${conv.id} (${conv.turns.length} prior turns)${c.reset}`);
-  console.log(`${c.dim}Append & for background. Ctrl+C twice to quit. :help for commands.${c.reset}`);
+  console.log(`${c.dim}Append & for background. Ctrl+B to background running task. Ctrl+C twice to quit.${c.reset}`);
 
   if (cachedUpdate?.updateAvailable) {
     console.log(formatUpdateBanner(cachedUpdate));
@@ -353,14 +353,69 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       }
     }
 
-    try {
-      const result = await executeIntent(parsed.intent);
-      console.log(result);
-      addSystemTurn(conv, parsed.intent.intent, result);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`${c.red}Error:${c.reset} ${msg}`);
-      addSystemTurn(conv, parsed.intent.intent, undefined, msg);
+    // ── Foreground execution with Ctrl+B to background ──
+    let sentToBackground = false;
+
+    // Set up Ctrl+B listener (raw mode) to move task to background
+    const setupCtrlB = () => {
+      if (!process.stdin.isTTY) return () => {};
+      const onData = (key: Buffer) => {
+        if (key[0] === 0x02) { // Ctrl+B
+          sentToBackground = true;
+          process.stdin.removeListener("data", onData);
+          if (process.stdin.isRaw) process.stdin.setRawMode(false);
+          console.log(`\n${c.yellow}↗ Moved to background.${c.reset} ${c.dim}Type ":jobs" to check status.${c.reset}`);
+        }
+      };
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on("data", onData);
+      return () => {
+        process.stdin.removeListener("data", onData);
+        try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
+      };
+    };
+
+    const cleanupCtrlB = setupCtrlB();
+    const executionPromise = executeIntent(parsed.intent);
+
+    // Race: either the task finishes or user hits Ctrl+B
+    const raceResult = await Promise.race([
+      executionPromise.then(r => ({ type: "done" as const, result: r })),
+      new Promise<{ type: "bg" }>(resolve => {
+        const check = setInterval(() => {
+          if (sentToBackground) { clearInterval(check); resolve({ type: "bg" }); }
+        }, 100);
+        // Also resolve when execution finishes (to clean up interval)
+        executionPromise.finally(() => clearInterval(check));
+      }),
+    ]);
+
+    cleanupCtrlB();
+
+    if (raceResult.type === "bg") {
+      // Task is still running — register it as a background notification
+      const bgTaskId = taskRunner.active + 1;
+      executionPromise
+        .then(result => {
+          pendingNotifications.push(`\n${c.green}✓${c.reset} ${c.bold}Background task completed:${c.reset} ${parsed.intent.intent}\n${result.substring(0, 500)}`);
+          addSystemTurn(conv, parsed.intent.intent, result);
+        })
+        .catch(err => {
+          const msg = err instanceof Error ? err.message : String(err);
+          pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Background task failed:${c.reset} ${parsed.intent.intent}\n  ${msg}`);
+          addSystemTurn(conv, parsed.intent.intent, undefined, msg);
+        });
+    } else {
+      // Task finished normally in foreground
+      try {
+        console.log(raceResult.result);
+        addSystemTurn(conv, parsed.intent.intent, raceResult.result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`${c.red}Error:${c.reset} ${msg}`);
+        addSystemTurn(conv, parsed.intent.intent, undefined, msg);
+      }
     }
   }
 
@@ -471,6 +526,7 @@ async function handleMetaCommand(
 ${c.bold}Commands:${c.reset}
   ${c.cyan}<text>${c.reset}               Parse and execute a natural language command
   ${c.cyan}<text> &${c.reset}             Run in background
+  ${c.cyan}Ctrl+B${c.reset}              Move running task to background
   ${c.cyan}ssh <env> <cmd>${c.reset}      Run raw SSH command on environment
 
 ${c.bold}Meta:${c.reset}
