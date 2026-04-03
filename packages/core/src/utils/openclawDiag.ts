@@ -72,17 +72,16 @@ async function cmdExists(run: (cmd: string) => Promise<string>, cmd: string): Pr
 /** Cross-platform: check if openclaw gateway process is running */
 async function isGatewayRunning(run: (cmd: string) => Promise<string>): Promise<{ running: boolean; pid: string }> {
   if (isWin) {
-    // Try tasklist via PowerShell for openclaw, or ps from bash
-    const psOut = await run("ps aux 2>/dev/null | grep openclaw-gateway | grep -v grep | head -1");
-    if (psOut && psOut.includes("openclaw")) {
-      const pidMatch = psOut.match(/\S+\s+(\d+)/);
-      return { running: true, pid: pidMatch?.[1] ?? "?" };
-    }
-    // Try PowerShell tasklist
-    const taskOut = await run(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Select-Object Id -First 1" 2>/dev/null`);
-    if (taskOut && /\d+/.test(taskOut)) {
-      const pid = taskOut.match(/(\d+)/)?.[1] ?? "?";
+    // Use WMI — Get-Process doesn't populate CommandLine on older Windows (Server 2016)
+    const wmiOut = await run(`powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | Select-Object -First 1 ProcessId" 2>/dev/null`);
+    if (wmiOut && /\d+/.test(wmiOut)) {
+      const pid = wmiOut.match(/(\d+)/)?.[1] ?? "?";
       return { running: true, pid };
+    }
+    // Fallback: check if health endpoint responds (gateway running but can't find process)
+    const healthCheck = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+    if (healthCheck && healthCheck.includes('"ok"')) {
+      return { running: true, pid: "?" };
     }
     return { running: false, pid: "" };
   }
