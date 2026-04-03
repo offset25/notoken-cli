@@ -7264,6 +7264,35 @@
       ]
     },
     {
+      "name": "openclaw.dashboard",
+      "description": "Open the OpenClaw web dashboard and show/copy the pairing token",
+      "synonyms": [
+        "openclaw dashboard",
+        "openclaw web",
+        "openclaw ui",
+        "open openclaw",
+        "openclaw pair",
+        "openclaw pairing",
+        "openclaw token",
+        "openclaw web ui",
+        "open openclaw dashboard",
+        "show openclaw dashboard",
+        "openclaw control",
+        "pair openclaw"
+      ],
+      "fields": {},
+      "command": "[openclaw-dashboard]",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "open openclaw dashboard",
+        "openclaw web ui",
+        "show me the openclaw token",
+        "pair openclaw dashboard"
+      ]
+    },
+    {
       "name": "openclaw.channel.setup",
       "description": "Set up a chat channel for OpenClaw — Telegram, Discord, Matrix, WhatsApp, etc.",
       "synonyms": [

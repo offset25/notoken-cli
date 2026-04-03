@@ -281,6 +281,83 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       : await withSpinner("Diagnosing OpenClaw...", () => diagnoseOpenclaw(false));
   }
 
+  // ── OpenClaw dashboard — open web UI and auto-pair ──
+  if (intent.intent === "openclaw.dashboard") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Check if gateway is running
+    const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+    if (!health.includes('"ok"')) {
+      console.log(`${cc.yellow}⚠ Gateway not running. Starting it...${cc.reset}`);
+      if (process.platform === "win32") {
+        const ocPath = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
+        const ocEntry = ocPath ? `${ocPath}\\node_modules\\openclaw\\dist\\index.js` : "openclaw";
+        await runLocalCommand(
+          `powershell -Command "Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`
+        ).catch(() => "");
+      } else {
+        await runLocalCommand("nohup openclaw gateway --force --allow-unconfigured > /dev/null 2>&1 &").catch(() => "");
+      }
+      for (let i = 0; i < 8; i++) {
+        await runLocalCommand("sleep 1").catch(() => {});
+        const h = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+        if (h.includes('"ok"')) break;
+      }
+    }
+
+    // Read the pairing token from config
+    const { readFileSync: readFS, existsSync: existsFS } = await import("node:fs");
+    const userHome = process.env.USERPROFILE || process.env.HOME || "";
+    const sep = process.platform === "win32" ? "\\" : "/";
+    const configPath = `${userHome}${sep}.openclaw${sep}openclaw.json`;
+    let token = "";
+    try {
+      if (existsFS(configPath)) {
+        const config = JSON.parse(readFS(configPath, "utf-8"));
+        token = config?.gateway?.auth?.token || "";
+      }
+    } catch {}
+
+    // Open browser
+    const url = "http://127.0.0.1:18789";
+    console.log(`${cc.cyan}Opening OpenClaw dashboard...${cc.reset}\n`);
+    try {
+      if (process.platform === "win32") {
+        await runLocalCommand(`powershell -Command "Start-Process '${url}'" 2>/dev/null`);
+      } else if (process.platform === "darwin") {
+        await runLocalCommand(`open "${url}" 2>/dev/null`);
+      } else {
+        await runLocalCommand(`xdg-open "${url}" 2>/dev/null || wslview "${url}" 2>/dev/null`);
+      }
+    } catch {}
+
+    // Copy token to clipboard
+    if (token) {
+      try {
+        if (process.platform === "win32") {
+          await runLocalCommand(`printf '%s' '${token}' | clip 2>/dev/null`);
+        } else if (process.platform === "darwin") {
+          await runLocalCommand(`printf '%s' '${token}' | pbcopy 2>/dev/null`);
+        }
+      } catch {}
+    }
+
+    const lines = [
+      `${cc.green}✓${cc.reset} OpenClaw dashboard: ${cc.cyan}${cc.bold}${url}${cc.reset}`,
+    ];
+    if (token) {
+      lines.push(``);
+      lines.push(`  ${cc.bold}Pairing token:${cc.reset} ${cc.cyan}${token}${cc.reset}`);
+      lines.push(`  ${cc.dim}Paste this into the web UI when it asks to pair.${cc.reset}`);
+      if (process.platform === "win32" || process.platform === "darwin") {
+        lines.push(`  ${cc.green}✓ Already copied to your clipboard — just paste it.${cc.reset}`);
+      }
+    } else {
+      lines.push(`  ${cc.dim}No auth token — dashboard should connect directly.${cc.reset}`);
+    }
+    return lines.join("\n");
+  }
+
   // ── OpenClaw channel setup — Telegram, Discord, Matrix, WhatsApp ──
   if (intent.intent === "openclaw.channel.setup") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
