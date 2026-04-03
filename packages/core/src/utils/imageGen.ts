@@ -18,7 +18,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { USER_HOME } from "./paths.js";
@@ -983,6 +983,16 @@ async function generateViaAuto1111(prompt: string, baseUrl: string): Promise<Gen
   try {
     mkdirSync(OUTPUT_DIR, { recursive: true });
 
+    // Detect GPU/CPU mode
+    const cmdFlags = tryExec(`curl -sf --max-time 3 "${baseUrl}/sdapi/v1/cmd-flags" 2>/dev/null`);
+    const isGpuMode = cmdFlags ? !cmdFlags.includes('"skip_torch_cuda_test":true') : false;
+    const gpu = detectGpu();
+    const modeStr = isGpuMode && gpu.hasNvidia ? `GPU (${gpu.gpuName})` : "CPU";
+
+    console.error(`${c.dim}  Mode: ${modeStr}${c.reset}`);
+    console.error(`${c.dim}  Prompt: "${prompt}"${c.reset}`);
+    console.error(`${c.dim}  Generating (512x512, 20 steps)...${c.reset}`);
+
     const payload = JSON.stringify({
       prompt,
       negative_prompt: "blurry, bad quality, distorted, watermark, text",
@@ -993,13 +1003,58 @@ async function generateViaAuto1111(prompt: string, baseUrl: string): Promise<Gen
       sampler_name: "Euler a",
     });
 
-    const result = tryExec(`curl -sf --max-time 120 -X POST "${baseUrl}/sdapi/v1/txt2img" -H "Content-Type: application/json" -d '${payload.replace(/'/g, "'\\''")}'`, 130000);
+    // Start generation in background via async fetch
+    const { spawn: spawnProc } = await import("node:child_process");
+    const tmpResult = resolve(OUTPUT_DIR, `.gen-result-${Date.now()}.json`);
+    const curlProc = spawnProc("curl", [
+      "-sf", "--max-time", "300",
+      "-X", "POST", `${baseUrl}/sdapi/v1/txt2img`,
+      "-H", "Content-Type: application/json",
+      "-d", payload,
+      "-o", tmpResult,
+    ], { stdio: "ignore", detached: false });
 
-    if (!result) {
-      return { success: false, prompt, error: "Generation timed out or failed. Is the model loaded?" };
+    // Poll progress while generating
+    const startTime = Date.now();
+    let lastStep = -1;
+    while (!existsSync(tmpResult) || getFileSize(tmpResult) === 0) {
+      await sleep(2000);
+
+      // Check progress API
+      const prog = tryExec(`curl -sf --max-time 2 "${baseUrl}/sdapi/v1/progress" 2>/dev/null`);
+      if (prog) {
+        try {
+          const p = JSON.parse(prog);
+          const pct = Math.round((p.progress ?? 0) * 100);
+          const step = p.state?.sampling_step ?? 0;
+          const steps = p.state?.sampling_steps ?? 20;
+          if (step !== lastStep && step > 0) {
+            const bar = "█".repeat(Math.round(pct / 5)) + "░".repeat(20 - Math.round(pct / 5));
+            console.error(`  ${c.cyan}${bar}${c.reset} ${pct}% (step ${step}/${steps})`);
+            lastStep = step;
+          }
+        } catch {}
+      }
+
+      // Timeout check
+      if (Date.now() - startTime > 300000) {
+        try { curlProc.kill(); } catch {}
+        return { success: false, prompt, error: "Generation timed out after 5 minutes" };
+      }
     }
 
-    const data = JSON.parse(result);
+    // Wait a bit for file to finish writing
+    await sleep(500);
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const resultData = readFileSync(tmpResult, "utf-8");
+    try { removeFile(tmpResult); } catch {}
+
+    if (!resultData || resultData.length < 100) {
+      return { success: false, prompt, error: "Generation returned empty response" };
+    }
+
+    const data = JSON.parse(resultData);
     if (!data.images?.[0]) {
       return { success: false, prompt, error: "No image returned from API" };
     }
@@ -1011,16 +1066,32 @@ async function generateViaAuto1111(prompt: string, baseUrl: string): Promise<Gen
     const buffer = Buffer.from(data.images[0], "base64");
     writeFileSync(imagePath, buffer);
 
+    const stats = recordGeneration(true);
+
     return {
       success: true,
       engine: "auto1111",
       prompt,
       imagePath,
-      message: `${c.green}✓${c.reset} Image generated!\n  ${c.bold}Prompt:${c.reset} ${prompt}\n  ${c.bold}Saved:${c.reset} ${imagePath}\n  ${c.bold}Size:${c.reset} ${(buffer.length / 1024).toFixed(0)} KB`,
+      message: [
+        `${c.green}✓${c.reset} Image generated locally in ${elapsed}s (${modeStr})`,
+        `  ${c.bold}Prompt:${c.reset} ${prompt}`,
+        `  ${c.bold}Saved:${c.reset} ${imagePath}`,
+        `  ${c.bold}Size:${c.reset} ${(buffer.length / 1024).toFixed(0)} KB`,
+        `  ${c.dim}Local: ${stats.localGenerations} | Cloud: ${stats.cloudGenerations} | Total: ${stats.totalGenerations}${c.reset}`,
+      ].join("\n"),
     };
   } catch (err) {
     return { success: false, prompt, error: `Generation failed: ${err instanceof Error ? err.message : err}` };
   }
+}
+
+function getFileSize(filePath: string): number {
+  try { return statSync(filePath).size; } catch { return 0; }
+}
+
+function removeFile(filePath: string): void {
+  try { writeFileSync(filePath, ""); } catch {}
 }
 
 // ─── Installation ──────────────────────────────────────────────────────────

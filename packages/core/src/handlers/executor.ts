@@ -2789,45 +2789,17 @@ expect eof
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    // Use NLP tokenizer to extract the subject/object as the prompt
-    let prompt: string;
-    try {
-      const { tokenize, parseDependencies } = await import("../nlp/semantic.js");
-      const tokens = tokenize(intent.rawText, [], []);
-      const deps = parseDependencies(tokens);
-      // The image subject is the object of the verb ("draw [a cat]", "generate [sunset]")
-      const objects = deps.filter(d => d.relation === "object" || d.relation === "subject");
-      if (objects.length > 0) {
-        // Rebuild prompt from all object/subject tokens plus any modifiers
-        const objectTokens = objects.map(d => d.dependent);
-        const modifiers = deps.filter(d => d.relation === "modifier").map(d => d.dependent);
-        const promptTokens = [...objectTokens, ...modifiers].sort((a, b) => a.index - b.index);
-        const SKIP_WORDS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she",
-          "picture", "image", "photo", "drawing", "painting", "art", "artwork",
-          "generate", "create", "make", "draw", "paint", "imagine", "please"]);
-        prompt = promptTokens.map(t => t.text).filter(w => !SKIP_WORDS.has(w.toLowerCase())).join(" ");
-      } else {
-        // Fallback: take all nouns and adjectives as the prompt
-        const SKIP_WORDS = new Set(["me", "i", "you", "us", "it", "them", "we", "he", "she",
-          "picture", "image", "photo", "drawing", "painting", "art", "artwork"]);
-        const nouns = tokens.filter(t => ["NOUN", "ADJ", "PATH"].includes(t.tag) && !SKIP_WORDS.has(t.text.toLowerCase()));
-        prompt = nouns.map(t => t.text).join(" ");
-      }
-    } catch {
-      prompt = "";
-    }
-
-    // Final fallback: regex strip if NLP produced nothing useful
-    if (!prompt || prompt.length < 2) {
-      prompt = intent.rawText
-        .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
-        .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
-        .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
-        .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
-        .replace(/\s+(please|for me|for us)\s*$/i, "")
-        .trim()
-        || ((fields.prompt as string) ?? "image");
-    }
+    // Simple: strip the command prefix, pass everything else as the prompt
+    // "can you generate a picture of a dragon flying over a castle at sunset"
+    // → "a dragon flying over a castle at sunset"
+    const prompt = intent.rawText
+      .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
+      .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
+      .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
+      .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
+      .replace(/\s+(please|for me|for us)\s*$/i, "")
+      .trim()
+      || ((fields.prompt as string) ?? "a beautiful landscape");
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";
