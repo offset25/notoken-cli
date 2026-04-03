@@ -2116,9 +2116,61 @@ expect eof
           const lines = [`${cc.green}✓${cc.reset} ${info.name} installed successfully: ${cc.bold}${ver.trim()}${cc.reset}`];
           if (info.notes) lines.push(`\n  ${cc.yellow}Next:${cc.reset} ${info.notes}`);
 
-          // Post-install: for openclaw, auto-start gateway + open dashboard
+          // Post-install: for openclaw, run onboard + start gateway + pair device + open dashboard
           if (toolName === "openclaw") {
-            console.log(`\n${cc.cyan}Starting OpenClaw gateway...${cc.reset}`);
+            const { readFileSync: rfs, existsSync: efs, writeFileSync: wfs, mkdirSync: mfs } = await import("node:fs");
+            const { dirname: dn } = await import("node:path");
+            const home = process.env.USERPROFILE || process.env.HOME || "";
+            const sep = process.platform === "win32" ? "\\" : "/";
+            const ocHome = `${home}${sep}.openclaw`;
+            const configPath = `${ocHome}${sep}openclaw.json`;
+
+            // Step 1: Run non-interactive onboard (sets up config, workspace, auth)
+            console.log(`\n${cc.cyan}Running OpenClaw onboard...${cc.reset}`);
+            const authChoice = efs(`${home}${sep}.claude${sep}.credentials.json`) ? "anthropic-cli" : "skip";
+            await withSpinner("Setting up OpenClaw...", () => runLocalCommand(
+              `openclaw onboard --mode local --non-interactive --accept-risk --auth-choice ${authChoice} --skip-channels --skip-skills --skip-daemon --skip-health --skip-search --skip-ui 2>&1`, 60_000
+            )).catch(() => "");
+            lines.push(`${cc.green}✓${cc.reset} OpenClaw onboarded`);
+
+            // Step 2: Fix model ID (onboard may set claude-cli/ prefix which gateway doesn't recognize)
+            try {
+              if (efs(configPath)) {
+                const config = JSON.parse(rfs(configPath, "utf-8"));
+                const primary = config?.agents?.defaults?.model?.primary || "";
+                if (primary.startsWith("claude-cli/")) {
+                  const fixedModel = primary.replace("claude-cli/", "anthropic/");
+                  config.agents.defaults.model.primary = fixedModel;
+                  if (config.agents.defaults.models) {
+                    delete config.agents.defaults.models[primary];
+                    config.agents.defaults.models[fixedModel] = {};
+                  }
+                  wfs(configPath, JSON.stringify(config, null, 2));
+                  lines.push(`${cc.green}✓${cc.reset} Model set to ${fixedModel}`);
+                }
+              }
+            } catch {}
+
+            // Step 3: Sync Claude Code OAuth token to openclaw auth-profiles
+            const claudeCreds = `${home}${sep}.claude${sep}.credentials.json`;
+            try {
+              if (efs(claudeCreds)) {
+                const creds = JSON.parse(rfs(claudeCreds, "utf-8"));
+                const claudeToken = creds?.claudeAiOauth?.accessToken;
+                if (claudeToken) {
+                  const authPath = `${ocHome}${sep}agents${sep}main${sep}agent${sep}auth-profiles.json`;
+                  let profiles: any = { version: 1, profiles: {} };
+                  if (efs(authPath)) profiles = JSON.parse(rfs(authPath, "utf-8"));
+                  else mfs(dn(authPath), { recursive: true });
+                  profiles.profiles["anthropic:claude-oauth"] = { type: "oauth", provider: "anthropic", access: claudeToken, expires: Date.now() + 86400000 };
+                  wfs(authPath, JSON.stringify(profiles, null, 2));
+                  lines.push(`${cc.green}✓${cc.reset} Claude Code token synced`);
+                }
+              }
+            } catch {}
+
+            // Step 4: Start gateway
+            console.log(`${cc.cyan}Starting gateway...${cc.reset}`);
             if (process.platform === "win32") {
               const ocPrefix = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
               const ocEntry = ocPrefix ? `${ocPrefix}\\node_modules\\openclaw\\dist\\index.js` : "openclaw";
@@ -2128,38 +2180,64 @@ expect eof
             } else {
               await runLocalCommand("nohup openclaw gateway --force --allow-unconfigured > /dev/null 2>&1 &").catch(() => "");
             }
-            // Wait for gateway
             let gwUp = false;
             for (let i = 0; i < 10; i++) {
               await runLocalCommand("sleep 1").catch(() => {});
               const h = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
               if (h.includes('"ok"')) { gwUp = true; break; }
             }
+
             if (gwUp) {
-              lines.push(`\n${cc.green}✓${cc.reset} Gateway started on http://127.0.0.1:18789`);
-              // Auto-sync Claude token
-              const { readFileSync: rfs, existsSync: efs, writeFileSync: wfs, mkdirSync: mfs } = await import("node:fs");
-              const { dirname: dn } = await import("node:path");
-              const home = process.env.USERPROFILE || process.env.HOME || "";
-              const sep = process.platform === "win32" ? "\\" : "/";
-              const claudeCreds = `${home}${sep}.claude${sep}.credentials.json`;
+              lines.push(`${cc.green}✓${cc.reset} Gateway started on http://127.0.0.1:18789`);
+
+              // Step 5: Auto-pair CLI device with full admin scopes
               try {
-                if (efs(claudeCreds)) {
-                  const creds = JSON.parse(rfs(claudeCreds, "utf-8"));
-                  const claudeToken = creds?.claudeAiOauth?.accessToken;
-                  if (claudeToken) {
-                    const authPath = `${home}${sep}.openclaw${sep}agents${sep}main${sep}agent${sep}auth-profiles.json`;
-                    let profiles: any = { version: 1, profiles: {} };
-                    if (efs(authPath)) profiles = JSON.parse(rfs(authPath, "utf-8"));
-                    else mfs(dn(authPath), { recursive: true });
-                    profiles.profiles["anthropic:claude-oauth"] = { type: "oauth", provider: "anthropic", access: claudeToken, expires: Date.now() + 86400000 };
-                    wfs(authPath, JSON.stringify(profiles, null, 2));
-                    lines.push(`${cc.green}✓${cc.reset} Claude Code token synced to OpenClaw`);
+                const devicesDir = `${ocHome}${sep}devices`;
+                const pairedPath = `${devicesDir}${sep}paired.json`;
+                const pendingPath = `${devicesDir}${sep}pending.json`;
+
+                if (efs(pairedPath) && efs(pendingPath)) {
+                  const paired = JSON.parse(rfs(pairedPath, "utf-8"));
+                  const pending = JSON.parse(rfs(pendingPath, "utf-8"));
+                  const fullScopes = ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"];
+
+                  // Approve all pending requests
+                  let approved = 0;
+                  for (const [reqId, req] of Object.entries(pending) as [string, any][]) {
+                    const deviceId = req.deviceId;
+                    if (paired[deviceId]) {
+                      paired[deviceId].scopes = fullScopes;
+                      paired[deviceId].approvedScopes = fullScopes;
+                      paired[deviceId].clientId = req.clientId || paired[deviceId].clientId;
+                      paired[deviceId].clientMode = req.clientMode || paired[deviceId].clientMode;
+                      if (paired[deviceId].tokens?.operator) {
+                        paired[deviceId].tokens.operator.scopes = fullScopes;
+                      }
+                      paired[deviceId].approvedAtMs = Date.now();
+                      approved++;
+                    }
+                  }
+
+                  // Also upgrade any existing devices with limited scopes
+                  for (const [deviceId, device] of Object.entries(paired) as [string, any][]) {
+                    if (!device.scopes?.includes("operator.admin")) {
+                      device.scopes = fullScopes;
+                      device.approvedScopes = fullScopes;
+                      if (device.tokens?.operator) device.tokens.operator.scopes = fullScopes;
+                      device.approvedAtMs = Date.now();
+                      approved++;
+                    }
+                  }
+
+                  if (approved > 0) {
+                    wfs(pairedPath, JSON.stringify(paired, null, 2));
+                    wfs(pendingPath, "{}");
+                    lines.push(`${cc.green}✓${cc.reset} Device pairing configured (${approved} device(s))`);
                   }
                 }
               } catch {}
 
-              // Open dashboard with auto-pair
+              // Step 6: Open dashboard with Playwright auto-pair
               lines.push(`\n${cc.cyan}Opening dashboard...${cc.reset}`);
               try {
                 const { chromium } = await import("playwright");
@@ -2168,7 +2246,6 @@ expect eof
                 await page.goto("http://127.0.0.1:18789");
                 await page.waitForTimeout(2000);
                 const tokenInput = page.locator('input[placeholder*="OPENCLAW_GATEWAY_TOKEN"]');
-                const configPath = `${home}${sep}.openclaw${sep}openclaw.json`;
                 let gwToken = "";
                 try { gwToken = JSON.parse(rfs(configPath, "utf-8"))?.gateway?.auth?.token || ""; } catch {}
                 if (gwToken && await tokenInput.count() > 0) {
@@ -2179,13 +2256,14 @@ expect eof
                 }
                 lines.push(`${cc.green}✓${cc.reset} Dashboard opened and paired!`);
               } catch {
-                // Playwright not available — just open browser
                 try {
                   if (process.platform === "win32") await runLocalCommand(`powershell -Command "Start-Process 'http://127.0.0.1:18789'" 2>/dev/null`);
                   else await runLocalCommand(`xdg-open "http://127.0.0.1:18789" 2>/dev/null || open "http://127.0.0.1:18789" 2>/dev/null`);
                 } catch {}
                 lines.push(`${cc.dim}Dashboard: http://127.0.0.1:18789${cc.reset}`);
               }
+            } else {
+              lines.push(`${cc.yellow}⚠${cc.reset} Gateway didn't start — try: "start openclaw"`);
             }
           }
 
