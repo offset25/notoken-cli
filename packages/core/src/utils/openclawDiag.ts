@@ -46,13 +46,81 @@ function extractAgentReply(output: string): string | null {
   }
 }
 
+const isWin = process.platform === "win32";
+const userHome = process.env.HOME ?? process.env.USERPROFILE ?? (isWin ? "C:\\Users\\Default" : "/root");
+
 async function runCmd(cmd: string, timeout = 15_000): Promise<string> {
   try {
-    const { stdout, stderr } = await execAsync(cmd, { timeout });
+    const shell = isWin ? "bash" : undefined;
+    const { stdout, stderr } = await execAsync(cmd, { timeout, shell });
     return (stdout + stderr).trim();
   } catch (err) {
     return (err as any)?.stdout?.trim() ?? (err as Error).message.split("\n")[0];
   }
+}
+
+/** Cross-platform: check if a command exists */
+async function cmdExists(run: (cmd: string) => Promise<string>, cmd: string): Promise<string> {
+  if (isWin) {
+    const out = await run(`command -v ${cmd} 2>/dev/null || where ${cmd} 2>/dev/null`);
+    return out && !out.includes("not found") && !out.includes("Could not find") ? out.trim() : "";
+  }
+  const out = await run(`which ${cmd} 2>/dev/null`);
+  return out && out.includes(cmd) ? out.trim() : "";
+}
+
+/** Cross-platform: check if openclaw gateway process is running */
+async function isGatewayRunning(run: (cmd: string) => Promise<string>): Promise<{ running: boolean; pid: string }> {
+  if (isWin) {
+    // Try tasklist via PowerShell for openclaw, or ps from bash
+    const psOut = await run("ps aux 2>/dev/null | grep openclaw-gateway | grep -v grep | head -1");
+    if (psOut && psOut.includes("openclaw")) {
+      const pidMatch = psOut.match(/\S+\s+(\d+)/);
+      return { running: true, pid: pidMatch?.[1] ?? "?" };
+    }
+    // Try PowerShell tasklist
+    const taskOut = await run(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Select-Object Id -First 1" 2>/dev/null`);
+    if (taskOut && /\d+/.test(taskOut)) {
+      const pid = taskOut.match(/(\d+)/)?.[1] ?? "?";
+      return { running: true, pid };
+    }
+    return { running: false, pid: "" };
+  }
+  const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
+  if (psOut && psOut.includes("openclaw")) {
+    const pidMatch = psOut.match(/\S+\s+(\d+)/);
+    return { running: true, pid: pidMatch?.[1] ?? "?" };
+  }
+  return { running: false, pid: "" };
+}
+
+/** Cross-platform: nvm prefix for running openclaw with Node 22 */
+function getNvmPrefix(): string {
+  if (isWin) {
+    // On Windows with bash (Git Bash/MSYS), nvm might be nvm-windows which doesn't need sourcing
+    // Just try to use node directly — if Node 22 was installed it should be on PATH
+    return "";
+  }
+  return `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
+}
+
+/** Cross-platform: wrap an openclaw CLI command with the right Node version */
+function wrapOcCmd(cmd: string, nvmPrefix: string): string {
+  if (isWin) {
+    // On Windows, just run directly — Node version managers update PATH globally
+    return `${cmd} 2>&1`;
+  }
+  return `bash -c '${nvmPrefix} ${cmd} 2>&1'`;
+}
+
+/** Cross-platform: get Claude credentials path */
+function getClaudeCredsPath(): string {
+  return `${userHome}${isWin ? "\\" : "/"}.claude${isWin ? "\\" : "/"}.credentials.json`;
+}
+
+/** Cross-platform: get openclaw config base path */
+function getOpenclawHome(): string {
+  return `${userHome}${isWin ? "\\" : "/"}.openclaw`;
 }
 
 /**
@@ -75,59 +143,60 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   // Auto-discover and register all OpenClaw installations as entities
   try { await discoverInstallations("openclaw"); } catch { /* non-critical */ }
 
-  // Detect WSL environment
-  const wslCheck = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
-  const inWSL = wslCheck.trim() === "wsl";
-
+  // Detect environment
   let hostGatewayRunning = false;
 
-  if (inWSL) {
-    lines.push(`  ${c.dim}Environment: WSL${c.reset}`);
+  if (isWin) {
+    lines.push(`  ${c.dim}Environment: Windows${c.reset}`);
+  } else {
+    const wslCheck = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
+    const inWSL = wslCheck.trim() === "wsl";
 
-    // Check for OpenClaw on Windows host — use PowerShell to get command lines (tasklist doesn't show script args)
-    const hostPs = await run("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null");
-    const hostHasOpenclaw = hostPs.includes("openclaw");
-    const hostNodeCheck = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
-    const hostInstalled = hostNodeCheck.includes("openclaw");
+    if (inWSL) {
+      lines.push(`  ${c.dim}Environment: WSL${c.reset}`);
 
-    if (hostHasOpenclaw) {
-      lines.push(`  ${c.green}✓${c.reset} OpenClaw detected on ${c.bold}Windows host${c.reset}`);
-      // Check if it's a gateway process
-      if (hostPs.includes("gateway")) {
-        hostGatewayRunning = true;
-        lines.push(`  ${c.green}✓${c.reset} Windows gateway is running on port 18789`);
-        // Check health via the Windows gateway (WSL shares network with host)
-        const hostHealth = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
-        if (hostHealth.includes('"ok"')) {
-          lines.push(`  ${c.green}✓${c.reset} Windows gateway health: OK`);
-        } else {
-          lines.push(`  ${c.yellow}⚠${c.reset} Windows gateway running but health check failed`);
+      // Check for OpenClaw on Windows host — use PowerShell to get command lines (tasklist doesn't show script args)
+      const hostPs = await run("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null");
+      const hostHasOpenclaw = hostPs.includes("openclaw");
+      const hostNodeCheck = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
+      const hostInstalled = hostNodeCheck.includes("openclaw");
+
+      if (hostHasOpenclaw) {
+        lines.push(`  ${c.green}✓${c.reset} OpenClaw detected on ${c.bold}Windows host${c.reset}`);
+        // Check if it's a gateway process
+        if (hostPs.includes("gateway")) {
+          hostGatewayRunning = true;
+          lines.push(`  ${c.green}✓${c.reset} Windows gateway is running on port 18789`);
+          const hostHealth = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+          if (hostHealth.includes('"ok"')) {
+            lines.push(`  ${c.green}✓${c.reset} Windows gateway health: OK`);
+          } else {
+            lines.push(`  ${c.yellow}⚠${c.reset} Windows gateway running but health check failed`);
+          }
+          const winConfig = await run("cmd.exe /c 'type \"%USERPROFILE%\\.openclaw\\openclaw.json\"' 2>/dev/null");
+          const winModelMatch = winConfig.match(/"primary"\s*:\s*"([^"]+)"/);
+          if (winModelMatch) {
+            lines.push(`  ${c.dim}  Windows model: ${winModelMatch[1]}${c.reset}`);
+          }
         }
-        // Check Windows OpenClaw model config
-        const winConfig = await run("cmd.exe /c 'type \"%USERPROFILE%\\.openclaw\\openclaw.json\"' 2>/dev/null");
-        const winModelMatch = winConfig.match(/"primary"\s*:\s*"([^"]+)"/);
-        if (winModelMatch) {
-          lines.push(`  ${c.dim}  Windows model: ${winModelMatch[1]}${c.reset}`);
-        }
+      } else if (hostInstalled) {
+        lines.push(`  ${c.yellow}○${c.reset} OpenClaw installed on Windows host but ${c.bold}not running${c.reset}`);
       }
-    } else if (hostInstalled) {
-      lines.push(`  ${c.yellow}○${c.reset} OpenClaw installed on Windows host but ${c.bold}not running${c.reset}`);
     }
   }
 
   // Step 1: Is process running?
   console.error(`${c.dim}Checking if openclaw is running...${c.reset}`);
-  const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
+  const gwStatus = await isGatewayRunning(run);
 
   // If Windows host gateway is already running, don't try to start another one in WSL
-  if (hostGatewayRunning && (!psOut || !psOut.includes("openclaw"))) {
+  if (hostGatewayRunning && !gwStatus.running) {
     lines.push(`\n  ${c.green}✓${c.reset} Using Windows host gateway (WSL gateway not needed — same port 18789)`);
-    // Skip WSL gateway startup, jump to CLI communication test
-    const nvmPrefix = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
+    const nvmPrefix = getNvmPrefix();
 
     // Test if WSL CLI can talk to Windows gateway
     console.error(`${c.dim}Testing WSL CLI → Windows gateway...${c.reset}`);
-    const cliOut = await run(`bash -c '${nvmPrefix} openclaw health 2>&1 | head -5'`);
+    const cliOut = await run(wrapOcCmd("openclaw health 2>&1 | head -5", nvmPrefix));
     if (cliOut.includes("Agents:") || cliOut.includes("Heartbeat") || cliOut.includes("Session store")) {
       lines.push(`  ${c.green}✓${c.reset} WSL CLI can communicate with Windows gateway`);
     } else {
@@ -140,7 +209,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     return lines.join("\n");
   }
 
-  if (!psOut || !psOut.includes("openclaw")) {
+  if (!gwStatus.running) {
     lines.push(`  ${c.yellow}✗${c.reset} Gateway is not running. ${c.bold}Starting now...${c.reset}`);
 
     // Check Node version — openclaw needs 22+
@@ -172,9 +241,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     }
   }
 
-  const pidMatch = psOut.match(/\S+\s+(\d+)/);
-  const pid = pidMatch?.[1] ?? "?";
-  lines.push(`  ${c.green}✓${c.reset} Gateway process running ${c.dim}(PID ${pid})${c.reset}`);
+  lines.push(`  ${c.green}✓${c.reset} Gateway process running ${c.dim}(PID ${gwStatus.pid})${c.reset}`);
 
   // Step 2: Health endpoint
   console.error(`${c.dim}Checking health endpoint...${c.reset}`);
@@ -190,8 +257,8 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
   // Step 3: CLI communication (use nvm if needed for correct Node)
   console.error(`${c.dim}Testing CLI communication...${c.reset}`);
-  const nvmPrefix = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
-  const cliOut = await run(`bash -c '${nvmPrefix} openclaw health 2>&1 | head -5'`);
+  const nvmPrefix = getNvmPrefix();
+  const cliOut = await run(wrapOcCmd("openclaw health 2>&1 | head -5", nvmPrefix));
 
   if (cliOut.includes("Agents:") || cliOut.includes("Heartbeat") || cliOut.includes("Session store")) {
     lines.push(`  ${c.green}✓${c.reset} CLI can communicate with gateway`);
@@ -205,7 +272,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
     // Step 4: Try to actually send a message to the agent
     console.error(`${c.dim}Sending test message to agent...${c.reset}`);
-    const agentOut = await run(`bash -c '${nvmPrefix} timeout 30 openclaw agent --agent main --message "hi" --json 2>&1'`);
+    const agentOut = await run(wrapOcCmd(`${isWin ? "" : "timeout 30 "}openclaw agent --agent main --message "hi" --json`, nvmPrefix));
 
     const agentReply = extractAgentReply(agentOut);
     if (agentReply) {
@@ -224,7 +291,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
       let authFixed = false;
 
       // Method 1: Read Claude Code's OAuth token directly from ~/.claude/.credentials.json
-      const claudeCredsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+      const claudeCredsPath = getClaudeCredsPath();
       let claudeToken: string | null = null;
       try {
         const { readFileSync: readFS, existsSync: existsFS } = await import("node:fs");
@@ -238,7 +305,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
         lines.push(`  ${c.cyan}Found Claude Code OAuth token — configuring openclaw...${c.reset}`);
 
         // Write directly into openclaw's auth-profiles.json
-        const authProfilePath = `${process.env.HOME ?? "/root"}/.openclaw/agents/main/agent/auth-profiles.json`;
+        const authProfilePath = `${getOpenclawHome()}${isWin ? "\\" : "/"}agents${isWin ? "\\" : "/"}main${isWin ? "\\" : "/"}agent${isWin ? "\\" : "/"}auth-profiles.json`;
         try {
           const { readFileSync: readFS, writeFileSync: writeFS, existsSync: existsFS, mkdirSync: mkdirFS } = await import("node:fs");
           const { dirname: dirnameFS } = await import("node:path");
@@ -262,7 +329,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
           lines.push(`  ${c.green}✓${c.reset} Claude OAuth token injected into openclaw auth`);
 
           // Reload secrets so the gateway picks up the new token
-          await run(`bash -c '${nvmPrefix} openclaw secrets reload 2>&1 || true'`);
+          await run(wrapOcCmd("openclaw secrets reload 2>&1 || true", nvmPrefix));
           authFixed = true;
         } catch (e) {
           lines.push(`  ${c.yellow}⚠${c.reset} Could not write auth profile: ${(e as Error).message?.split("\n")[0]}`);
@@ -271,10 +338,10 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
       // Method 1b: Try openclaw's built-in setup-token sync as fallback
       if (!authFixed) {
-        const claudeInstalled = await run("which claude 2>/dev/null");
-        if (claudeInstalled && claudeInstalled.includes("claude")) {
+        const claudeInstalled = await cmdExists(run, "claude");
+        if (claudeInstalled) {
           lines.push(`  ${c.cyan}Trying Claude CLI token sync...${c.reset}`);
-          const syncOut = await run(`bash -c '${nvmPrefix} openclaw models auth setup-token --provider anthropic --yes 2>&1'`);
+          const syncOut = await run(wrapOcCmd("openclaw models auth setup-token --provider anthropic --yes", nvmPrefix));
           if (!syncOut.includes("error") && !syncOut.includes("Error")) {
             lines.push(`  ${c.green}✓${c.reset} Claude token synced`);
             authFixed = true;
@@ -290,7 +357,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
           const provider = hasAnthropicKey ? "anthropic" : "openai";
           const key = hasAnthropicKey ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
           lines.push(`  ${c.cyan}Found ${provider.toUpperCase()} key — configuring...${c.reset}`);
-          const pasteOut = await run(`bash -c '${nvmPrefix} openclaw models auth paste-token --provider ${provider} <<< "${key}" 2>&1'`);
+          const pasteOut = await run(wrapOcCmd(`openclaw models auth paste-token --provider ${provider} <<< "${key}"`, nvmPrefix));
           if (!pasteOut.includes("error")) {
             lines.push(`  ${c.green}✓${c.reset} API key configured`);
             authFixed = true;
@@ -300,10 +367,10 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
       // Method 3: Check if Codex CLI is available (OpenAI Codex OAuth)
       if (!authFixed) {
-        const codexCheck = await run("which codex 2>/dev/null");
-        if (codexCheck && codexCheck.includes("codex")) {
+        const codexCheck = await cmdExists(run, "codex");
+        if (codexCheck) {
           lines.push(`  ${c.cyan}Found Codex CLI — syncing OAuth token...${c.reset}`);
-          const syncOut = await run(`bash -c '${nvmPrefix} openclaw models auth setup-token --provider openai-codex --yes 2>&1'`);
+          const syncOut = await run(wrapOcCmd("openclaw models auth setup-token --provider openai-codex --yes", nvmPrefix));
           if (!syncOut.includes("error") && !syncOut.includes("Error")) {
             lines.push(`  ${c.green}✓${c.reset} Codex OAuth token synced to openclaw`);
             authFixed = true;
@@ -314,7 +381,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
       // Retry the message if auth was fixed
       if (authFixed) {
         console.error(`${c.dim}Retrying message to agent...${c.reset}`);
-        const retryOut = await run(`bash -c '${nvmPrefix} timeout 30 openclaw agent --agent main --message "hi" --json 2>&1'`);
+        const retryOut = await run(wrapOcCmd(`${isWin ? "" : "timeout 30 "}openclaw agent --agent main --message "hi" --json`, nvmPrefix));
         const retryReply = extractAgentReply(retryOut);
         if (retryReply) {
           lines.push(`  ${c.green}✓${c.reset} Agent responded!`);
@@ -380,7 +447,7 @@ async function auditOpenclawComponents(
     lines.push(`  ${c.green}✓${c.reset} Claude Code: ${c.dim}${claudeVer.trim()}${c.reset}`);
 
     // Check OAuth token
-    const claudeCredsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+    const claudeCredsPath = getClaudeCredsPath();
     try {
       const { existsSync: ef, readFileSync: rf } = await import("node:fs");
       if (ef(claudeCredsPath)) {
@@ -411,12 +478,12 @@ async function auditOpenclawComponents(
   }
 
   // Codex CLI (OpenAI Codex)
-  const codexCheck = await run("which codex 2>/dev/null");
-  if (codexCheck && codexCheck.includes("codex")) {
+  const codexCheck = await cmdExists(run, "codex");
+  if (codexCheck) {
     const codexVer = await run("codex --version 2>/dev/null | head -1");
     lines.push(`  ${c.green}✓${c.reset} Codex CLI: ${codexVer?.trim() ?? "installed"}`);
     // Check if openai-codex auth is in openclaw
-    const authCheck = await run(`bash -c '${nvmPrefix} openclaw models status 2>&1'`);
+    const authCheck = await run(wrapOcCmd("openclaw models status", nvmPrefix));
     if (authCheck.includes("openai-codex")) {
       lines.push(`    ${c.green}✓${c.reset} OAuth synced to openclaw`);
       hasLLM = true;
@@ -454,7 +521,7 @@ async function auditOpenclawComponents(
     lines.push(`  ${c.yellow}○${c.reset} Terminal (TUI): gateway not running`);
   }
 
-  const channelsOut = await run(`bash -c '${nvmPrefix} openclaw channels list 2>&1'`);
+  const channelsOut = await run(wrapOcCmd("openclaw channels list", nvmPrefix));
 
   // Telegram
   if (channelsOut.toLowerCase().includes("telegram")) {
@@ -515,7 +582,7 @@ async function auditOpenclawComponents(
 
 /**
  * Ensure Node.js 22+ is available. Installs via nvm if needed.
- * Works in WSL, Linux, and Windows (via nvm-windows or fnm).
+ * Works in WSL, Linux, and Windows (via nvm-windows, fnm, or direct download).
  */
 async function ensureNodeVersion(
   run: (cmd: string) => Promise<string>,
@@ -531,13 +598,79 @@ async function ensureNodeVersion(
 
   lines.push(`  ${c.dim}Current Node: ${nodeVer.trim()} (need 22+)${c.reset}`);
 
-  // Check if nvm is available — try multiple common locations
+  // ── Windows: try nvm-windows, fnm, or direct download ──
+  if (isWin) {
+    // Check for nvm-windows
+    const nvmWinCheck = await run("nvm version 2>/dev/null");
+    if (nvmWinCheck && /\d+\.\d+/.test(nvmWinCheck)) {
+      const nvmList = await run("nvm list 2>/dev/null");
+      if (nvmList.includes("22.")) {
+        lines.push(`  ${c.green}✓${c.reset} Node 22 available via nvm-windows`);
+        await run("nvm use 22 2>&1");
+        return true;
+      }
+      lines.push(`  ${c.cyan}Installing Node 22 via nvm-windows...${c.reset}`);
+      console.error(`${c.dim}→ nvm install 22${c.reset}`);
+      const installOut = await run("nvm install 22 2>&1");
+      if (installOut.includes("22.") || installOut.toLowerCase().includes("installed")) {
+        await run("nvm use 22 2>&1");
+        lines.push(`  ${c.green}✓${c.reset} Node 22 installed via nvm-windows`);
+        return true;
+      }
+    }
+
+    // Check for fnm
+    const fnmCheck = await run("fnm --version 2>/dev/null");
+    if (fnmCheck && fnmCheck.includes("fnm")) {
+      lines.push(`  ${c.cyan}Installing Node 22 via fnm...${c.reset}`);
+      const fnmOut = await run("fnm install 22 && fnm use 22 2>&1");
+      if (fnmOut.includes("installed") || fnmOut.includes("v22")) {
+        lines.push(`  ${c.green}✓${c.reset} Node 22 installed via fnm`);
+        return true;
+      }
+    }
+
+    // Direct download via PowerShell as last resort — requires admin
+    const adminCheck = await run(
+      `powershell -Command "& { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }" 2>&1`
+    );
+    const hasAdmin = adminCheck.trim() === "True";
+
+    if (!hasAdmin) {
+      lines.push(`  ${c.red}✗${c.reset} Cannot install Node 22 — admin privileges required.`);
+      lines.push(`  ${c.dim}Run as Administrator, or install manually:${c.reset}`);
+      lines.push(`  ${c.dim}  • nvm-windows: https://github.com/coreybutler/nvm-windows${c.reset}`);
+      lines.push(`  ${c.dim}  • Node.js:     https://nodejs.org/${c.reset}`);
+      return false;
+    }
+
+    lines.push(`  ${c.cyan}Downloading Node 22 installer (admin)...${c.reset}`);
+    console.error(`${c.dim}→ Downloading Node.js 22 for Windows${c.reset}`);
+    const dlOut = await run(
+      `powershell -Command "& { $url='https://nodejs.org/dist/v22.15.0/node-v22.15.0-x64.msi'; ` +
+      `$out=\\"$env:TEMP\\\\node22.msi\\"; Invoke-WebRequest -Uri $url -OutFile $out; ` +
+      `Start-Process msiexec.exe -ArgumentList '/i',$out,'/qn' -Wait; Remove-Item $out }" 2>&1`
+    );
+
+    // Verify after install
+    const recheck = await run("node --version 2>/dev/null");
+    const recheckMajor = parseInt(recheck.replace("v", ""));
+    if (recheckMajor >= 22) {
+      lines.push(`  ${c.green}✓${c.reset} Node ${recheck.trim()} installed`);
+      return true;
+    }
+
+    lines.push(`  ${c.red}✗${c.reset} Node 22 installer ran but could not verify. You may need to restart your terminal.`);
+    lines.push(`  ${c.dim}Try: node --version (if still old, restart terminal or download from https://nodejs.org/)${c.reset}`);
+    return false;
+  }
+
+  // ── Linux/WSL: try nvm, fnm, or install nvm ──
   const nvmSourceCmd = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done`;
   const nvmCheck = await run(`bash -c '${nvmSourceCmd} 2>/dev/null && nvm --version' 2>/dev/null`);
   const hasNvm = nvmCheck && !nvmCheck.includes("not found") && /\d+\.\d+/.test(nvmCheck);
 
   if (hasNvm) {
-    // nvm exists — check if Node 22 is installed
     const nvmList = await run(`bash -c '${nvmSourceCmd} 2>/dev/null && nvm ls 22 2>/dev/null'`);
 
     if (nvmList.includes("v22")) {
@@ -545,7 +678,6 @@ async function ensureNodeVersion(
       return true;
     }
 
-    // Install Node 22 via nvm
     lines.push(`  ${c.cyan}Installing Node 22 via nvm...${c.reset}`);
     console.error(`${c.dim}→ nvm install 22${c.reset}`);
     const installOut = await run(`bash -c '${nvmSourceCmd} && nvm install 22' 2>&1`);
@@ -559,7 +691,7 @@ async function ensureNodeVersion(
     }
   }
 
-  // Check for fnm (fast node manager — common on Windows)
+  // Check for fnm
   const fnmCheck = await run("fnm --version 2>/dev/null");
   if (fnmCheck && fnmCheck.includes("fnm")) {
     lines.push(`  ${c.cyan}Installing Node 22 via fnm...${c.reset}`);
@@ -590,14 +722,22 @@ async function ensureNodeVersion(
 
 /**
  * Build the command to start openclaw with the correct Node version.
- * Uses nvm if the system Node is too old.
+ * Uses nvm if the system Node is too old. Cross-platform.
  */
 async function buildStartCommand(run: (cmd: string) => Promise<string>): Promise<string> {
   const nodeVer = await run("node --version 2>/dev/null");
   const major = parseInt(nodeVer.replace("v", ""));
 
   if (major >= 22) {
+    if (isWin) {
+      return `powershell -Command "Start-Process -WindowStyle Hidden -FilePath node -ArgumentList (Get-Command openclaw).Source,'gateway','--force','--allow-unconfigured'"`;
+    }
     return "openclaw gateway --force --allow-unconfigured &";
+  }
+
+  if (isWin) {
+    // On Windows, nvm-windows/fnm update PATH globally — just try to run
+    return `powershell -Command "Start-Process -WindowStyle Hidden -FilePath node -ArgumentList (Get-Command openclaw).Source,'gateway','--force','--allow-unconfigured'"`;
   }
 
   // Try nvm — find it wherever it lives
@@ -625,55 +765,66 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Diagnostics ──${c.reset}\n`);
 
   // ── Environment detection ──
-  const wslDiag = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
-  const diagInWSL = wslDiag.trim() === "wsl";
+  if (isWin) {
+    steps.push({ name: "Environment", status: "pass", detail: "Windows" });
 
-  if (diagInWSL) {
-    steps.push({ name: "Environment", status: "pass", detail: "WSL (Windows Subsystem for Linux)" });
-
-    // Check OpenClaw on Windows host — use PowerShell for command line detection
-    const hostOC = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
-    if (hostOC.includes("openclaw")) {
-      const hostPs = await run("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null");
-      if (hostPs.includes("openclaw")) {
-        const isGateway = hostPs.includes("gateway");
-        steps.push({ name: "Windows host", status: "pass", detail: `OpenClaw ${isGateway ? "gateway " : ""}running on Windows host` });
-        if (isGateway) {
-          const hostHealth = await run("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
-          steps.push({ name: "Windows gateway health", status: hostHealth.includes('"ok"') ? "pass" : "warn", detail: hostHealth.includes('"ok"') ? "Healthy on port 18789" : "Gateway running but health check failed" });
-        }
-      } else {
-        steps.push({ name: "Windows host", status: "warn", detail: "OpenClaw installed on Windows but not running" });
-      }
-    } else {
-      steps.push({ name: "Windows host", status: "skip", detail: "OpenClaw not installed on Windows host (checking WSL only)" });
-    }
-
-    // Check WSL OpenClaw install
-    const wslOC = await run("which openclaw 2>/dev/null");
-    if (wslOC.includes("openclaw")) {
-      const wslVer = await run("openclaw --version 2>/dev/null || echo error");
-      if (wslVer.includes("error")) {
-        steps.push({ name: "WSL install", status: "warn", detail: `Binary exists at ${wslOC.trim()} but --version failed (may need Node 22+)` });
-      } else {
-        steps.push({ name: "WSL install", status: "pass", detail: `${wslVer.trim()} at ${wslOC.trim()}` });
-      }
-    } else {
-      steps.push({ name: "WSL install", status: "fail", detail: "OpenClaw not installed in WSL — npm install -g openclaw" });
-    }
-  } else {
-    steps.push({ name: "Environment", status: "pass", detail: "Native Linux" });
-
-    const localOC = await run("which openclaw 2>/dev/null");
-    if (localOC.includes("openclaw")) {
+    const localOC = await cmdExists(run, "openclaw");
+    if (localOC) {
       const localVer = await run("openclaw --version 2>/dev/null || echo error");
       if (localVer.includes("error")) {
-        steps.push({ name: "Install", status: "warn", detail: `Binary exists at ${localOC.trim()} but --version failed (may need Node 22+)` });
+        steps.push({ name: "Install", status: "warn", detail: `Binary exists at ${localOC} but --version failed (may need Node 22+)` });
       } else {
-        steps.push({ name: "Install", status: "pass", detail: `${localVer.trim()} at ${localOC.trim()}` });
+        steps.push({ name: "Install", status: "pass", detail: `${localVer.trim()} at ${localOC}` });
       }
     } else {
       steps.push({ name: "Install", status: "fail", detail: "OpenClaw not installed — npm install -g openclaw" });
+    }
+  } else {
+    const wslDiag = await run("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native");
+    const diagInWSL = wslDiag.trim() === "wsl";
+
+    if (diagInWSL) {
+      steps.push({ name: "Environment", status: "pass", detail: "WSL (Windows Subsystem for Linux)" });
+
+      // Check OpenClaw on Windows host
+      const hostOC = await run("cmd.exe /c 'where openclaw' 2>/dev/null");
+      if (hostOC.includes("openclaw")) {
+        const hostRunning = await run("cmd.exe /c 'tasklist /FI \"IMAGENAME eq node.exe\" /V /NH' 2>/dev/null");
+        if (hostRunning.includes("openclaw")) {
+          steps.push({ name: "Windows host", status: "pass", detail: "OpenClaw running on Windows host" });
+        } else {
+          steps.push({ name: "Windows host", status: "warn", detail: "OpenClaw installed on Windows but not running" });
+        }
+      } else {
+        steps.push({ name: "Windows host", status: "skip", detail: "OpenClaw not installed on Windows host (checking WSL only)" });
+      }
+
+      // Check WSL OpenClaw install
+      const wslOC = await cmdExists(run, "openclaw");
+      if (wslOC) {
+        const wslVer = await run("openclaw --version 2>/dev/null || echo error");
+        if (wslVer.includes("error")) {
+          steps.push({ name: "WSL install", status: "warn", detail: `Binary exists at ${wslOC} but --version failed (may need Node 22+)` });
+        } else {
+          steps.push({ name: "WSL install", status: "pass", detail: `${wslVer.trim()} at ${wslOC}` });
+        }
+      } else {
+        steps.push({ name: "WSL install", status: "fail", detail: "OpenClaw not installed in WSL — npm install -g openclaw" });
+      }
+    } else {
+      steps.push({ name: "Environment", status: "pass", detail: "Native Linux" });
+
+      const localOC = await cmdExists(run, "openclaw");
+      if (localOC) {
+        const localVer = await run("openclaw --version 2>/dev/null || echo error");
+        if (localVer.includes("error")) {
+          steps.push({ name: "Install", status: "warn", detail: `Binary exists at ${localOC} but --version failed (may need Node 22+)` });
+        } else {
+          steps.push({ name: "Install", status: "pass", detail: `${localVer.trim()} at ${localOC}` });
+        }
+      } else {
+        steps.push({ name: "Install", status: "fail", detail: "OpenClaw not installed — npm install -g openclaw" });
+      }
     }
   }
 
@@ -693,19 +844,17 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   }
 
   // ── Step 1: Is the process running? ──
-  const psOut = await run("ps aux | grep openclaw-gateway | grep -v grep | head -3");
-  if (psOut && psOut.includes("openclaw")) {
-    const pidMatch = psOut.match(/\S+\s+(\d+)/);
-    const pid = pidMatch?.[1] ?? "?";
-    steps.push({ name: "Gateway process", status: "pass", detail: `Running (PID ${pid})` });
+  const diagGw = await isGatewayRunning(run);
+  if (diagGw.running) {
+    steps.push({ name: "Gateway process", status: "pass", detail: `Running (PID ${diagGw.pid})` });
   } else {
     // Try to auto-start
     const startCmd = await buildStartCommand(run);
-    await run(`${startCmd} & sleep 4`);
-    const retryPs = await run("ps aux | grep openclaw-gateway | grep -v grep | head -1");
-    if (retryPs && retryPs.includes("openclaw")) {
-      const pid = retryPs.match(/\S+\s+(\d+)/)?.[1] ?? "?";
-      steps.push({ name: "Gateway process", status: "pass", detail: `Started automatically (PID ${pid})` });
+    await run(`${startCmd}${isWin ? "" : " & sleep 4"}`);
+    if (isWin) await run("powershell -Command Start-Sleep -Seconds 4");
+    const retryGw = await isGatewayRunning(run);
+    if (retryGw.running) {
+      steps.push({ name: "Gateway process", status: "pass", detail: `Started automatically (PID ${retryGw.pid})` });
     } else {
       steps.push({ name: "Gateway process", status: "fail", detail: "Not running — auto-start failed" });
     }
