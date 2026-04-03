@@ -138,46 +138,81 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
   await page.locator('a:has-text("Bot")').first().click();
   await page.waitForSelector('button:has-text("Reset Token")', { timeout: 10000 });
 
+  // Intercept API responses to capture token from network
+  let tokenFromApi = '';
+  page.on('response', async (resp) => {
+    try {
+      if (resp.url().includes('/bot/reset') || resp.url().includes('/bot/token') || resp.url().includes('/applications/')) {
+        const body = await resp.text().catch(() => '');
+        const match = body.match(/"token"\\s*:\\s*"([^"]+)"/);
+        if (match && match[1].includes('.') && match[1].length > 50) {
+          tokenFromApi = match[1];
+          fs.writeFileSync('C:\\\\temp\\\\discord-token-api.txt', tokenFromApi);
+          console.log('TOKEN_FROM_API');
+        }
+      }
+    } catch {}
+  });
+
   // Reset Token
   await page.click('button:has-text("Reset Token")');
   await page.waitForTimeout(1500);
   await page.click('button:has-text("Yes, do it!")', { timeout: 5000 }).catch(() => {});
   console.log('TOKEN_RESET');
 
-  // Wait for MFA/token — poll DOM, inputs, spans, divs, clipboard
+  // Wait for MFA/token — poll API intercept, DOM, clipboard
   let token = '';
+  const log = [];
   for (let i = 0; i < 150; i++) {
     await page.waitForTimeout(2000);
 
-    // Check input elements
-    token = await page.evaluate(() => {
-      for (const el of document.querySelectorAll('input, span, code, div[class*="token"], div[class*="Token"]')) {
-        const val = el.getAttribute('value') || el.textContent || '';
-        if (val && val.includes('.') && val.length > 50 && val.length < 200 && val !== '0' && !val.includes(' ')) return val.trim();
-      }
-      return '';
-    }).catch(() => '');
-    if (token) { console.log('TOKEN_FROM_DOM'); break; }
+    // Check API intercept first (most reliable)
+    if (tokenFromApi) { token = tokenFromApi; log.push('SOURCE:api'); break; }
 
-    // Try clicking Copy button and checking clipboard
+    // Check all page content for token pattern
+    token = await page.evaluate(() => {
+      const found = [];
+      // Walk entire DOM text
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const text = walker.currentNode.textContent || '';
+        if (text.includes('.') && text.length > 50 && text.length < 200 && !text.includes(' ') && !text.includes('\\n')) {
+          found.push(text.trim());
+        }
+      }
+      // Check input values
+      for (const inp of document.querySelectorAll('input')) {
+        const val = inp.value || inp.getAttribute('value') || '';
+        if (val.includes('.') && val.length > 50 && val.length < 200 && !val.includes(' ')) {
+          found.push(val.trim());
+        }
+      }
+      return found[0] || '';
+    }).catch(() => '');
+    if (token) { log.push('SOURCE:dom'); break; }
+
+    // Click Copy and check clipboard
     if (i % 2 === 1) {
       await page.locator('button:has-text("Copy")').first().click({ timeout: 500 }).catch(() => {});
-      await page.locator('div[class*="copyButton"] button').first().click({ timeout: 500 }).catch(() => {});
+      await page.locator('[class*="copy"] button, [class*="Copy"] button, button[class*="copy"]').first().click({ timeout: 500 }).catch(() => {});
       await page.waitForTimeout(500);
-      // Check clipboard via PowerShell
       try {
         const { execSync: es } = require('child_process');
         const clip = es('powershell -Command "Get-Clipboard"', { encoding: 'utf-8', timeout: 3000 }).trim();
         if (clip && clip.includes('.') && clip.length > 50 && clip.length < 200 && !clip.includes(' ')) {
           token = clip;
-          console.log('TOKEN_FROM_CLIPBOARD');
+          log.push('SOURCE:clipboard');
           break;
         }
       } catch {}
     }
-    if (i % 10 === 0 && i > 0) console.log('POLLING:' + (i * 2) + 's');
+    if (i % 5 === 0) log.push('POLL:' + (i * 2) + 's');
   }
 
+  // Write debug log
+  fs.writeFileSync('C:\\\\temp\\\\discord-debug.log', log.join('\\n') + '\\nTOKEN_LEN:' + token.length + '\\nAPI_LEN:' + tokenFromApi.length);
+
+  if (!token && tokenFromApi) token = tokenFromApi;
   if (!token) {
     console.log('TOKEN_NOT_FOUND');
   }
