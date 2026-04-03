@@ -2548,8 +2548,11 @@ expect eof
   if (intent.intent === "security.scan") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
     const lines: string[] = [];
+    // Detect WSL
+    const secIsWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+
     lines.push(`\n${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}`);
-    lines.push(`${cc.bold}${cc.cyan}  Security Scan${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}  Security Scan${cc.reset}${secIsWSL ? ` ${cc.dim}(WSL + Windows)${cc.reset}` : ""}`);
     lines.push(`${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}\n`);
 
     // 1. Identify user's own IP (SSH_CLIENT or who)
@@ -2701,7 +2704,7 @@ expect eof
     }
 
     // 7. Security tools — detect, install if missing, run deep scans
-    lines.push(`\n${cc.bold}${cc.cyan}── Security Tools ──${cc.reset}`);
+    lines.push(`\n${cc.bold}${cc.cyan}── Security Tools (Linux/WSL) ──${cc.reset}`);
 
     interface ScanTool { name: string; pkg: string; check: string; scan: string; description: string; }
     const tools: ScanTool[] = [
@@ -2811,6 +2814,67 @@ expect eof
 
       // Final verdict
       const allClean = !scanResults.some(r => /⚠/.test(r) && /infected|warning|suspicious|rootkit/i.test(r));
+      // Windows-side scanning (when in WSL)
+      if (secIsWSL) {
+        console.log(`\n${cc.bold}${cc.cyan}── Windows Security ──${cc.reset}`);
+
+        // Windows Defender status
+        console.log(`  ${cc.dim}Checking Windows Defender...${cc.reset}`);
+        const defenderStatus = await runLocalCommand("powershell.exe -Command \"Get-MpComputerStatus | Select-Object -Property AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureLastUpdated | Format-List\" 2>/dev/null").catch(() => "");
+        if (defenderStatus.includes("AntivirusEnabled")) {
+          const avEnabled = defenderStatus.includes("AntivirusEnabled") && defenderStatus.includes("True");
+          const rtEnabled = defenderStatus.includes("RealTimeProtectionEnabled") && /RealTimeProtectionEnabled\s*:\s*True/i.test(defenderStatus);
+          const sigDate = defenderStatus.match(/AntivirusSignatureLastUpdated\s*:\s*(.+)/)?.[1]?.trim() ?? "unknown";
+          console.log(`    ${avEnabled ? cc.green + "✓" : cc.red + "✗"}${cc.reset} Windows Defender: ${avEnabled ? "enabled" : "disabled"}`);
+          console.log(`    ${rtEnabled ? cc.green + "✓" : cc.yellow + "⚠"}${cc.reset} Real-time protection: ${rtEnabled ? "on" : "off"}`);
+          console.log(`    ${cc.dim}Signatures updated: ${sigDate}${cc.reset}`);
+        } else {
+          console.log(`    ${cc.dim}Could not check Windows Defender status${cc.reset}`);
+        }
+
+        // Recent threats detected by Defender
+        const threats = await runLocalCommand("powershell.exe -Command \"Get-MpThreatDetection | Select-Object -First 5 -Property ThreatID,DomainUser,ProcessName,ActionSuccess | Format-Table -AutoSize\" 2>/dev/null").catch(() => "");
+        if (threats.trim() && !threats.includes("No threats")) {
+          const threatLines = threats.trim().split("\n").filter(l => l.trim());
+          if (threatLines.length > 2) { // Has header + data
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${cc.bold}Recent threats detected by Defender:${cc.reset}`);
+            for (const tl of threatLines.slice(0, 7)) {
+              console.log(`      ${cc.dim}${tl.trim()}${cc.reset}`);
+            }
+          } else {
+            console.log(`    ${cc.green}✓${cc.reset} No recent threats detected by Defender`);
+          }
+        } else {
+          console.log(`    ${cc.green}✓${cc.reset} No recent threats detected by Defender`);
+        }
+
+        // Windows failed logins from Security Event Log
+        const winLogins = await runLocalCommand("powershell.exe -Command \"Get-WinEvent -FilterHashtable @{LogName='Security';ID=4625} -MaxEvents 10 2>\\$null | Select-Object -Property TimeCreated,Message | Format-List\" 2>/dev/null").catch(() => "");
+        if (winLogins.trim() && !winLogins.includes("No events")) {
+          const failCount = (winLogins.match(/TimeCreated/g) || []).length;
+          if (failCount > 0) {
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${failCount} failed Windows login attempt(s) in event log`);
+          } else {
+            console.log(`    ${cc.green}✓${cc.reset} No failed Windows login attempts`);
+          }
+        } else {
+          console.log(`    ${cc.green}✓${cc.reset} No failed Windows login attempts`);
+        }
+
+        // Windows network connections
+        const winConns = await runLocalCommand("powershell.exe -Command \"Get-NetTCPConnection -State Established | Group-Object RemoteAddress | Sort-Object Count -Descending | Select-Object -First 10 Count,Name | Format-Table -AutoSize\" 2>/dev/null").catch(() => "");
+        if (winConns.trim()) {
+          console.log(`    ${cc.bold}Top Windows connections:${cc.reset}`);
+          for (const wl of winConns.trim().split("\n").slice(0, 8)) {
+            if (wl.trim()) console.log(`      ${cc.dim}${wl.trim()}${cc.reset}`);
+          }
+        }
+
+        // Quick Defender scan option
+        console.log(`\n    ${cc.dim}Run Windows Defender quick scan: "scan windows for viruses"${cc.reset}`);
+        console.log(`    ${cc.dim}Full scan: powershell.exe -Command "Start-MpScan -ScanType QuickScan"${cc.reset}`);
+      }
+
       console.log(`\n${cc.bold}${cc.cyan}── Final Verdict ──${cc.reset}`);
       if (allClean) {
         console.log(`  ${cc.green}${cc.bold}✓ All scans passed. No threats detected.${cc.reset}`);
