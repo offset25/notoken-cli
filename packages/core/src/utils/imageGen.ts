@@ -557,6 +557,21 @@ export function getBestImageEngine(): ImageEngineStatus | null {
 // ─── Generation ────────────────────────────────────────────────────────────
 
 export async function generateImage(prompt: string): Promise<GenerateResult> {
+  // First: check if any API is already running (could be Windows SM, WSL Forge, anything)
+  const apiOnPort7860 = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+  const apiOnPort8188 = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
+
+  if (apiOnPort7860) {
+    console.error(`${c.cyan}Step 1/${c.reset} Using running engine at http://localhost:7860`);
+    console.error(`${c.cyan}Step 2/${c.reset} Sending prompt to local engine...`);
+    return generateViaAuto1111(prompt, "http://localhost:7860");
+  }
+  if (apiOnPort8188) {
+    console.error(`${c.cyan}Step 1/${c.reset} Using running engine at http://localhost:8188`);
+    console.error(`${c.cyan}Step 2/${c.reset} Sending prompt to local engine...`);
+    return generateViaAuto1111(prompt, "http://localhost:8188");
+  }
+
   const engine = getBestImageEngine();
 
   if (!engine || (!engine.running && !engine.installed)) {
