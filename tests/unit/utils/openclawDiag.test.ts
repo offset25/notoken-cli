@@ -131,28 +131,24 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
   });
 
   describe("Windows process detection — WMI vs Get-Process", () => {
-    if (isWin) {
-      it("Get-WmiObject returns CommandLine for node processes", async () => {
-        const { exec } = await import("node:child_process");
-        const { promisify } = await import("node:util");
-        const execAsync = promisify(exec);
+    it.skipIf(!isWin)("Get-WmiObject returns CommandLine for node processes", async () => {
+      const { exec } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execAsync = promisify(exec);
 
-        // WMI should always return CommandLine (unlike Get-Process on Server 2016)
-        const { stdout } = await execAsync(
-          `powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object ProcessId, CommandLine | Format-List"`,
-          { shell: "bash" }
-        );
-        // If node is running, we should see ProcessId and CommandLine fields
-        if (stdout.includes("ProcessId")) {
-          expect(stdout).toContain("CommandLine");
-          // CommandLine should not be empty (the whole point of using WMI)
-          const cmdLineMatch = stdout.match(/CommandLine\s*:\s*(.+)/);
-          expect(cmdLineMatch).not.toBeNull();
-          expect(cmdLineMatch![1].trim().length).toBeGreaterThan(0);
-        }
-      });
+      const { stdout } = await execAsync(
+        `powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object ProcessId, CommandLine | Format-List"`,
+        { shell: "bash" }
+      );
+      if (stdout.includes("ProcessId")) {
+        expect(stdout).toContain("CommandLine");
+        const cmdLineMatch = stdout.match(/CommandLine\s*:\s*(.+)/);
+        expect(cmdLineMatch).not.toBeNull();
+        expect(cmdLineMatch![1].trim().length).toBeGreaterThan(0);
+      }
+    });
 
-      it("Get-Process CommandLine may be empty on older Windows", async () => {
+    it.skipIf(!isWin)("Get-Process CommandLine may be empty on older Windows", async () => {
         const { exec } = await import("node:child_process");
         const { promisify } = await import("node:util");
         const execAsync = promisify(exec);
@@ -167,7 +163,7 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
         expect(typeof stdout).toBe("string");
       });
 
-      it("WMI can filter for openclaw gateway process", async () => {
+      it.skipIf(!isWin)("WMI can filter for openclaw gateway process", async () => {
         const { exec } = await import("node:child_process");
         const { promisify } = await import("node:util");
         const execAsync = promisify(exec);
@@ -187,7 +183,7 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
         // If not running, no assertion needed
       });
 
-      it("health endpoint fallback works when process detection fails", async () => {
+      it.skipIf(!isWin)("health endpoint fallback works when process detection fails", async () => {
         const { exec } = await import("node:child_process");
         const { promisify } = await import("node:util");
         const execAsync = promisify(exec);
@@ -200,8 +196,7 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
         const isRunning = stdout.includes('"ok"');
         const isDown = stdout.includes("NOT_RUNNING");
         expect(isRunning || isDown).toBe(true);
-      });
-    }
+    });
   });
 
   describe("Claude credentials path", () => {
