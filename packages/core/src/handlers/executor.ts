@@ -140,10 +140,24 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
 
     // Resolve target — default to current env
-    const effective = target ?? (env.inWSL ? "wsl" : "wsl");
+    const isNativeWindows = process.platform === "win32" && !env.inWSL;
+    const effective = target ?? (env.inWSL ? "wsl" : (isNativeWindows ? "windows" : "wsl"));
     setLastOcEnv(effective === "both" ? "wsl" : effective);
 
-    // Build openclaw command with Node 22 binary directly
+    // ── Native Windows: run openclaw directly (no node22/nohup wrapping) ──
+    if (isNativeWindows && (effective === "windows" || !target)) {
+      setLastOcEnv("windows");
+      try {
+        return await runLocalCommand(`${cmd} 2>&1`, timeout);
+      } catch (err: unknown) {
+        const e = err as { stdout?: string; stderr?: string; message?: string };
+        if (e.stdout?.trim()) return e.stdout.trim();
+        if (e.stderr?.trim()) return e.stderr.trim();
+        throw err;
+      }
+    }
+
+    // Build openclaw command with Node 22 binary directly (WSL/Linux)
     const node22 = await getNode22();
     const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
     // Replace "openclaw" at start of cmd with node22 + ocBin
@@ -505,7 +519,7 @@ expect eof
   if (intent.intent === "openclaw.start" || intent.intent === "openclaw.stop" || intent.intent === "openclaw.restart") {
     const action = intent.intent.split(".")[1];
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
-    const targetEnv = ocTarget ?? (ocEnv?.inWSL ? "wsl" : "wsl");
+    const targetEnv = ocTarget ?? (ocEnv?.inWSL ? "wsl" : (process.platform === "win32" ? "windows" : "wsl"));
 
     // ── Windows host actions ──
     if (targetEnv === "windows" || targetEnv === "both") {
@@ -561,8 +575,59 @@ expect eof
       }
     }
 
-    // ── WSL actions ──
-    if (targetEnv === "wsl" || targetEnv === "both") {
+    // ── Native Windows actions (not WSL) ──
+    const isNativeWin = process.platform === "win32" && !ocEnv?.inWSL;
+    if (isNativeWin) {
+      if (action === "stop" || action === "restart") {
+        await runLocalCommand(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Stop-Process -Force" 2>/dev/null`).catch(() => "");
+        await runLocalCommand("sleep 2").catch(() => "");
+        if (action === "stop") {
+          const check = await runLocalCommand(`powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*openclaw*gateway*' } | Select-Object Id" 2>/dev/null`).catch(() => "");
+          return check && /\d+/.test(check)
+            ? `${cc.yellow}⚠ Gateway may still be running.${cc.reset}`
+            : `${cc.green}✓${cc.reset} OpenClaw gateway stopped.`;
+        }
+      }
+
+      if (action === "start" || action === "restart") {
+        // Find openclaw entry point
+        const ocPath = (await runLocalCommand("npm config get prefix 2>/dev/null").catch(() => "")).trim();
+        const ocEntry = ocPath
+          ? `${ocPath}\\node_modules\\openclaw\\dist\\index.js`
+          : (await runLocalCommand("which openclaw 2>/dev/null").catch(() => "openclaw")).trim();
+
+        // Read config for model info
+        const userProfile = process.env.USERPROFILE || "C:\\Users\\Default";
+        const ocConfigPath = `${userProfile}\\.openclaw\\openclaw.json`;
+        const ocConfigBash = `$(cygpath '${ocConfigPath}')`;
+        const ocConfig = await runLocalCommand(`cat "${ocConfigBash}" 2>/dev/null || echo '{}'`).catch(() => "{}");
+        const isOllamaModel = ocConfig.includes('"ollama/');
+
+        // Start gateway via PowerShell (handles spaces in paths)
+        const envVars = isOllamaModel ? '$env:OLLAMA_API_KEY="ollama-local"; $env:OLLAMA_HOST="http://localhost:11434"; ' : "";
+        await runLocalCommand(
+          `powershell -Command "${envVars}Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`
+        ).catch(() => "");
+
+        // Wait for health
+        let healthy = false;
+        for (let i = 0; i < 10; i++) {
+          await runLocalCommand("sleep 1").catch(() => {});
+          const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (health.includes('"ok"')) { healthy = true; break; }
+        }
+
+        const modelName = ocConfig.match(/"primary"\s*:\s*"([^"]+)"/)?.[1] ?? "unknown";
+
+        if (healthy) {
+          return `${cc.green}✓${cc.reset} OpenClaw gateway ${action}ed.\n  ${cc.bold}Model:${cc.reset} ${modelName}\n  ${cc.bold}Health:${cc.reset} ${cc.green}http://127.0.0.1:18789${cc.reset}\n  ${cc.dim}TUI: openclaw tui | Chat: "tell openclaw hello"${cc.reset}`;
+        }
+        return `${cc.yellow}⚠${cc.reset} Gateway ${action}ing but not healthy yet.\n\n  ${cc.dim}Check: "is openclaw running"${cc.reset}`;
+      }
+    }
+
+    // ── WSL / Linux actions ──
+    if (!isNativeWin && (targetEnv === "wsl" || targetEnv === "both")) {
       const wslLabel = targetEnv === "both" ? `${cc.bold}${cc.cyan}[WSL]${cc.reset} ` : "";
 
       if (action === "stop" || action === "restart") {
@@ -582,7 +647,6 @@ expect eof
         if (targetEnv === "wsl") {
           const portCheck = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
           if (portCheck.includes('"ok"')) {
-            // Something already on 18789 — check if it's Windows
             const hostPs = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select -Exp CommandLine" 2>/dev/null`).catch(() => "");
             if (hostPs.includes("openclaw") && hostPs.includes("gateway")) {
               return `${cc.yellow}⚠${cc.reset} Port 18789 is in use by Windows host OpenClaw.\n  ${cc.dim}Stop it first: "stop openclaw on windows"\n  Or use the Windows gateway: "tell openclaw hello"${cc.reset}`;
