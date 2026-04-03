@@ -230,6 +230,131 @@ async function monitorRateLimit(maxMinutes = 5): Promise<{ connected: boolean; l
 }
 
 /**
+ * Live Discord connection monitor.
+ * Prints real-time status updates as the gateway connects to Discord.
+ * Auto-restarts if stuck, auto-waits through rate limits.
+ *
+ * Usage: "monitor discord" or "watch discord"
+ */
+export async function monitorDiscord(maxMinutes = 10): Promise<string> {
+  const lines: string[] = [];
+  const startTime = Date.now();
+  const maxMs = maxMinutes * 60_000;
+  let restartCount = 0;
+  const MAX_RESTARTS = 3;
+
+  lines.push(`\n${c.bold}${c.cyan}── Discord Connection Monitor ──${c.reset}`);
+  lines.push(`  ${c.dim}Monitoring for up to ${maxMinutes} minutes. Ctrl+C to stop.${c.reset}\n`);
+
+  // Check basics first
+  const token = getDiscordToken();
+  if (!token) {
+    lines.push(`  ${c.red}✗ No Discord bot token configured.${c.reset}`);
+    lines.push(`  ${c.dim}Run: "diagnose discord" to set up.${c.reset}`);
+    return lines.join("\n");
+  }
+
+  // Verify token is valid
+  const me = await discordApi("/users/@me", token);
+  if (me.error) {
+    lines.push(`  ${c.red}✗ Bot token invalid (${me.error}).${c.reset}`);
+    return lines.join("\n");
+  }
+  lines.push(`  ${c.green}✓${c.reset} Bot: ${c.bold}${me.username}${c.reset} (${me.id})`);
+
+  // Check if gateway is running
+  const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+  if (!health.includes('"ok"')) {
+    lines.push(`  ${c.yellow}⚠${c.reset} Gateway not running — starting...`);
+    console.log(lines.join("\n"));
+    lines.length = 0;
+    const started = restartGateway();
+    if (!started) {
+      lines.push(`  ${c.red}✗ Failed to start gateway.${c.reset}`);
+      return lines.join("\n");
+    }
+    lines.push(`  ${c.green}✓${c.reset} Gateway started`);
+    restartCount++;
+  } else {
+    lines.push(`  ${c.green}✓${c.reset} Gateway running`);
+  }
+
+  // Print initial status
+  console.log(lines.join("\n"));
+  lines.length = 0;
+
+  // Monitor loop
+  let lastState = "";
+  while (Date.now() - startTime < maxMs) {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const status = checkGatewayLogs();
+
+    // Build state string for dedup
+    const stateStr = `${status.connected}|${status.rateLimited}|${status.error4014}|${status.awaiting}`;
+
+    if (status.connected) {
+      if (lastState !== "connected") {
+        process.stdout.write(`\r\x1b[2K  ${c.green}✓${c.reset} ${c.bold}Discord connected!${c.reset} (${elapsed}s)\n`);
+        // Verify with REST API
+        const guilds = await discordApi("/users/@me/guilds", token);
+        if (Array.isArray(guilds)) {
+          process.stdout.write(`  ${c.green}✓${c.reset} Receiving events from ${guilds.length} server(s)\n`);
+        }
+        // Test DM capability
+        const canDM = await testBotDM(token, me.id);
+        if (canDM) {
+          process.stdout.write(`  ${c.green}✓${c.reset} Bot can send and receive DMs\n`);
+        }
+        process.stdout.write(`\n  ${c.green}${c.bold}Discord is fully operational.${c.reset}\n`);
+        return "";  // Already printed everything
+      }
+      lastState = "connected";
+      await sleep(5000);
+      continue;
+    }
+
+    if (status.rateLimited && lastState !== "ratelimited") {
+      const retryInfo = status.retryAfter > 0 ? ` (retry_after: ${status.retryAfter}s)` : "";
+      process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Rate limited by Discord${retryInfo} — waiting for cooldown...\n`);
+      lastState = "ratelimited";
+    } else if (status.error4014 && lastState !== "error4014") {
+      process.stdout.write(`\r\x1b[2K  ${c.red}✗${c.reset} Error 4014 — privileged intents not enabled\n`);
+      process.stdout.write(`    ${c.dim}Run: "diagnose discord" to auto-fix intents${c.reset}\n`);
+      return "";
+    } else if (status.awaiting && !status.rateLimited) {
+      // Stuck at awaiting readiness
+      if (stateStr !== lastState) {
+        process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Awaiting Discord gateway readiness... (${elapsed}s)\n`);
+      }
+      // If stuck for more than 90s, restart once — give Discord time
+      if (elapsed > 90 && restartCount < MAX_RESTARTS) {
+        process.stdout.write(`  ${c.dim}Stuck for ${elapsed}s — restarting gateway (attempt ${restartCount + 1}/${MAX_RESTARTS})...${c.reset}\n`);
+        restartGateway();
+        restartCount++;
+        lastState = "";
+        await sleep(15_000); // Give gateway time to reconnect
+        continue;
+      }
+    }
+
+    lastState = stateStr;
+
+    // Progress tick every 30s — gentle, no hammering
+    if (elapsed > 0 && elapsed % 30 === 0) {
+      const remaining = Math.round((maxMs - (Date.now() - startTime)) / 1000);
+      process.stdout.write(`\r\x1b[2K  ${c.dim}⏳ Monitoring... ${elapsed}s elapsed, ${remaining}s remaining${c.reset}`);
+    }
+
+    // Poll every 10s — only reading local log files, no API calls
+    await sleep(10_000);
+  }
+
+  process.stdout.write(`\n  ${c.yellow}⚠${c.reset} Timed out after ${maxMinutes} minutes.\n`);
+  process.stdout.write(`  ${c.dim}Run "diagnose discord" for full diagnostics.${c.reset}\n`);
+  return "";
+}
+
+/**
  * Test if the bot can send a DM via REST API.
  * Sends a test message to a guild member and checks if it went through.
  */

@@ -286,6 +286,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     console.log(`\n  ${ocLabel}\n`);
   }
 
+  // Discord monitor — lightweight watcher that tails gateway logs
+  if (intent.intent === "discord.monitor" || intent.rawText.match(/\b(monitor|watch|tail)\b.*\bdiscord\b/i)) {
+    const { monitorDiscord } = await import("../utils/discordDiag.js");
+    return monitorDiscord();
+  }
+
   // Discord diagnose/fix/check — by intent or raw text match
   if (intent.intent === "discord.diagnose" || intent.intent === "discord.check" || intent.intent === "discord.setup" ||
       intent.rawText.match(/\b(diagnose|fix|check|troubleshoot|repair)\b.*\bdiscord\b|\bdiscord\b.*\b(diagnose|fix|check|troubleshoot|status)\b/i)) {

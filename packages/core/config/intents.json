@@ -7555,6 +7555,29 @@
       ]
     },
     {
+      "name": "discord.monitor",
+      "description": "Monitor Discord bot connection status in real-time — watches gateway logs, auto-restarts if stuck",
+      "synonyms": [
+        "monitor discord",
+        "watch discord",
+        "discord monitor",
+        "watch discord connection",
+        "tail discord",
+        "discord status watch",
+        "keep watching discord"
+      ],
+      "fields": {},
+      "command": "echo 'Use discord.monitor handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "monitor discord",
+        "watch discord connection",
+        "keep an eye on discord"
+      ]
+    },
+    {
       "name": "discord.check",
       "description": "Quick Discord bot status check",
       "synonyms": [
