@@ -1689,6 +1689,21 @@ async function installStabilityMatrix(platform: "win32" | "wsl"): Promise<{ succ
         } catch {}
       }
 
+      // Auto-configure SM settings to skip first-launch wizard
+      try {
+        const settingsPath = resolve(smDir, "Data", "settings.json");
+        mkdirSync(resolve(smDir, "Data"), { recursive: true });
+        let settings: Record<string, unknown> = {};
+        if (existsSync(settingsPath)) {
+          try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch {}
+        }
+        settings.FirstLaunchSetupComplete = true;
+        settings.HasSeenWelcomeNotification = true;
+        settings.Theme = "Dark";
+        writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        console.log(`${c.dim}  Auto-configured settings (skip wizard, dark theme)${c.reset}`);
+      } catch {}
+
       trackInstall({ name: "StabilityMatrix", type: "engine", method: "curl", path: smDir, uninstallCmd: `rm -rf "${smDir}"` });
 
       return {
@@ -1697,12 +1712,12 @@ async function installStabilityMatrix(platform: "win32" | "wsl"): Promise<{ succ
           `${c.green}✓${c.reset} Stability Matrix installed at ${smDir}`,
           ``,
           `${c.bold}It's now open on your Windows desktop.${c.reset}`,
-          `  1. Click "Add Package" and choose Forge, ComfyUI, or Fooocus`,
-          `  2. It downloads and sets up everything automatically`,
-          `  3. Click "Launch" to start the image engine`,
+          `  1. Click the "+" button to add an image engine (Forge recommended)`,
+          `  2. SM downloads Python, models, and everything automatically`,
+          `  3. Click "Launch" when it's done installing`,
           `  4. Once running, come back and say "generate a picture of a cat"`,
           ``,
-          `${c.dim}No Python, pip, or git needed. Stability Matrix handles everything.${c.reset}`,
+          `${c.dim}No manual setup needed — SM handles all dependencies.${c.reset}`,
         ].join("\n"),
       };
     }
