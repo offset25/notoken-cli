@@ -1679,13 +1679,23 @@ expect eof
             await runLocalCommand(`/mnt/c/Windows/System32/cmd.exe /c "start ${downloadPath}" 2>/dev/null`).catch(() => "");
 
             const lines = [
-              `\n${cc.green}✓${cc.reset} Ollama installer launched on Windows.`,
-              `  ${cc.bold}Follow the setup wizard to complete installation.${cc.reset}\n`,
-              `  ${cc.bold}Models directory:${cc.reset} D:\\Ollama\\models (set via OLLAMA_MODELS)`,
+              `\n${cc.green}✓${cc.reset} Ollama installer launched on Windows.\n`,
+              `${cc.bold}${cc.cyan}── Setup Instructions ──${cc.reset}\n`,
+              `  ${cc.bold}1.${cc.reset} The installer window should appear on your desktop`,
+              `     ${cc.dim}If you don't see it, check your taskbar for "Ollama Setup"${cc.reset}`,
+              `  ${cc.bold}2.${cc.reset} Click ${cc.bold}"Install"${cc.reset} — installs to AppData\\Local\\Programs\\Ollama`,
+              `  ${cc.bold}3.${cc.reset} Wait for it to finish — adds Ollama to your PATH`,
+              `  ${cc.bold}4.${cc.reset} Ollama starts automatically in the system tray`,
+              `     ${cc.dim}Look for the llama icon near your clock${cc.reset}`,
+              `  ${cc.bold}5.${cc.reset} It serves on ${cc.cyan}http://localhost:11434${cc.reset} — both WSL and Windows can use it\n`,
+              `  ${cc.bold}Models:${cc.reset} D:\\Ollama\\models ${cc.dim}(set via OLLAMA_MODELS)${cc.reset}`,
               hasNvidiaGpu ? `  ${cc.bold}GPU:${cc.reset} ${cc.green}${gpuInfo.trim().replace(/\r/g, "")} — CUDA acceleration enabled${cc.reset}` : "",
-              `\n  ${cc.dim}After install, verify: ollama --version${cc.reset}`,
-              `  ${cc.dim}Then: "ollama pull llama3.2" to download a model${cc.reset}`,
-              `  ${cc.dim}Both WSL and Windows can reach it at localhost:11434${cc.reset}`,
+              `\n${cc.bold}${cc.cyan}── After Install ──${cc.reset}\n`,
+              `  Verify:  ${cc.cyan}ollama --version${cc.reset} ${cc.dim}(open PowerShell or say "is ollama installed")${cc.reset}`,
+              `  Pull:    ${cc.cyan}ollama pull llama3.2${cc.reset} ${cc.dim}(2GB, 131K context, fast on GPU)${cc.reset}`,
+              `  Test:    ${cc.cyan}ollama run llama3.2 "hello"${cc.reset}`,
+              `  Or say:  ${cc.cyan}"ollama pull llama3.2"${cc.reset} — notoken handles it\n`,
+              `  ${cc.dim}notoken will auto-detect the Windows Ollama on next status check${cc.reset}`,
             ].filter(Boolean);
             return lines.join("\n");
           } catch (err: unknown) {
