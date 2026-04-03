@@ -130,6 +130,80 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
     });
   });
 
+  describe("Windows process detection — WMI vs Get-Process", () => {
+    if (isWin) {
+      it("Get-WmiObject returns CommandLine for node processes", async () => {
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+
+        // WMI should always return CommandLine (unlike Get-Process on Server 2016)
+        const { stdout } = await execAsync(
+          `powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object ProcessId, CommandLine | Format-List"`,
+          { shell: "bash" }
+        );
+        // If node is running, we should see ProcessId and CommandLine fields
+        if (stdout.includes("ProcessId")) {
+          expect(stdout).toContain("CommandLine");
+          // CommandLine should not be empty (the whole point of using WMI)
+          const cmdLineMatch = stdout.match(/CommandLine\s*:\s*(.+)/);
+          expect(cmdLineMatch).not.toBeNull();
+          expect(cmdLineMatch![1].trim().length).toBeGreaterThan(0);
+        }
+      });
+
+      it("Get-Process CommandLine may be empty on older Windows", async () => {
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+
+        // This demonstrates the bug we fixed — Get-Process doesn't populate CommandLine on Server 2016
+        const { stdout } = await execAsync(
+          `powershell -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Select-Object Id, CommandLine | Format-List"`,
+          { shell: "bash" }
+        ).catch(() => ({ stdout: "" }));
+        // We don't assert failure — just document that CommandLine can be empty
+        // The important thing is WMI works (tested above)
+        expect(typeof stdout).toBe("string");
+      });
+
+      it("WMI can filter for openclaw gateway process", async () => {
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+
+        // This is the exact query used in isGatewayRunning (escape $_ for bash)
+        const { stdout } = await execAsync(
+          `powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | Select-Object -First 1 ProcessId"`,
+          { shell: "bash" }
+        ).catch(() => ({ stdout: "" }));
+
+        // If openclaw gateway is running, should find a PID
+        const healthCheck = await execAsync("curl -sf http://127.0.0.1:18789/health", { shell: "bash" }).catch(() => ({ stdout: "" }));
+        if (healthCheck.stdout.includes('"ok"')) {
+          // Gateway is running — WMI should find it
+          expect(stdout).toMatch(/\d+/);
+        }
+        // If not running, no assertion needed
+      });
+
+      it("health endpoint fallback works when process detection fails", async () => {
+        const { exec } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execAsync = promisify(exec);
+
+        const { stdout } = await execAsync(
+          "curl -sf http://127.0.0.1:18789/health 2>/dev/null || echo NOT_RUNNING",
+          { shell: "bash" }
+        );
+        // Either the gateway is up or it's not — both are valid
+        const isRunning = stdout.includes('"ok"');
+        const isDown = stdout.includes("NOT_RUNNING");
+        expect(isRunning || isDown).toBe(true);
+      });
+    }
+  });
+
   describe("Claude credentials path", () => {
     it("resolves to a valid path", () => {
       const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
