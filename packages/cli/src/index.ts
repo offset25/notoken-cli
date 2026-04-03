@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "heal", "heal:claude", "browse"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "upgrade", "rollback", "heal", "heal:claude", "browse"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -80,6 +80,18 @@ async function main() {
         } catch (err) {
           console.error(`\x1b[31m✗\x1b[0m ${err instanceof Error ? err.message : err}`);
         }
+        return;
+      }
+      case "upgrade": {
+        // Alias for update
+        const { checkForUpdate: checkUpd, runUpdate: doUpd } = await import("notoken-core");
+        console.log("Checking for updates...");
+        const updInfo = await checkUpd();
+        if (!updInfo) { console.log("Could not check."); return; }
+        if (!updInfo.updateAvailable) { console.log(`\x1b[32m✓\x1b[0m Already up to date (${updInfo.current})`); return; }
+        console.log(`Upgrading ${updInfo.current} → ${updInfo.latest}...`);
+        try { doUpd(); console.log(`\x1b[32m✓\x1b[0m Upgraded to ${updInfo.latest}`); }
+        catch (err: unknown) { console.error(`\x1b[31m✗\x1b[0m ${(err as Error).message}`); }
         return;
       }
       case "rollback": {

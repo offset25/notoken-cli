@@ -1336,14 +1336,26 @@ expect eof
   // SSH test
   if (intent.intent === "ssh.test") return await testSshConnection(environment);
 
-  // Smart archive
-  if (intent.intent === "archive.tar" && isLocal) return await smartArchive({ source: (fields.source as string) ?? process.cwd(), destination: fields.destination as string | undefined, includeAll: !!intent.rawText.match(/include.?(all|everything)/i) });
+  // Smart archive (local only)
+  if (intent.intent === "archive.tar" && isLocal) {
+    const source = (fields.source as string) ?? process.cwd();
+    const includeAll = intent.rawText.match(/include.?(all|everything)|with.?node.?modules|no.?exclude/i) !== null;
+    command = "[smart-archive]";
+    result = await smartArchive({ source, destination: fields.destination as string | undefined, includeAll });
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
+  }
 
   // OpenClaw nvm wrapper for template commands
   if (intent.intent.startsWith("openclaw.") && def.command.includes("openclaw") && !def.command.startsWith("[")) {
+    const nvmWrap = `for d in "$HOME/.nvm" "/home/"*"/.nvm" "/root/.nvm"; do [ -s "$d/nvm.sh" ] && export NVM_DIR="$d" && . "$d/nvm.sh" && break; done 2>/dev/null; nvm use 22 > /dev/null 2>&1;`;
     command = interpolateCommand(def, fields);
-    try { result = await withSpinner(`${intent.intent}...`, () => runLocalCommand(`bash -c '${nvmPfx} ${command}'`)); }
-    catch (err: unknown) { result = `\x1b[31m✗ ${(err as Error).message.split("\n")[0]}\x1b[0m`; }
+    const wrappedCmd = `bash -c '${nvmWrap} ${command}'`;
+    try {
+      result = await withSpinner(`${intent.intent}...`, () => runLocalCommand(wrappedCmd));
+    } catch (err: unknown) {
+      result = `\x1b[31m✗ ${(err as Error).message.split("\n")[0]}\x1b[0m`;
+    }
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
     return result;
   }

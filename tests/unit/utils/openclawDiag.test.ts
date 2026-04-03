@@ -117,8 +117,7 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
   });
 
   describe("admin privilege check (Windows)", () => {
-    if (isWin) {
-      it("can check admin status via PowerShell", async () => {
+    it.skipIf(!isWin)("can check admin status via PowerShell", async () => {
         const { exec } = await import("node:child_process");
         const { promisify } = await import("node:util");
         const execAsync = promisify(exec);
@@ -128,8 +127,7 @@ describe("OpenClaw diagnostics — cross-platform logic", () => {
           { shell: "bash" }
         );
         expect(["True", "False"]).toContain(stdout.trim());
-      });
-    }
+    });
   });
 
   describe("Claude credentials path", () => {
