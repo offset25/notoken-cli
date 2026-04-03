@@ -28,7 +28,7 @@ export function parseByRules(rawText: string): DynamicIntent | null {
   if (/^(what is |what's |show |check |how much )?(the )?(memory|ram|memory usage|ram usage)( right now| left| free| used| currently)?\??$/.test(text)) {
     return { intent: "server.check_memory", confidence: 0.9, rawText, fields: {} };
   }
-  if (/^(what is |what's |show |check |how much )?(the )?(disk|disk space|storage|space)( left| free| used| right now| currently)?\??$/.test(text)) {
+  if (/^(what is |what's |show |check |how much )?(the |my )?(disk|disk space|storage|space|drives)( left| free| used| right now| currently)?\??$/.test(text)) {
     return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
   }
 
