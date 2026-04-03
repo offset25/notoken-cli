@@ -4863,7 +4863,16 @@
         "launch sd",
         "run stable diffusion",
         "start image generator",
-        "start sd webui"
+        "start sd webui",
+        "start the windows engine",
+        "start the wsl engine",
+        "start windows sd",
+        "start wsl sd",
+        "switch to windows engine",
+        "switch to wsl engine",
+        "use windows engine",
+        "use wsl engine",
+        "launch stability matrix"
       ],
       "fields": {},
       "command": "cd ~/stable-diffusion-webui && bash webui.sh --api --listen &",

@@ -3048,35 +3048,86 @@ expect eof
   // Start SD — auto-detects GPU, verifies it started
   if (intent.intent === "ai.start_sd") {
     const { detectGpu, detectImageEngines } = await import("../utils/imageGen.js");
-    const { spawn: spawnChild } = await import("node:child_process");
-    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    const { spawn: spawnChild, execSync: exStart } = await import("node:child_process");
+    const tryCmd = (cmd: string) => { try { return exStart(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
     const engines = detectImageEngines();
 
-    if (engines.find(e => e.running)) {
-      result = `${cc.green}✓${cc.reset} Already running. Say "stop sd" first to restart.`;
+    // Check what's currently on port 7860
+    const portOwner = tryCmd("ss -tlnp 2>/dev/null | grep ':7860' | head -1") ?? tryCmd("lsof -i:7860 2>/dev/null | head -2");
+    const apiUp = !!tryCmd("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+    const running = engines.find(e => e.running);
+
+    if (apiUp && running) {
+      const platform = running.platform ?? "unknown";
+      console.error(`${cc.yellow}Port 7860 is already in use by ${running.engine} [${platform}]${cc.reset}`);
+      if (running.pid) console.error(`${cc.dim}  PID: ${running.pid}${cc.reset}`);
+
+      // Check if user wants to switch
+      const wantsWSL = /wsl|linux/i.test(intent.rawText);
+      const wantsWindows = /windows|win|stability matrix|sm/i.test(intent.rawText);
+
+      if (wantsWSL && platform === "windows") {
+        console.error(`${cc.cyan}Stopping Windows engine to start WSL engine...${cc.reset}`);
+        // Can't kill Windows process from WSL directly — tell user
+        console.error(`${cc.dim}  Please close Stability Matrix on Windows, then say "start sd" again.${cc.reset}`);
+        result = `${cc.yellow}Windows engine is using port 7860.${cc.reset} Close Stability Matrix first, then try again.`;
+      } else if (wantsWindows && platform === "wsl") {
+        console.error(`${cc.cyan}Stopping WSL engine to start Windows engine...${cc.reset}`);
+        try { exStart("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 }); } catch {}
+        await new Promise(r => setTimeout(r, 3000));
+        console.error(`${cc.green}✓${cc.reset} WSL engine stopped. Launching Stability Matrix...`);
+        const smDir = engines.find(e => e.engine === "stability-matrix")?.path;
+        if (smDir) {
+          try {
+            const winPath = tryCmd(`wslpath -w "${smDir}" 2>/dev/null`);
+            if (winPath) exStart(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore", timeout: 10000 });
+          } catch {}
+        }
+        result = `${cc.green}✓${cc.reset} WSL engine stopped. Stability Matrix launched on Windows.\n  ${cc.dim}Start a UI inside SM, then say "image status" to check.${cc.reset}`;
+      } else {
+        result = `${cc.green}✓${cc.reset} Already running: ${running.engine} [${platform}] at ${running.url}`;
+      }
+    } else if (apiUp && !running) {
+      // Something else is on port 7860
+      console.error(`${cc.yellow}⚠ Port 7860 is in use by an unknown process${cc.reset}`);
+      if (portOwner) console.error(`${cc.dim}  ${portOwner}${cc.reset}`);
+      result = `${cc.yellow}Port 7860 is already in use by something else.${cc.reset}\n  ${cc.dim}Check with: ss -tlnp | grep 7860${cc.reset}\n  ${cc.dim}Or use a different port.${cc.reset}`;
     } else {
-      const engine = engines.find(e => e.installed && e.path && e.engine !== "docker");
+      // Port free — start engine
+      const engine = engines.find(e => e.installed && e.path && e.engine !== "docker" && e.engine !== "stability-matrix");
       if (!engine?.path) {
-        result = `${cc.yellow}No local engine installed.${cc.reset} Say "install stable diffusion" first.`;
+        // Try launching Stability Matrix instead
+        const sm = engines.find(e => e.engine === "stability-matrix" && e.installed);
+        if (sm?.path) {
+          console.error(`${cc.cyan}Launching Stability Matrix...${cc.reset}`);
+          try {
+            const winPath = tryCmd(`wslpath -w "${sm.path}" 2>/dev/null`);
+            if (winPath) exStart(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore", timeout: 10000 });
+          } catch {}
+          result = `${cc.cyan}Stability Matrix launched.${cc.reset} Start a UI inside it, then say "image status".`;
+        } else {
+          result = `${cc.yellow}No local engine installed.${cc.reset} Say "install stable diffusion" first.`;
+        }
       } else {
         const gpu = detectGpu();
-        const useGpu = gpu.hasNvidia && !/cpu/i.test(intent.rawText);
+        const useGpu = gpu.hasNvidia && !gpu.gpuError && !/cpu/i.test(intent.rawText);
         const mode = useGpu ? "GPU" : "CPU";
         const args = useGpu
           ? ["launch.py", "--api", "--listen", "--skip-install"]
           : ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--no-half", "--skip-install"];
 
-        console.error(`${cc.cyan}Starting in ${mode} mode...${cc.reset}`);
-        const { resolve: resolvePath2 } = await import("node:path");
-        const { existsSync: fileExists2 } = await import("node:fs");
-        const venvPy = resolvePath2(engine.path, "venv", "bin", "python");
-        const child = spawnChild(fileExists2(venvPy) ? venvPy : "python3", args, {
+        console.error(`${cc.cyan}Starting ${engine.engine} [${engine.platform}] in ${mode} mode...${cc.reset}`);
+        const { resolve: rp } = await import("node:path");
+        const { existsSync: fe } = await import("node:fs");
+        const venvPy = rp(engine.path, "venv", "bin", "python");
+        const child = spawnChild(fe(venvPy) ? venvPy : "python3", args, {
           cwd: engine.path, detached: true, stdio: "ignore",
           env: { ...process.env, PATH: `/usr/lib/wsl/lib:${process.env.PATH}` },
         });
         child.unref();
 
-        result = `${cc.dim}Starting ${engine.engine} in ${mode} mode... say "image status" to check.${cc.reset}`;
+        result = `${cc.dim}Starting ${engine.engine} [${engine.platform}] in ${mode} mode... say "image status" to check.${cc.reset}`;
         suggestAction({ action: "image status", description: "Check if engine started", type: "intent" });
       }
     }
@@ -3084,16 +3135,37 @@ expect eof
     return result;
   }
 
-  // Stop SD — kills and verifies
+  // Stop SD — detects what's running and stops the right one
   if (intent.intent === "ai.stop_sd") {
-    const { execSync: exSync } = await import("node:child_process");
-    const cc = { reset: "\x1b[0m", green: "\x1b[32m", dim: "\x1b[2m" };
-    try {
-      exSync("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 });
-      await new Promise(r => setTimeout(r, 2000));
-      try { exSync("curl -sf --max-time 2 http://localhost:7860/ >/dev/null 2>&1", { timeout: 3000 }); result = "Engine still running — try again."; }
-      catch { result = `${cc.green}✓${cc.reset} Stable Diffusion stopped.`; }
-    } catch { result = `${cc.dim}No engine running.${cc.reset}`; }
+    const { detectImageEngines } = await import("../utils/imageGen.js");
+    const { execSync: exStop } = await import("node:child_process");
+    const tryCmd = (cmd: string) => { try { return exStop(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", green: "\x1b[32m", yellow: "\x1b[33m", dim: "\x1b[2m", cyan: "\x1b[36m" };
+    const engines = detectImageEngines();
+    const running = engines.find(e => e.running);
+
+    if (!running) {
+      result = `${cc.dim}No engine running.${cc.reset}`;
+    } else {
+      const platform = running.platform ?? "unknown";
+      console.error(`${cc.dim}Stopping ${running.engine} [${platform}]...${cc.reset}`);
+
+      if (platform === "wsl" || platform === "linux") {
+        try { exStop("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 }); } catch {}
+        await new Promise(r => setTimeout(r, 2000));
+        const stillUp = !!tryCmd("curl -sf --max-time 2 http://localhost:7860/ 2>/dev/null");
+        result = stillUp
+          ? `${cc.yellow}WSL engine killed but port 7860 still responding — Windows engine may be running too.${cc.reset}`
+          : `${cc.green}✓${cc.reset} ${running.engine} [${platform}] stopped.`;
+      } else if (platform === "windows") {
+        console.error(`${cc.yellow}Cannot stop Windows processes from WSL directly.${cc.reset}`);
+        result = `${cc.yellow}The engine is running on Windows (Stability Matrix).${cc.reset}\n  Close it from the Stability Matrix UI or Windows Task Manager.\n  ${cc.dim}Or say "stop wsl engine" to stop only the WSL one.${cc.reset}`;
+      } else {
+        try { exStop("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 }); } catch {}
+        await new Promise(r => setTimeout(r, 2000));
+        result = `${cc.green}✓${cc.reset} Engine stopped.`;
+      }
+    }
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[stop-sd]", environment, success: true });
     return result;
   }
