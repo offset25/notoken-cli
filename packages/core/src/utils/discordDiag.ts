@@ -147,6 +147,42 @@ function pollGatewayConnection(maxSeconds = 60): { connected: boolean; error4014
 }
 
 /**
+ * Test if the bot can send a DM via REST API.
+ * Sends a test message to a guild member and checks if it went through.
+ */
+async function testBotDM(token: string, botId: string): Promise<boolean> {
+  try {
+    // Get guilds and find a human member to DM
+    const guilds = await discordApi("/users/@me/guilds", token);
+    if (!Array.isArray(guilds) || guilds.length === 0) return false;
+
+    const members = await discordApi(`/guilds/${guilds[0].id}/members?limit=10`, token);
+    if (!Array.isArray(members)) return false;
+
+    const human = members.find((m: any) => !m.user?.bot);
+    if (!human?.user?.id) return false;
+
+    // Open DM channel
+    const dmChannel = await discordApi("/users/@me/channels", token, "POST",
+      JSON.stringify({ recipient_id: human.user.id }));
+    if (!dmChannel?.id) return false;
+
+    // Send test message
+    const testMsg = await discordApi(`/channels/${dmChannel.id}/messages`, token, "POST",
+      JSON.stringify({ content: `[notoken diagnostic] Bot communication test — ${new Date().toLocaleTimeString()}` }));
+
+    if (testMsg?.id) {
+      // Clean up test message
+      await discordApi(`/channels/${dmChannel.id}/messages/${testMsg.id}`, token, "DELETE").catch(() => {});
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Full Discord diagnostic and auto-fix chain.
  */
 export async function diagnoseDiscord(): Promise<string> {
@@ -327,18 +363,51 @@ export async function diagnoseDiscord(): Promise<string> {
     results.push({ name: "Discord gateway", status: "pass", detail: "Connected" });
     lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected`);
   } else if (connStatus.stuck) {
-    // Gateway didn't connect in time — but REST API works, so bot is reachable
-    // This often means rate limiting or slow startup
+    // Gateway stuck — try a restart and re-poll
     const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
     const gwUp = health.includes('"ok"');
     if (gwUp) {
-      results.push({ name: "Discord gateway", status: "warn", detail: "Gateway running, Discord still connecting (may be rate-limited)" });
-      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Running but still connecting to Discord`);
-      lines.push(`    ${c.dim}This may resolve on its own — Discord rate limits clear after a few minutes.${c.reset}`);
-      lines.push(`    ${c.dim}The bot token and API access work fine — only the WebSocket gateway is slow.${c.reset}`);
+      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Stuck at "awaiting readiness" — restarting...`);
+      restartGateway();
+      // Re-poll with shorter timeout since this is a retry
+      const retry = pollGatewayConnection(45);
+      if (retry.connected) {
+        results.push({ name: "Discord gateway", status: "fixed", detail: "Connected after restart" });
+        lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected after restart`);
+        connStatus = retry;
+      } else {
+        // Still stuck — test if bot can communicate via REST API (send + check DM)
+        lines.push(`  ${c.yellow}⚠${c.reset} Gateway still not connected after restart`);
+        lines.push(`  ${c.dim}Testing bot communication via REST API...${c.reset}`);
+        const canSendDM = await testBotDM(token, appId);
+        if (canSendDM) {
+          results.push({ name: "Discord gateway", status: "warn", detail: "WebSocket stuck but REST API works — bot can send messages" });
+          lines.push(`  ${c.green}✓${c.reset} Bot can send DMs via REST API`);
+          lines.push(`    ${c.dim}WebSocket gateway is stuck — bot can send but not receive messages.${c.reset}`);
+          lines.push(`    ${c.dim}This is an OpenClaw issue with Discord rate-limit recovery.${c.reset}`);
+        } else {
+          results.push({ name: "Discord gateway", status: "fail", detail: "Gateway stuck, REST API also failing" });
+          lines.push(`  ${c.red}✗${c.reset} Gateway stuck and REST API not working`);
+        }
+      }
     } else {
-      results.push({ name: "Discord gateway", status: "warn", detail: "Still connecting after 60s" });
-      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Still connecting — may need more time`);
+      // Gateway not even running — start it
+      lines.push(`  ${c.red}✗${c.reset} ${c.bold}Discord gateway:${c.reset} Not running — starting...`);
+      const started = restartGateway();
+      if (started) {
+        const retry = pollGatewayConnection(60);
+        if (retry.connected) {
+          results.push({ name: "Discord gateway", status: "fixed", detail: "Started and connected" });
+          lines.push(`  ${c.green}✓${c.reset} Gateway started and connected to Discord`);
+          connStatus = retry;
+        } else {
+          results.push({ name: "Discord gateway", status: "warn", detail: "Started but still connecting" });
+          lines.push(`  ${c.yellow}⚠${c.reset} Gateway started but still connecting — may need more time`);
+        }
+      } else {
+        results.push({ name: "Discord gateway", status: "fail", detail: "Failed to start" });
+        lines.push(`  ${c.red}✗${c.reset} Failed to start gateway`);
+      }
     }
   } else if (!connStatus.error4014) {
     results.push({ name: "Discord gateway", status: "warn", detail: "Status unclear" });
