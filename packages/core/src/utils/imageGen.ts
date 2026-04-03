@@ -256,6 +256,10 @@ export interface ImageEngineStatus {
   path?: string;
   url?: string;
   version?: string;
+  platform?: "wsl" | "windows" | "linux" | "macos";
+  pid?: number;
+  port?: number;
+  portConflict?: boolean;
 }
 
 export interface GpuInfo {
@@ -403,29 +407,49 @@ export function detectGpu(): GpuInfo {
 
 export function detectImageEngines(): ImageEngineStatus[] {
   const engines: ImageEngineStatus[] = [];
+  const isWSLEnv = (() => { try { return !!execSync("grep -qi microsoft /proc/version && echo wsl", { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 2000 }).trim(); } catch { return false; } })();
+  const os = platform();
 
-  // AUTOMATIC1111 — scan all known locations
+  // Check which ports are active
+  const port7860Up = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+  const port8188Up = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
+  const port9000Up = !!tryExec("curl -sf --max-time 2 http://localhost:9000/ping 2>/dev/null");
+
+  // Detect what process owns port 7860
+  const port7860Pid = tryExec("ss -tlnp 2>/dev/null | grep ':7860' | grep -oP 'pid=\\K[0-9]+'") ?? tryExec("lsof -ti:7860 2>/dev/null");
+  const port7860Process = port7860Pid ? tryExec(`ps -p ${port7860Pid} -o comm= 2>/dev/null`) : null;
+  const port7860IsWSL = port7860Pid ? !tryExec(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-Process -Id ${port7860Pid}" 2>/dev/null`) : true;
+
+  // AUTOMATIC1111 / Forge (WSL installs)
   const SD_DIR = getAllKnownDirs("stable-diffusion-webui").find(d => existsSync(d) && existsSync(resolve(d, "webui.py"))) ?? getSDDir();
   const a1Installed = existsSync(SD_DIR) && existsSync(resolve(SD_DIR, "webui.py"));
-  const a1Running = !!tryExec("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+  // Also check Forge
+  const FORGE_DIR = getAllKnownDirs("sd-forge").find(d => existsSync(d) && existsSync(resolve(d, "launch.py"))) ?? resolve(getInstallBase(), "sd-forge");
+  const forgeInstalled = existsSync(FORGE_DIR) && existsSync(resolve(FORGE_DIR, "launch.py"));
+  const sdDir = forgeInstalled ? FORGE_DIR : (a1Installed ? SD_DIR : undefined);
+  const sdPlatform = sdDir?.startsWith("/mnt/") ? "wsl" as const : (os === "win32" ? "windows" as const : "linux" as const);
+
   engines.push({
     engine: "auto1111",
-    installed: a1Installed,
-    running: a1Running,
-    path: a1Installed ? SD_DIR : undefined,
-    url: a1Running ? "http://localhost:7860" : undefined,
+    installed: !!(sdDir),
+    running: port7860Up,
+    path: sdDir,
+    url: port7860Up ? "http://localhost:7860" : undefined,
+    platform: sdPlatform,
+    pid: port7860Pid ? parseInt(port7860Pid) : undefined,
+    port: 7860,
   });
 
   // ComfyUI
   const COMFY_DIR = getAllKnownDirs("ComfyUI").find(d => existsSync(d) && existsSync(resolve(d, "main.py"))) ?? getComfyDir();
   const comfyInstalled = existsSync(COMFY_DIR) && existsSync(resolve(COMFY_DIR, "main.py"));
-  const comfyRunning = !!tryExec("curl -sf --max-time 2 http://localhost:8188/system_stats 2>/dev/null");
   engines.push({
     engine: "comfyui",
     installed: comfyInstalled,
-    running: comfyRunning,
+    running: port8188Up,
     path: comfyInstalled ? COMFY_DIR : undefined,
-    url: comfyRunning ? "http://localhost:8188" : undefined,
+    url: port8188Up ? "http://localhost:8188" : undefined,
+    port: 8188,
   });
 
   // Fooocus
@@ -434,39 +458,48 @@ export function detectImageEngines(): ImageEngineStatus[] {
   engines.push({
     engine: "fooocus",
     installed: fooocusInstalled,
-    running: false, // Fooocus doesn't have a reliable API check
+    running: false,
     path: fooocusInstalled ? FOOOCUS_DIR : undefined,
   });
 
-  // Stability Matrix (standalone launcher — Windows/Linux/Mac)
-  const smDir = [
+  // Stability Matrix — check both WSL-accessible and Windows paths
+  const smDirs = [
     STABILITY_MATRIX_DIR,
     resolve(homedir(), "AppData", "Local", "StabilityMatrix"),
     resolve(homedir(), ".local", "share", "StabilityMatrix"),
-  ].find(d => existsSync(d));
-  // Stability Matrix launches auto1111/comfy on standard ports
+    ...getAllKnownDirs("StabilityMatrix"),
+  ];
+  const smDir = smDirs.find(d => existsSync(d));
+  const smPlatform = smDir?.startsWith("/mnt/") ? "windows" as const : (os === "win32" ? "windows" as const : "linux" as const);
   engines.push({
     engine: "stability-matrix",
     installed: !!smDir,
-    running: a1Running || comfyRunning, // it launches standard engines
+    running: port7860Up || port8188Up, // SM launches standard engines
     path: smDir,
-    url: a1Running ? "http://localhost:7860" : comfyRunning ? "http://localhost:8188" : undefined,
+    url: port7860Up ? "http://localhost:7860" : port8188Up ? "http://localhost:8188" : undefined,
+    platform: smPlatform,
   });
 
-  // Easy Diffusion (standalone — Windows/Linux/Mac)
+  // Easy Diffusion
   const edDir = [
     EASY_DIFFUSION_DIR,
     resolve(homedir(), "EasyDiffusion"),
     resolve(homedir(), "easy_diffusion"),
   ].find(d => existsSync(d));
-  const edRunning = !!tryExec("curl -sf --max-time 2 http://localhost:9000/ping 2>/dev/null");
   engines.push({
     engine: "easy-diffusion",
     installed: !!edDir,
-    running: edRunning,
+    running: port9000Up,
     path: edDir,
-    url: edRunning ? "http://localhost:9000" : undefined,
+    url: port9000Up ? "http://localhost:9000" : undefined,
+    port: 9000,
   });
+
+  // Detect port conflicts — multiple engines trying to use same port
+  const runningOn7860 = engines.filter(e => e.running && e.port === 7860);
+  if (runningOn7860.length > 1) {
+    for (const e of runningOn7860) e.portConflict = true;
+  }
 
   // Docker
   const dockerSd = tryExec("docker ps --format '{{.Image}}' 2>/dev/null | grep -i 'stable-diffusion\\|automatic1111\\|comfyui'");
@@ -1956,7 +1989,18 @@ export function formatImageEngineStatus(engines: ImageEngineStatus[]): string {
                    e.installed ? `${c.yellow}installed (stopped)${c.reset}` :
                    `${c.dim}not installed${c.reset}`;
     const url = e.url ? ` ${c.dim}${e.url}${c.reset}` : "";
-    lines.push(`  ${icon} ${c.bold}${e.engine}${c.reset} — ${status}${url}`);
+    const plat = e.platform ? ` ${c.dim}[${e.platform}]${c.reset}` : "";
+    const conflict = e.portConflict ? ` ${c.red}⚠ PORT CONFLICT${c.reset}` : "";
+    const pid = e.pid ? ` ${c.dim}(pid ${e.pid})${c.reset}` : "";
+    lines.push(`  ${icon} ${c.bold}${e.engine}${c.reset}${plat} — ${status}${url}${pid}${conflict}`);
+  }
+
+  // Check for port conflicts
+  const conflicts = engines.filter(e => e.portConflict);
+  if (conflicts.length > 0) {
+    lines.push("");
+    lines.push(`  ${c.red}⚠ Port conflict detected!${c.reset} Multiple engines trying to use port 7860.`);
+    lines.push(`  ${c.dim}Stop one with: "stop sd" or stop the Windows engine from Stability Matrix.${c.reset}`);
   }
 
   // Explain what's currently being used
