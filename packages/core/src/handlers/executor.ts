@@ -269,9 +269,16 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       : await withSpinner("Diagnosing OpenClaw...", () => diagnoseOpenclaw(false));
   }
 
-  // OpenClaw doctor auto-fix
-  if (intent.intent === "openclaw.doctor" && intent.rawText.match(/fix|repair|auto.?fix/i)) {
-    return isLocal ? await autoFixOpenclaw() : await autoFixOpenclaw((cmd: string) => runRemoteCommand(environment, cmd));
+  // OpenClaw doctor — run diagnostics, or auto-fix if requested
+  if (intent.intent === "openclaw.doctor") {
+    if (intent.rawText.match(/fix|repair|auto.?fix/i)) {
+      return isLocal ? await autoFixOpenclaw() : await autoFixOpenclaw((cmd: string) => runRemoteCommand(environment, cmd));
+    }
+    // Without "fix" — run diagnostics (same as openclaw.diagnose)
+    const diagRemote = environment !== "local" && environment !== "localhost" && hasRealHost(environment);
+    return diagRemote
+      ? await withSpinner(`Diagnosing on ${environment}...`, () => diagnoseOpenclaw(true, (cmd: string) => runRemoteCommand(environment, cmd)))
+      : await withSpinner("Diagnosing OpenClaw...", () => diagnoseOpenclaw(false));
   }
 
   // Codex message — send a prompt to OpenAI Codex CLI
