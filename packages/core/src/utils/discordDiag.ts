@@ -112,9 +112,9 @@ function restartGateway(): boolean {
  * Check gateway logs for current Discord connection state.
  * Returns snapshot — does not poll.
  */
-function checkGatewayLogs(): { connected: boolean; error4014: boolean; rateLimited: boolean; retryAfter: number; awaiting: boolean } {
+function checkGatewayLogs(): { connected: boolean; error4014: boolean; rateLimited: boolean; retryAfter: number; awaiting: boolean; silentRateLimit: boolean; staleSeconds: number } {
   const logFile = tryExec("ls /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null");
-  if (!logFile) return { connected: false, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false };
+  if (!logFile) return { connected: false, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false, silentRateLimit: false, staleSeconds: 0 };
 
   const recentLogs = tryExec(`tail -50 "${logFile}" 2>/dev/null`);
 
@@ -122,11 +122,11 @@ function checkGatewayLogs(): { connected: boolean; error4014: boolean; rateLimit
   const lastLoggedIn = recentLogs.lastIndexOf("logged in to discord");
   const lastAwaiting = recentLogs.lastIndexOf("awaiting gateway readiness");
   if (lastLoggedIn > -1 && lastLoggedIn > lastAwaiting) {
-    return { connected: true, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false };
+    return { connected: true, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false, silentRateLimit: false, staleSeconds: 0 };
   }
 
   const error4014 = recentLogs.includes("4014");
-  const rateLimited = recentLogs.includes("rate limited") || recentLogs.includes("status=429");
+  const explicitRateLimit = recentLogs.includes("rate limited") || recentLogs.includes("status=429");
 
   // Extract retry_after if present
   let retryAfter = 0;
@@ -135,7 +135,24 @@ function checkGatewayLogs(): { connected: boolean; error4014: boolean; rateLimit
 
   const awaiting = recentLogs.includes("awaiting gateway readiness");
 
-  return { connected: false, error4014, rateLimited, retryAfter, awaiting };
+  // Detect silent rate limit: "awaiting gateway readiness" with no new Discord log activity.
+  // Discord silently drops the WebSocket — no 429, no error, just never sends READY.
+  // This happens after too many gateway restarts in a short period.
+  let staleSeconds = 0;
+  let silentRateLimit = false;
+  if (awaiting && !explicitRateLimit) {
+    // Check how long since the last log line was written.
+    // Logs may have UTC timestamps (2026-04-03T08:36:11) or local with offset (2026-04-03T01:36:11-07:00).
+    // Use file modification time as a reliable staleness indicator.
+    const mtime = tryExec(`stat -c %Y "${logFile}" 2>/dev/null`);
+    if (mtime) {
+      staleSeconds = Math.round(Date.now() / 1000 - parseInt(mtime));
+      // If awaiting readiness and no log activity for 2+ minutes, likely silent rate limit
+      if (staleSeconds > 120) silentRateLimit = true;
+    }
+  }
+
+  return { connected: false, error4014, rateLimited: explicitRateLimit || silentRateLimit, retryAfter, awaiting, silentRateLimit, staleSeconds };
 }
 
 /**
@@ -313,7 +330,12 @@ export async function monitorDiscord(maxMinutes = 10): Promise<string> {
       continue;
     }
 
-    if (status.rateLimited && lastState !== "ratelimited") {
+    if (status.silentRateLimit && !lastState.startsWith("silent")) {
+      process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} ${c.bold}Silent rate limit detected${c.reset} — Discord isn't sending READY event\n`);
+      process.stdout.write(`    ${c.dim}No log activity for ${status.staleSeconds}s. This happens after too many gateway restarts.${c.reset}\n`);
+      process.stdout.write(`    ${c.dim}Discord typically recovers in 5-15 minutes. Don't restart — just wait.${c.reset}\n`);
+      lastState = "silent_ratelimit";
+    } else if (status.rateLimited && !status.silentRateLimit && lastState !== "ratelimited") {
       const retryInfo = status.retryAfter > 0 ? ` (retry_after: ${status.retryAfter}s)` : "";
       process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Rate limited by Discord${retryInfo} — waiting for cooldown...\n`);
       lastState = "ratelimited";
@@ -321,8 +343,8 @@ export async function monitorDiscord(maxMinutes = 10): Promise<string> {
       process.stdout.write(`\r\x1b[2K  ${c.red}✗${c.reset} Error 4014 — privileged intents not enabled\n`);
       process.stdout.write(`    ${c.dim}Run: "diagnose discord" to auto-fix intents${c.reset}\n`);
       return "";
-    } else if (status.awaiting && !status.rateLimited) {
-      // Stuck at awaiting readiness
+    } else if (status.awaiting && !status.rateLimited && !status.silentRateLimit) {
+      // Stuck at awaiting readiness but NOT rate limited — safe to restart
       if (stateStr !== lastState) {
         process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Awaiting Discord gateway readiness... (${elapsed}s)\n`);
       }
@@ -335,12 +357,21 @@ export async function monitorDiscord(maxMinutes = 10): Promise<string> {
         await sleep(15_000); // Give gateway time to reconnect
         continue;
       }
+    } else if (status.silentRateLimit) {
+      // Silent rate limit — don't restart, just wait
+      if (elapsed % 60 === 0 && elapsed > 0) {
+        process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Silent rate limit — waiting... (${Math.round(elapsed / 60)}min, logs stale ${status.staleSeconds}s)\n`);
+      }
     }
 
-    lastState = stateStr;
+    // Don't overwrite named states (silent_ratelimit, ratelimited, etc.) with stateStr
+    if (!lastState.includes("ratelimit") && !lastState.includes("error4014")) {
+      lastState = stateStr;
+    }
 
     // Progress tick every 30s — gentle, no hammering
-    if (elapsed > 0 && elapsed % 30 === 0) {
+    // Skip if we already printed a state-specific message this cycle
+    if (!status.silentRateLimit && elapsed > 0 && elapsed % 30 === 0) {
       const remaining = Math.round((maxMs - (Date.now() - startTime)) / 1000);
       process.stdout.write(`\r\x1b[2K  ${c.dim}⏳ Monitoring... ${elapsed}s elapsed, ${remaining}s remaining${c.reset}`);
     }
