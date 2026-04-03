@@ -1228,9 +1228,37 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
     }
   }
 
-  // ── Windows (no WSL) — frictionless install via PowerShell ──
+  // ── Windows (no WSL) — Stability Matrix first, then Python ──
   if (os === "win32") {
+    console.log(`${c.cyan}Step 0/${c.reset} Windows detected — using Stability Matrix (zero dependencies)`);
+    const smResult = await installStabilityMatrix("win32");
+    if (smResult.success) return smResult;
+    // Fall back to Python install if SM failed
+    console.log(`${c.dim}Stability Matrix failed — falling back to Python install...${c.reset}`);
     return installOnWindows(engine, gpu);
+  }
+
+  // ── WSL — Stability Matrix first, then Python ──
+  if (isWSL) {
+    console.log(`${c.cyan}Step 0/${c.reset} WSL detected`);
+    // Check if Stability Matrix already installed on Windows side
+    const smDir = ["/mnt/d/notoken/ai/StabilityMatrix", "/mnt/c/notoken/ai/StabilityMatrix"].find(d => existsSync(d));
+    if (!smDir) {
+      console.log(`${c.dim}  Installing Stability Matrix on Windows side (no pip/Python headaches)...${c.reset}`);
+      const smResult = await installStabilityMatrix("wsl");
+      if (smResult.success) return smResult;
+      console.log(`${c.dim}  SM failed — falling back to WSL Python install...${c.reset}`);
+    } else {
+      console.log(`${c.green}  ✓ Stability Matrix found at ${smDir}${c.reset}`);
+      // Launch it
+      try {
+        const winPath = tryExec(`wslpath -w "${smDir}" 2>/dev/null`);
+        if (winPath) {
+          execSync(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore", timeout: 10000 });
+          return { success: true, message: `${c.green}✓${c.reset} Stability Matrix launched!\n  Choose a UI inside SM and it handles everything.\n  Once running, say "generate a picture of a cat"` };
+        }
+      } catch {}
+    }
   }
 
   // ── WSL — check if better to install on Windows side ──
@@ -1603,6 +1631,77 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
 }
 
 // ─── Windows Native Install ────────────────────────────────────────────────
+
+async function installStabilityMatrix(platform: "win32" | "wsl"): Promise<{ success: boolean; message: string }> {
+  const smUrl = "https://github.com/LykosAI/StabilityMatrix/releases/latest/download/StabilityMatrix-win-x64.zip";
+
+  try {
+    if (platform === "wsl") {
+      const installDir = process.env.NOTOKEN_INSTALL_DIR ?? "/mnt/d/notoken/ai";
+      const smDir = `${installDir}/StabilityMatrix`;
+      const smZip = "/tmp/StabilityMatrix.zip";
+
+      console.log(`${c.dim}  Downloading Stability Matrix (138MB)...${c.reset}`);
+      execSync(`curl -sfL -o "${smZip}" "${smUrl}"`, { stdio: "inherit", timeout: 300000 });
+      console.log(`${c.dim}  Extracting...${c.reset}`);
+      mkdirSync(smDir, { recursive: true });
+      execSync(`unzip -o -q "${smZip}" -d "${smDir}"`, { stdio: "inherit", timeout: 60000 });
+
+      // Launch on Windows side
+      const winPath = tryExec(`wslpath -w "${smDir}" 2>/dev/null`);
+      if (winPath) {
+        console.log(`${c.dim}  Launching on Windows...${c.reset}`);
+        try {
+          execSync(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${winPath}\\StabilityMatrix.exe'" 2>/dev/null`, { stdio: "ignore", timeout: 10000 });
+        } catch {}
+      }
+
+      trackInstall({ name: "StabilityMatrix", type: "engine", method: "curl", path: smDir, uninstallCmd: `rm -rf "${smDir}"` });
+
+      return {
+        success: true,
+        message: [
+          `${c.green}✓${c.reset} Stability Matrix installed at ${smDir}`,
+          ``,
+          `${c.bold}It's now open on your Windows desktop.${c.reset}`,
+          `  1. Click "Add Package" and choose Forge, ComfyUI, or Fooocus`,
+          `  2. It downloads and sets up everything automatically`,
+          `  3. Click "Launch" to start the image engine`,
+          `  4. Once running, come back and say "generate a picture of a cat"`,
+          ``,
+          `${c.dim}No Python, pip, or git needed. Stability Matrix handles everything.${c.reset}`,
+        ].join("\n"),
+      };
+    }
+
+    // Native Windows
+    const installDir = process.env.NOTOKEN_INSTALL_DIR ?? "D:\\notoken\\ai";
+    const smDir = `${installDir}\\StabilityMatrix`;
+    const smZip = `${process.env.TEMP ?? "C:\\Temp"}\\StabilityMatrix.zip`;
+
+    console.log(`${c.dim}  Downloading Stability Matrix (138MB)...${c.reset}`);
+    execSync(`powershell -Command "New-Item -Path '${installDir}' -ItemType Directory -Force | Out-Null; Invoke-WebRequest -Uri '${smUrl}' -OutFile '${smZip}'"`, { stdio: "inherit", timeout: 300000, shell: "cmd.exe" });
+    console.log(`${c.dim}  Extracting...${c.reset}`);
+    execSync(`powershell -Command "Expand-Archive -Path '${smZip}' -DestinationPath '${smDir}' -Force"`, { stdio: "inherit", timeout: 60000, shell: "cmd.exe" });
+    console.log(`${c.dim}  Launching...${c.reset}`);
+    try {
+      execSync(`start "" "${smDir}\\StabilityMatrix.exe"`, { stdio: "ignore", shell: "cmd.exe", timeout: 10000 });
+    } catch {}
+
+    trackInstall({ name: "StabilityMatrix", type: "engine", method: "curl", path: smDir, uninstallCmd: `rmdir /s /q "${smDir}"` });
+
+    return {
+      success: true,
+      message: [
+        `${c.green}✓${c.reset} Stability Matrix installed at ${smDir}`,
+        `  It's now open — choose a UI and it downloads everything.`,
+        `  Say "generate a picture of a cat" when ready.`,
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { success: false, message: `Stability Matrix download failed: ${err instanceof Error ? err.message : err}` };
+  }
+}
 
 async function installOnWindows(
   engine: "auto1111" | "comfyui" | "fooocus",
