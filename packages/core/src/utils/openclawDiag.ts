@@ -277,7 +277,8 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     if (agentReply) {
       lines.push(`  ${c.green}✓${c.reset} Agent responded!`);
       lines.push(`  ${c.bold}  OpenClaw says:${c.reset} ${agentReply}`);
-    } else if (agentOut.includes("No API key") || agentOut.includes("auth")) {
+    } else if (agentOut.includes("No API key") || agentOut.includes("auth") || !agentReply) {
+      // Agent didn't respond — likely missing LLM auth. Try to auto-configure.
       // Try to auto-detect API keys from environment
       const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
       const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
@@ -949,6 +950,60 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
     steps.push({ name: "Channels", status: "warn", detail: "No channels configured — run: openclaw configure" });
   }
 
+  // ── Step 5b: LLM auth — check if any provider is configured, auto-setup if not ──
+  const modelsOut = await run("openclaw models status 2>&1");
+  const hasProviderAuth = modelsOut.includes("Providers w/ OAuth/tokens (0)") === false
+    && !modelsOut.includes("Providers w/ OAuth/tokens (0)");
+  const missingAuth = modelsOut.includes("Missing auth");
+
+  if (hasProviderAuth && !missingAuth) {
+    steps.push({ name: "LLM auth", status: "pass", detail: "Provider auth configured" });
+  } else {
+    // No LLM auth — try to auto-configure from Claude Code credentials
+    let authFixed = false;
+    const claudeCredsPath = getClaudeCredsPath();
+    try {
+      const { readFileSync: readFS, existsSync: existsFS, writeFileSync: writeFS, mkdirSync: mkdirFS } = await import("node:fs");
+      const { dirname: dirnameFS } = await import("node:path");
+
+      if (existsFS(claudeCredsPath)) {
+        const creds = JSON.parse(readFS(claudeCredsPath, "utf-8"));
+        const claudeToken = creds?.claudeAiOauth?.accessToken;
+        if (claudeToken) {
+          // Write directly into openclaw's auth-profiles.json
+          const authProfilePath = `${getOpenclawHome()}${isWin ? "\\" : "/"}agents${isWin ? "\\" : "/"}main${isWin ? "\\" : "/"}agent${isWin ? "\\" : "/"}auth-profiles.json`;
+          let profiles: any = { version: 1, profiles: {} };
+          if (existsFS(authProfilePath)) {
+            profiles = JSON.parse(readFS(authProfilePath, "utf-8"));
+          } else {
+            mkdirFS(dirnameFS(authProfilePath), { recursive: true });
+          }
+          profiles.profiles["anthropic:claude-oauth"] = {
+            type: "oauth",
+            provider: "anthropic",
+            access: claudeToken,
+            expires: Date.now() + 86400000,
+          };
+          writeFS(authProfilePath, JSON.stringify(profiles, null, 2));
+          steps.push({ name: "LLM auth", status: "pass", detail: "Auto-configured from Claude Code OAuth token" });
+          authFixed = true;
+        }
+      }
+    } catch {}
+
+    if (!authFixed && process.env.ANTHROPIC_API_KEY) {
+      steps.push({ name: "LLM auth", status: "pass", detail: "ANTHROPIC_API_KEY found in environment" });
+      authFixed = true;
+    }
+    if (!authFixed && process.env.OPENAI_API_KEY) {
+      steps.push({ name: "LLM auth", status: "pass", detail: "OPENAI_API_KEY found in environment" });
+      authFixed = true;
+    }
+    if (!authFixed) {
+      steps.push({ name: "LLM auth", status: "fail", detail: "No LLM provider configured — install Claude Code and run: claude login" });
+    }
+  }
+
   // ── Step 6: Config ──
   const configFileOut = await run("openclaw config file 2>&1");
   if (configFileOut && !configFileOut.includes("error") && !configFileOut.includes("not found")) {
@@ -999,6 +1054,9 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
 
     if (steps.find(s => s.name === "Gateway process" && s.status === "fail")) {
       fixes.push({ issue: "Gateway not running", command: "openclaw gateway --force", description: "Start the gateway (kills stale port binds)" });
+    }
+    if (steps.find(s => s.name === "LLM auth" && s.status === "fail")) {
+      fixes.push({ issue: "No LLM provider", command: "npm install -g @anthropic-ai/claude-code && claude login", description: "Install Claude Code and login — notoken will sync the token to openclaw" });
     }
     if (steps.find(s => s.name.includes("Matrix") && s.status === "warn")) {
       fixes.push({ issue: "Matrix plugin errors", command: "openclaw doctor --fix", description: "Install missing plugin dependencies" });
