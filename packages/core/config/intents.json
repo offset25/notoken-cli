@@ -4898,6 +4898,52 @@
       ]
     },
     {
+      "name": "ai.gpu_mode",
+      "description": "Switch image generation between GPU and CPU mode",
+      "synonyms": [
+        "use gpu", "switch to gpu", "enable gpu", "gpu mode",
+        "use cpu", "switch to cpu", "cpu mode",
+        "use graphics card", "enable graphics card",
+        "disable gpu", "turn off gpu",
+        "switch to gpu mode", "switch to cpu mode"
+      ],
+      "fields": {
+        "mode": { "type": "string", "required": false, "default": "gpu" }
+      },
+      "command": "notoken:gpu-mode:{{mode}}",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "switch to gpu mode",
+        "use cpu for image generation",
+        "enable gpu",
+        "use gpu"
+      ]
+    },
+    {
+      "name": "hardware.gpu",
+      "description": "Show GPU information — model, VRAM, temperature, utilization",
+      "synonyms": [
+        "gpu info", "gpu status", "check gpu", "show gpu",
+        "graphics card", "what gpu do i have", "gpu temperature",
+        "gpu memory", "vram", "gpu utilization", "nvidia info",
+        "is gpu working", "gpu health"
+      ],
+      "fields": {},
+      "command": "notoken:gpu-info",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check my gpu",
+        "what gpu do i have",
+        "gpu temperature",
+        "show gpu info",
+        "is my gpu working"
+      ]
+    },
+    {
       "name": "dns.lookup",
       "description": "Look up DNS records for a domain",
       "synonyms": [

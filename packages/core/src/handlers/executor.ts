@@ -2599,6 +2599,146 @@ expect eof
     return result;
   }
 
+  // GPU info
+  if (intent.intent === "hardware.gpu") {
+    const { detectGpu } = await import("../utils/imageGen.js");
+    const gpu = detectGpu();
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [`${cc.bold}${cc.cyan}GPU Information${cc.reset}\n`];
+    if (gpu.hasNvidia) {
+      lines.push(`  ${cc.green}✓${cc.reset} ${cc.bold}${gpu.gpuName}${cc.reset}`);
+      if (gpu.vram) lines.push(`  VRAM: ${gpu.vram} total${gpu.vramFree ? `, ${gpu.vramFree} free` : ""}`);
+      if (gpu.gpuTemp) lines.push(`  Temperature: ${gpu.gpuTemp}`);
+      if (gpu.gpuUtil) lines.push(`  Utilization: ${gpu.gpuUtil}`);
+      if (gpu.driverVersion) lines.push(`  Driver: ${gpu.driverVersion}`);
+      if (gpu.cudaVersion) lines.push(`  CUDA: ${gpu.cudaVersion}`);
+      if (gpu.wslCuda) lines.push(`  WSL CUDA: ${cc.green}available${cc.reset}`);
+      if (gpu.gpuError) lines.push(`  ${cc.red}⚠ Error: ${gpu.gpuError}${cc.reset}`);
+    } else if (gpu.hasAmd) {
+      lines.push(`  ${cc.green}✓${cc.reset} AMD GPU detected`);
+    } else {
+      lines.push(`  ${cc.yellow}No GPU detected${cc.reset} — running in CPU mode`);
+    }
+    result = lines.join("\n");
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[gpu-info]", environment, success: true });
+    return result;
+  }
+
+  // GPU/CPU mode switch — restarts engine with appropriate flags
+  if (intent.intent === "ai.gpu_mode") {
+    const { detectGpu, detectImageEngines } = await import("../utils/imageGen.js");
+    const { spawn: spawnChild } = await import("node:child_process");
+    const { execSync: exSync } = await import("node:child_process");
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    const wantGpu = /gpu|graphics|nvidia|cuda/i.test(intent.rawText) && !/cpu|disable|off|without/i.test(intent.rawText);
+    const gpu = detectGpu();
+    const engines = detectImageEngines();
+
+    if (wantGpu && !gpu.hasNvidia) {
+      result = `${cc.red}No NVIDIA GPU detected.${cc.reset} Only CPU mode available.`;
+    } else {
+      const engine = engines.find(e => e.installed && e.path && e.engine !== "docker");
+      if (!engine?.path) {
+        result = `${cc.yellow}No local engine installed.${cc.reset} Say "install stable diffusion" first.`;
+      } else {
+        // Kill running engine
+        console.error(`${cc.dim}Stopping current engine...${cc.reset}`);
+        try { exSync("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 }); } catch {}
+        await new Promise(r => setTimeout(r, 3000));
+
+        const mode = wantGpu ? "GPU" : "CPU";
+        const launchArgs = wantGpu
+          ? ["launch.py", "--api", "--listen", "--skip-install"]
+          : ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--no-half", "--skip-install"];
+
+        const { resolve: resolvePath } = await import("node:path");
+        const { existsSync: fileExists } = await import("node:fs");
+        const venvPy = resolvePath(engine.path, "venv", "bin", "python");
+        console.error(`${cc.cyan}Restarting in ${mode} mode...${cc.reset}`);
+        const child = spawnChild(fileExists(venvPy) ? venvPy : "python3", launchArgs, {
+          cwd: engine.path, detached: true, stdio: "ignore",
+          env: { ...process.env, PATH: `/usr/lib/wsl/lib:${process.env.PATH}` },
+        });
+        child.unref();
+
+        // Wait for API (up to 3 min)
+        let ready = false;
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          try { exSync("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models >/dev/null 2>&1", { timeout: 5000 }); ready = true; break; } catch {}
+          if (i % 10 === 9) console.error(`${cc.dim}  Still starting... (${(i + 1) * 3}s)${cc.reset}`);
+        }
+
+        if (ready) {
+          result = `${cc.green}✓${cc.reset} Restarted in ${cc.bold}${mode} mode${cc.reset}\n  API: http://localhost:7860`;
+          if (wantGpu) result += `\n  Using: ${gpu.gpuName}${gpu.vramFree ? ` (${gpu.vramFree} free)` : ""}`;
+        } else {
+          result = `${cc.yellow}⚠ Engine started but API not responding.${cc.reset}`;
+          if (wantGpu) {
+            result += `\n  GPU mode may have crashed. Try: ${cc.cyan}"switch to cpu mode"${cc.reset}`;
+            suggestAction({ action: "switch to cpu mode", description: "Fall back to CPU", type: "intent" });
+          }
+        }
+      }
+    }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: `[gpu-mode]`, environment, success: true });
+    return result;
+  }
+
+  // Start SD — auto-detects GPU, verifies it started
+  if (intent.intent === "ai.start_sd") {
+    const { detectGpu, detectImageEngines } = await import("../utils/imageGen.js");
+    const { spawn: spawnChild } = await import("node:child_process");
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    const engines = detectImageEngines();
+
+    if (engines.find(e => e.running)) {
+      result = `${cc.green}✓${cc.reset} Already running. Say "stop sd" first to restart.`;
+    } else {
+      const engine = engines.find(e => e.installed && e.path && e.engine !== "docker");
+      if (!engine?.path) {
+        result = `${cc.yellow}No local engine installed.${cc.reset} Say "install stable diffusion" first.`;
+      } else {
+        const gpu = detectGpu();
+        const useGpu = gpu.hasNvidia && !/cpu/i.test(intent.rawText);
+        const mode = useGpu ? "GPU" : "CPU";
+        const args = useGpu
+          ? ["launch.py", "--api", "--listen", "--skip-install"]
+          : ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--no-half", "--skip-install"];
+
+        console.error(`${cc.cyan}Starting in ${mode} mode...${cc.reset}`);
+        const { resolve: resolvePath2 } = await import("node:path");
+        const { existsSync: fileExists2 } = await import("node:fs");
+        const venvPy = resolvePath2(engine.path, "venv", "bin", "python");
+        const child = spawnChild(fileExists2(venvPy) ? venvPy : "python3", args, {
+          cwd: engine.path, detached: true, stdio: "ignore",
+          env: { ...process.env, PATH: `/usr/lib/wsl/lib:${process.env.PATH}` },
+        });
+        child.unref();
+
+        result = `${cc.dim}Starting ${engine.engine} in ${mode} mode... say "image status" to check.${cc.reset}`;
+        suggestAction({ action: "image status", description: "Check if engine started", type: "intent" });
+      }
+    }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[start-sd]", environment, success: true });
+    return result;
+  }
+
+  // Stop SD — kills and verifies
+  if (intent.intent === "ai.stop_sd") {
+    const { execSync: exSync } = await import("node:child_process");
+    const cc = { reset: "\x1b[0m", green: "\x1b[32m", dim: "\x1b[2m" };
+    try {
+      exSync("pkill -9 -f 'launch.py' 2>/dev/null", { stdio: "ignore", timeout: 5000 });
+      await new Promise(r => setTimeout(r, 2000));
+      try { exSync("curl -sf --max-time 2 http://localhost:7860/ >/dev/null 2>&1", { timeout: 3000 }); result = "Engine still running — try again."; }
+      catch { result = `${cc.green}✓${cc.reset} Stable Diffusion stopped.`; }
+    } catch { result = `${cc.dim}No engine running.${cc.reset}`; }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[stop-sd]", environment, success: true });
+    return result;
+  }
+
   // Install SD with optional user-specified path
   if (intent.intent === "ai.install_sd") {
     const { resolveUserPath } = await import("../utils/imageGen.js");
