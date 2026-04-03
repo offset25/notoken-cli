@@ -2600,10 +2600,10 @@ expect eof
   }
 
   // GPU info
-  // Full SD diagnosis — checks everything
+  // Full SD diagnosis — end-to-end test: check, restart, generate, monitor
   if (intent.intent === "ai.diagnose") {
-    const { detectGpu, detectImageEngines, getDriveInfo } = await import("../utils/imageGen.js");
-    const { execSync: exDiag } = await import("node:child_process");
+    const { detectGpu, detectImageEngines, getDriveInfo, generateImage } = await import("../utils/imageGen.js");
+    const { execSync: exDiag, spawn: spawnDiag } = await import("node:child_process");
     const tryCmd = (cmd: string) => { try { return exDiag(cmd, { encoding: "utf-8", stdio: ["pipe","pipe","pipe"], timeout: 5000 }).trim(); } catch { return null; } };
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
 
@@ -2705,37 +2705,127 @@ expect eof
       lines.push(`${cc.green}✓${cc.reset} Docker SD container running`);
     }
 
-    // Summary
+    // ── Phase 2: Fix issues automatically ──
     lines.push("");
-    if (issues === 0) {
-      lines.push(`${cc.green}All checks passed!${cc.reset} Image generation should be working.`);
-      lines.push(`${cc.dim}Try: "generate a picture of a cat"${cc.reset}`);
-    } else {
-      lines.push(`${cc.yellow}${issues} issue(s) found.${cc.reset}`);
+
+    if (!installed) {
+      lines.push(`${cc.bold}Action: Install needed${cc.reset} — say "install stable diffusion"`);
+      result = lines.join("\n");
+      recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[ai-diagnose]", environment, success: true });
+      return result;
     }
 
-    // Handle restart request
-    if (wantsRestart && installed && !apiUp) {
-      const { spawn: spawnRestart } = await import("node:child_process");
+    const instPath = installed.path ?? "";
+
+    // If not running, start it
+    if (!apiUp) {
+      lines.push(`${cc.cyan}▶ Starting engine...${cc.reset}`);
+
       const { resolve: rp } = await import("node:path");
       const { existsSync: fe } = await import("node:fs");
-      const useGpu = gpu.hasNvidia && !gpu.gpuError;
-      const args = useGpu
+
+      // Try GPU first, fall back to CPU if errors detected
+      let useGpu = gpu.hasNvidia && !gpu.gpuError;
+      let mode = useGpu ? "GPU" : "CPU";
+      let args = useGpu
         ? ["launch.py", "--api", "--listen", "--skip-install"]
         : ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--no-half", "--skip-install"];
-      const instPath = installed.path ?? "";
+
       const venvPy = rp(instPath, "venv", "bin", "python");
-      const child = spawnRestart(fe(venvPy) ? venvPy : "python3", args, {
+      const child = spawnDiag(fe(venvPy) ? venvPy : "python3", args, {
         cwd: instPath, detached: true, stdio: "ignore",
         env: { ...process.env, PATH: `/usr/lib/wsl/lib:${process.env.PATH}` },
       });
       child.unref();
-      lines.push(`\n${cc.cyan}Restarted in ${useGpu ? "GPU" : "CPU"} mode. Check "image status" in a minute.${cc.reset}`);
-      suggestAction({ action: "image status", description: "Check if engine started", type: "intent" });
+
+      // Wait for API (up to 2 min)
+      lines.push(`${cc.dim}  Waiting for API (${mode} mode)...${cc.reset}`);
+      let started = false;
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        if (tryCmd("curl -sf --max-time 2 http://localhost:7860/sdapi/v1/sd-models >/dev/null 2>&1") !== null) {
+          started = true;
+          break;
+        }
+        // Check for crash
+        const newErrors = parseInt(tryCmd("dmesg 2>/dev/null | grep -ci 'dxgkio_reserve_gpu_va' 2>/dev/null") ?? "0") || 0;
+        if (useGpu && newErrors > (parseInt(tryCmd("echo 1290") ?? "0") || 0)) {
+          lines.push(`${cc.red}  ✗ GPU crashed! Switching to CPU mode...${cc.reset}`);
+          try { exDiag("pkill -9 -f launch.py 2>/dev/null", { stdio: "ignore", timeout: 5000 }); } catch {}
+          await new Promise(r => setTimeout(r, 3000));
+          useGpu = false;
+          mode = "CPU";
+          args = ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--no-half", "--skip-install"];
+          const child2 = spawnDiag(fe(venvPy) ? venvPy : "python3", args, {
+            cwd: instPath, detached: true, stdio: "ignore",
+            env: { ...process.env, PATH: `/usr/lib/wsl/lib:${process.env.PATH}` },
+          });
+          child2.unref();
+          lines.push(`${cc.dim}  Retrying in CPU mode...${cc.reset}`);
+        }
+        if (i % 10 === 9) lines.push(`${cc.dim}  Still loading... (${(i + 1) * 3}s)${cc.reset}`);
+      }
+
+      if (started) {
+        lines.push(`${cc.green}  ✓ Engine started in ${mode} mode${cc.reset}`);
+      } else {
+        lines.push(`${cc.red}  ✗ Engine did not start after 2 minutes${cc.reset}`);
+        lines.push(`${cc.dim}  Check log: tail ~/.notoken/.sd-forge.log${cc.reset}`);
+        result = lines.join("\n");
+        recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[ai-diagnose]", environment, success: false });
+        return result;
+      }
+    }
+
+    // ── Phase 3: Test generation ──
+    lines.push("");
+    lines.push(`${cc.cyan}▶ Test generating image...${cc.reset}`);
+
+    // Check memory before
+    const memBefore = tryCmd("PATH=/usr/lib/wsl/lib:$PATH nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null");
+    if (memBefore) lines.push(`${cc.dim}  VRAM before: ${memBefore}${cc.reset}`);
+
+    const testResult = await generateImage("test image: a red circle on white background");
+
+    // Check memory during/after
+    const memAfter = tryCmd("PATH=/usr/lib/wsl/lib:$PATH nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null");
+    if (memAfter) lines.push(`${cc.dim}  VRAM after: ${memAfter}${cc.reset}`);
+
+    if (testResult.success) {
+      lines.push(`${cc.green}  ✓ Test image generated successfully!${cc.reset}`);
+      if (testResult.imagePath) {
+        lines.push(`${cc.dim}  Saved: ${testResult.imagePath}${cc.reset}`);
+        // Clean up test image
+        try { (await import("node:fs")).writeFileSync(testResult.imagePath, ""); } catch {}
+      }
+    } else {
+      lines.push(`${cc.red}  ✗ Test generation failed: ${testResult.error ?? "unknown"}${cc.reset}`);
+      issues++;
+    }
+
+    // ── Phase 4: Check if server survived ──
+    lines.push("");
+    const stillUp = !!tryCmd("curl -sf --max-time 3 http://localhost:7860/sdapi/v1/sd-models 2>/dev/null");
+    if (stillUp) {
+      lines.push(`${cc.green}  ✓ Server still running after test${cc.reset}`);
+    } else {
+      lines.push(`${cc.red}  ✗ Server crashed during generation!${cc.reset}`);
+      lines.push(`${cc.dim}  This usually means GPU VRAM ran out. Try: "switch to cpu mode"${cc.reset}`);
+      issues++;
+    }
+
+    // ── Summary ──
+    lines.push("");
+    if (issues === 0) {
+      lines.push(`${cc.green}${cc.bold}All checks passed!${cc.reset} Image generation is fully working.`);
+      lines.push(`${cc.dim}Say: "generate a picture of a cat"${cc.reset}`);
+    } else {
+      lines.push(`${cc.yellow}${issues} issue(s) found.${cc.reset}`);
+      suggestAction({ action: "switch to cpu mode", description: "Try CPU mode for stability", type: "intent" });
     }
 
     result = lines.join("\n");
-    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[ai-diagnose]", environment, success: true });
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[ai-diagnose]", environment, success: issues === 0 });
     return result;
   }
 
