@@ -2637,6 +2637,11 @@ expect eof
 
     if (wantGpu && !gpu.hasNvidia) {
       result = `${cc.red}No NVIDIA GPU detected.${cc.reset} Only CPU mode available.`;
+    } else if (wantGpu && gpu.gpuError && !/force/i.test(intent.rawText)) {
+      result = `${cc.yellow}⚠ GPU detected (${gpu.gpuName}) but has issues:${cc.reset}\n  ${cc.dim}${gpu.gpuError}${cc.reset}\n\n  GPU mode may crash. Say ${cc.cyan}"force gpu mode"${cc.reset} to try anyway, or use ${cc.cyan}"cpu mode"${cc.reset} (recommended).`;
+      suggestAction({ action: "switch to cpu mode", description: "Use CPU mode (stable)", type: "intent" });
+      recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[gpu-mode-warn]", environment, success: true });
+      return result;
     } else {
       const engine = engines.find(e => e.installed && e.path && e.engine !== "docker");
       if (!engine?.path) {

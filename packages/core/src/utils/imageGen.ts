@@ -347,10 +347,30 @@ export function detectGpu(): GpuInfo {
       gpuError = `nvidia-smi found but failed: ${err instanceof Error ? err.message : err}`;
     }
 
-    // Check for GPU errors
+    // Check for GPU errors from nvidia-smi
     const errCheck = tryExec(`${nvidiaSmi} --query-gpu=gpu_bus_id,ecc.errors.corrected.aggregate.total --format=csv,noheader 2>/dev/null`);
     if (errCheck?.includes("ERR") || errCheck?.includes("Unknown Error")) {
-      gpuError = "GPU reporting errors — may be unstable";
+      gpuError = "GPU reporting ECC errors — may be unstable";
+    }
+
+    // Check kernel log for GPU crashes (WSL dxg errors, Xid errors)
+    const dmesgErrors = tryExec("dmesg 2>/dev/null | grep -ci 'dxgkio_reserve_gpu_va\\|xid.*error\\|nvrm.*error\\|gpu.*fault' 2>/dev/null");
+    const crashCount = parseInt(dmesgErrors ?? "0") || 0;
+    if (crashCount > 0) {
+      // Get when the last error happened
+      const lastError = tryExec("dmesg 2>/dev/null | grep -i 'dxgkio_reserve_gpu_va\\|xid.*error\\|nvrm.*error\\|gpu.*fault' | tail -1 | awk '{print $1}' | tr -d '[]'");
+      const uptime = tryExec("cat /proc/uptime 2>/dev/null | awk '{print $1}'");
+      let agoStr = "";
+      if (lastError && uptime) {
+        const errorSec = parseFloat(lastError);
+        const uptimeSec = parseFloat(uptime);
+        const agoSec = uptimeSec - errorSec;
+        if (agoSec < 60) agoStr = `${Math.round(agoSec)}s ago`;
+        else if (agoSec < 3600) agoStr = `${Math.round(agoSec / 60)} min ago`;
+        else agoStr = `${(agoSec / 3600).toFixed(1)} hours ago`;
+      }
+      gpuError = (gpuError ? gpuError + ". " : "") +
+        `${crashCount} GPU passthrough error(s) in WSL kernel log${agoStr ? ` (last: ${agoStr})` : ""}. GPU compute may crash — CPU mode recommended.`;
     }
   }
 
