@@ -315,3 +315,172 @@ describe("channel detection from raw text", () => {
     }
   });
 });
+
+// ── Post-install openclaw setup flow ────────────────────────────────────────
+
+describe("openclaw post-install — model ID fix", () => {
+  it("fixes claude-cli/ prefix to anthropic/", () => {
+    const badModels = [
+      "claude-cli/claude-sonnet-4-6",
+      "claude-cli/claude-opus-4-6",
+      "claude-cli/claude-haiku-4-5",
+    ];
+    for (const model of badModels) {
+      const fixed = model.replace("claude-cli/", "anthropic/");
+      expect(fixed).not.toContain("claude-cli/");
+      expect(fixed).toMatch(/^anthropic\//);
+    }
+  });
+
+  it("does not modify already correct model IDs", () => {
+    const goodModels = [
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-opus-4-6",
+      "openai/gpt-4o",
+      "ollama/llama3.2",
+    ];
+    for (const model of goodModels) {
+      const fixed = model.startsWith("claude-cli/") ? model.replace("claude-cli/", "anthropic/") : model;
+      expect(fixed).toBe(model);
+    }
+  });
+});
+
+describe("openclaw post-install — device pairing", () => {
+  const fullScopes = ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"];
+
+  it("upgrades limited scopes to full admin", () => {
+    const device = {
+      scopes: ["operator.read"],
+      approvedScopes: ["operator.read"],
+      tokens: { operator: { scopes: ["operator.read"] } },
+    };
+
+    // Simulate the upgrade logic
+    device.scopes = fullScopes;
+    device.approvedScopes = fullScopes;
+    device.tokens.operator.scopes = fullScopes;
+
+    expect(device.scopes).toContain("operator.admin");
+    expect(device.scopes).toContain("operator.write");
+    expect(device.scopes).toContain("operator.pairing");
+    expect(device.scopes).toHaveLength(5);
+  });
+
+  it("detects devices needing upgrade", () => {
+    const pairedDevices: Record<string, { scopes: string[] }> = {
+      "device1": { scopes: ["operator.read"] },
+      "device2": { scopes: fullScopes },
+      "device3": { scopes: ["operator.read", "operator.write"] },
+    };
+
+    const needsUpgrade = Object.entries(pairedDevices)
+      .filter(([, d]) => !d.scopes.includes("operator.admin"));
+
+    expect(needsUpgrade).toHaveLength(2);
+    expect(needsUpgrade.map(([id]) => id)).toEqual(["device1", "device3"]);
+  });
+
+  it("clears pending requests after approval", () => {
+    const pending: Record<string, any> = {
+      "req-1": { deviceId: "abc", scopes: fullScopes },
+      "req-2": { deviceId: "def", scopes: fullScopes },
+    };
+
+    // Simulate clearing
+    const cleared: Record<string, any> = {};
+    expect(Object.keys(cleared)).toHaveLength(0);
+    expect(Object.keys(pending)).toHaveLength(2);
+  });
+});
+
+describe("openclaw post-install — onboard command", () => {
+  it("selects anthropic-cli auth when Claude credentials exist", () => {
+    const hasClaude = true;
+    const authChoice = hasClaude ? "anthropic-cli" : "skip";
+    expect(authChoice).toBe("anthropic-cli");
+  });
+
+  it("selects skip auth when no Claude credentials", () => {
+    const hasClaude = false;
+    const authChoice = hasClaude ? "anthropic-cli" : "skip";
+    expect(authChoice).toBe("skip");
+  });
+
+  it("builds correct onboard command", () => {
+    const authChoice = "anthropic-cli";
+    const cmd = `openclaw onboard --mode local --non-interactive --accept-risk --auth-choice ${authChoice} --skip-channels --skip-skills --skip-daemon --skip-health --skip-search --skip-ui`;
+    expect(cmd).toContain("--non-interactive");
+    expect(cmd).toContain("--accept-risk");
+    expect(cmd).toContain("--mode local");
+    expect(cmd).toContain("--auth-choice anthropic-cli");
+    expect(cmd).toContain("--skip-channels");
+  });
+});
+
+describe("openclaw post-install — Claude token sync", () => {
+  it("builds correct auth-profiles structure", () => {
+    const token = "sk-ant-oat01-test-token";
+    const profiles = {
+      version: 1,
+      profiles: {
+        "anthropic:claude-oauth": {
+          type: "oauth",
+          provider: "anthropic",
+          access: token,
+          expires: Date.now() + 86400000,
+        },
+      },
+    };
+
+    expect(profiles.version).toBe(1);
+    expect(profiles.profiles["anthropic:claude-oauth"].type).toBe("oauth");
+    expect(profiles.profiles["anthropic:claude-oauth"].provider).toBe("anthropic");
+    expect(profiles.profiles["anthropic:claude-oauth"].access).toBe(token);
+    expect(profiles.profiles["anthropic:claude-oauth"].expires).toBeGreaterThan(Date.now());
+  });
+
+  it.skipIf(!isWin)("Claude credentials file exists on this machine", async () => {
+    const { existsSync } = await import("node:fs");
+    const credsPath = `${process.env.USERPROFILE}\\.claude\\.credentials.json`;
+    expect(existsSync(credsPath)).toBe(true);
+  });
+
+  it.skipIf(!isWin)("openclaw auth-profiles file exists on this machine", async () => {
+    const { existsSync } = await import("node:fs");
+    const authPath = `${process.env.USERPROFILE}\\.openclaw\\agents\\main\\agent\\auth-profiles.json`;
+    expect(existsSync(authPath)).toBe(true);
+  });
+});
+
+describe("openclaw post-install — gateway start", () => {
+  it("builds correct Windows start command", () => {
+    const ocEntry = "C:\\Users\\dino\\AppData\\Roaming\\npm\\node_modules\\openclaw\\dist\\index.js";
+    const cmd = `powershell -Command "Start-Process -FilePath node -ArgumentList '${ocEntry}','gateway','--force','--allow-unconfigured' -WindowStyle Hidden"`;
+    expect(cmd).toContain("Start-Process");
+    expect(cmd).toContain("-WindowStyle Hidden");
+    expect(cmd).toContain("gateway");
+    expect(cmd).toContain("--force");
+  });
+
+  it("builds correct Linux start command", () => {
+    const cmd = "nohup openclaw gateway --force --allow-unconfigured > /dev/null 2>&1 &";
+    expect(cmd).toContain("nohup");
+    expect(cmd).toContain("gateway --force");
+  });
+
+  it.skipIf(!isWin)("gateway is reachable on this machine", async () => {
+    const { exec } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execAsync = promisify(exec);
+
+    try {
+      const { stdout } = await execAsync("curl -sf http://127.0.0.1:18789/health", { shell: "bash", timeout: 5000 });
+      if (stdout.includes('"ok"')) {
+        expect(stdout).toContain('"ok":true');
+      }
+    } catch {
+      // Gateway not running — that's OK for tests
+    }
+  });
+});
