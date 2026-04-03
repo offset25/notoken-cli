@@ -1918,20 +1918,30 @@ expect eof
           const installerUrl = "https://ollama.com/download/OllamaSetup.exe";
           const downloadPath = "D:\\\\OllamaSetup.exe";
 
-          console.log(`  ${cc.dim}Downloading Ollama installer...${cc.reset}`);
           try {
-            await withSpinner("Downloading Ollama...", () => runLocalCommand(
-              `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Invoke-WebRequest -Uri '${installerUrl}' -OutFile '${downloadPath}' -UseBasicParsing" 2>/dev/null`,
-              120_000
-            ));
+            // Check if installer was already downloaded (e.g. user cancelled and wants to retry)
+            const existingInstaller = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "if(Test-Path '${downloadPath}'){(Get-Item '${downloadPath}').Length}" 2>/dev/null`).catch(() => "0");
+            const existingSize = parseInt(existingInstaller.trim()) || 0;
+
+            if (existingSize > 100_000_000) {
+              // Installer already exists (>100MB) — skip download
+              console.log(`  ${cc.green}✓${cc.reset} Installer already downloaded (${(existingSize / 1e9).toFixed(1)}GB)`);
+              console.log(`  ${cc.dim}Relaunching...${cc.reset}`);
+            } else {
+              console.log(`  ${cc.dim}Downloading Ollama installer...${cc.reset}`);
+              await withSpinner("Downloading Ollama...", () => runLocalCommand(
+                `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Invoke-WebRequest -Uri '${installerUrl}' -OutFile '${downloadPath}' -UseBasicParsing" 2>/dev/null`,
+                600_000
+              ));
+            }
 
             // Set OLLAMA_MODELS to D: drive before installing
             console.log(`  ${cc.dim}Setting models directory to D:\\\\Ollama\\\\models...${cc.reset}`);
             await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "[Environment]::SetEnvironmentVariable('OLLAMA_MODELS', 'D:\\\\Ollama\\\\models', 'User')" 2>/dev/null`).catch(() => "");
 
-            // Launch installer
+            // Launch installer — use PowerShell Start-Process (cmd.exe start has file lock issues)
             console.log(`  ${cc.dim}Launching installer...${cc.reset}`);
-            await runLocalCommand(`/mnt/c/Windows/System32/cmd.exe /c "start ${downloadPath}" 2>/dev/null`).catch(() => "");
+            await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process '${downloadPath.replace(/\\\\/g, "\\")}'" 2>/dev/null`).catch(() => "");
 
             const lines = [
               `\n${cc.green}✓${cc.reset} Ollama installer launched on Windows.\n`,
