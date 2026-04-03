@@ -52,6 +52,37 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     return "[cancelled by plugin]";
   }
 
+  // ── Context-aware intent announcement ──
+  // When the intent is ambiguous (e.g. "diagnose" without a target),
+  // use entity focus from conversation to infer what the user means,
+  // and announce what we're about to do so the user can redirect.
+  try {
+    const { getOrCreateConversation, getEntityFocus, setEntityFocus } = await import("../conversation/store.js");
+    const conv = getOrCreateConversation(process.cwd());
+
+    // Set focus when user explicitly mentions a service
+    const rawLower = intent.rawText.toLowerCase();
+    if (rawLower.includes("discord")) setEntityFocus(conv, "discord", "service");
+    else if (rawLower.includes("openclaw") || rawLower.includes("claw")) setEntityFocus(conv, "openclaw", "service");
+    else if (rawLower.includes("ollama")) setEntityFocus(conv, "ollama", "service");
+    else if (rawLower.includes("docker")) setEntityFocus(conv, "docker", "service");
+
+    // For ambiguous intents (diagnose, fix, check, status, restart, etc.)
+    // without an explicit service name — resolve from entity focus
+    const ambiguousVerbs = /^(diagnose|fix|check|troubleshoot|repair|restart|start|stop|status|update)\s*$/i;
+    if (ambiguousVerbs.test(rawLower.trim()) || (rawLower.match(/^(diagnose|fix|check|troubleshoot|repair)\s+(it|this|that)$/i))) {
+      const focus = getEntityFocus(conv);
+      if (focus) {
+        const target = focus.entityId;
+        console.log(`\x1b[2m  → ${intent.intent} targeting \x1b[1m${target}\x1b[0m\x1b[2m (based on conversation)\x1b[0m`);
+        console.log(`\x1b[2m    Say "not that" or specify: "${rawLower.split(/\s/)[0]} openclaw" / "${rawLower.split(/\s/)[0]} discord"\x1b[0m`);
+
+        // Inject the target into rawText for downstream handlers
+        intent.rawText = `${intent.rawText} ${target}`;
+      }
+    }
+  } catch { /* conversation store not available — skip context */ }
+
   // Fuzzy resolve file paths if needed
   const resolved = await resolveFuzzyFields(intent);
   const fields = resolved.fields;
@@ -255,11 +286,32 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     console.log(`\n  ${ocLabel}\n`);
   }
 
-  // Discord diagnose/fix/check — intercept BEFORE general OpenClaw handlers
-  if (intent.rawText.match(/\b(diagnose|fix|check|troubleshoot|repair)\b.*\bdiscord\b|\bdiscord\b.*\b(diagnose|fix|check|troubleshoot|status)\b/i)) {
-    const isQuick = !!intent.rawText.match(/\b(check|status)\b/i) && !intent.rawText.match(/\b(fix|diagnose|troubleshoot|repair)\b/i);
+  // Discord diagnose/fix/check — by intent or raw text match
+  if (intent.intent === "discord.diagnose" || intent.intent === "discord.check" || intent.intent === "discord.setup" ||
+      intent.rawText.match(/\b(diagnose|fix|check|troubleshoot|repair)\b.*\bdiscord\b|\bdiscord\b.*\b(diagnose|fix|check|troubleshoot|status)\b/i)) {
+    const isQuick = intent.intent === "discord.check" || (!!intent.rawText.match(/\b(check|status)\b/i) && !intent.rawText.match(/\b(fix|diagnose|troubleshoot|repair)\b/i));
+    const isSetup = intent.intent === "discord.setup" || !!intent.rawText.match(/\bsetup\b.*\bdiscord\b/i);
     try {
-      if (isQuick) {
+      if (isSetup) {
+        // Full setup flow — create bot, authorize, configure
+        try {
+          const { createDiscordBot, authorizeDiscordBot } = await import("../automation/discordPatchright.js");
+          const result = await createDiscordBot();
+          if (result.success && result.token) {
+            // Register with OpenClaw
+            const node22 = await getNode22();
+            const ocBin = (await runLocalCommand("readlink -f $(which openclaw) 2>/dev/null || which openclaw").catch(() => "openclaw")).trim();
+            await runLocalCommand(`${node22} ${ocBin} channels add --channel discord --token "${result.token}" 2>&1`, 15_000).catch(() => "");
+            if (result.appId) await authorizeDiscordBot(result.appId);
+            return `\x1b[32m✓\x1b[0m Discord bot created and configured!\n  \x1b[2mRun: "diagnose discord" to verify everything works.\x1b[0m`;
+          }
+          return `\x1b[33m⚠\x1b[0m Setup incomplete. ${result.success ? "" : "Token not captured."}\n  \x1b[2mTry again or run: "setup discord with token YOUR_TOKEN"\x1b[0m`;
+        } catch {
+          // Fallback to manual instructions
+          const { diagnoseDiscord } = await import("../utils/discordDiag.js");
+          return await diagnoseDiscord();
+        }
+      } else if (isQuick) {
         const { quickDiscordCheck } = await import("../utils/discordDiag.js");
         return await quickDiscordCheck();
       } else {

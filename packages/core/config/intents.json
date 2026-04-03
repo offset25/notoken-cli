@@ -7523,6 +7523,73 @@
       ]
     },
     {
+      "name": "discord.diagnose",
+      "description": "Run full Discord bot diagnostics and auto-fix",
+      "synonyms": [
+        "diagnose discord",
+        "fix discord",
+        "troubleshoot discord",
+        "discord diagnostics",
+        "discord not working",
+        "repair discord",
+        "discord broken"
+      ],
+      "fields": {},
+      "command": "echo 'Use discord.diagnose handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "diagnose discord",
+        "fix discord",
+        "discord not working"
+      ]
+    },
+    {
+      "name": "discord.check",
+      "description": "Quick Discord bot status check",
+      "synonyms": [
+        "check discord",
+        "discord status",
+        "is discord working",
+        "discord bot status",
+        "is the discord bot online",
+        "is the bot connected"
+      ],
+      "fields": {},
+      "command": "echo 'Use discord.check handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "check discord",
+        "discord status",
+        "is discord working"
+      ]
+    },
+    {
+      "name": "discord.setup",
+      "description": "Set up Discord bot from scratch",
+      "synonyms": [
+        "setup discord",
+        "connect discord",
+        "add discord",
+        "install discord bot",
+        "create discord bot",
+        "discord bot setup"
+      ],
+      "fields": {},
+      "command": "echo 'Use discord.setup handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "setup discord",
+        "install discord bot",
+        "create discord bot"
+      ]
+    },
+    {
       "name": "context.load",
       "description": "Load a file into conversation context so it can be referenced in future commands",
       "synonyms": [
