@@ -55,6 +55,22 @@ export function ensurePatchright(): boolean {
   return true;
 }
 
+/** Detect which browser channel is available */
+function detectBrowserChannel(): string {
+  if (isNativeWin) {
+    if (existsSync("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe") ||
+        existsSync("C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe")) return "msedge";
+    if (existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe") ||
+        existsSync("C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe")) return "chrome";
+  } else {
+    // WSL — check Windows browsers via /mnt/c
+    if (existsSync("/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe") ||
+        existsSync("/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe")) return "msedge";
+    if (existsSync("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")) return "chrome";
+  }
+  return "chromium"; // fallback to bundled
+}
+
 /**
  * Create a Discord bot application, get token, enable intents.
  * Returns { token, appId, success }.
@@ -63,7 +79,9 @@ export async function createDiscordBot(appName = "NoToken-Bot"): Promise<{ token
   ensurePatchright();
 
   const uniqueName = `${appName}-${Date.now().toString().slice(-4)}`;
-  console.log(`\n${c.bold}${c.cyan}── Creating Discord Bot: ${uniqueName} ──${c.reset}\n`);
+  const browserChannel = detectBrowserChannel();
+  console.log(`\n${c.bold}${c.cyan}── Creating Discord Bot: ${uniqueName} ──${c.reset}`);
+  console.log(`${c.dim}  Browser: ${browserChannel}${c.reset}\n`);
 
   const script = `
 const { chromium } = require('patchright');
@@ -73,7 +91,7 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
 
 (async () => {
   const ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: false, channel: 'msedge',
+    headless: false, channel: '${browserChannel}',
     args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
   });
@@ -200,7 +218,10 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
 
   // If token not from DOM, try clipboard
   if (!token) {
-    token = tryExec('/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-Clipboard" 2>/dev/null');
+    const psCmd = isNativeWin
+      ? 'powershell -Command "Get-Clipboard" 2>/dev/null'
+      : '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-Clipboard" 2>/dev/null';
+    token = tryExec(psCmd);
     if (token && token.includes(".") && token.length > 50) {
       console.log(`  ${c.green}✓${c.reset} Token captured from clipboard`);
     } else {
@@ -232,13 +253,14 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
  */
 export async function authorizeDiscordBot(appId: string): Promise<boolean> {
   ensurePatchright();
+  const browserChannel = detectBrowserChannel();
   console.log(`\n  ${c.dim}Opening invite page...${c.reset}`);
 
   const script = `
 const { chromium } = require('patchright');
 (async () => {
   const ctx = await chromium.launchPersistentContext('C:\\\\temp\\\\notoken-browser-profile', {
-    headless: false, channel: 'msedge',
+    headless: false, channel: '${browserChannel}',
     args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
   });
@@ -293,13 +315,14 @@ const { chromium } = require('patchright');
  */
 export async function enableDiscordIntents(appId: string): Promise<boolean> {
   ensurePatchright();
+  const browserChannel = detectBrowserChannel();
   console.log(`  ${c.dim}Enabling intents on Developer Portal...${c.reset}`);
 
   const script = `
 const { chromium } = require('patchright');
 (async () => {
   const ctx = await chromium.launchPersistentContext('C:\\\\temp\\\\notoken-browser-profile', {
-    headless: false, channel: 'msedge',
+    headless: false, channel: '${browserChannel}',
     args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
   });
