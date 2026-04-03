@@ -125,7 +125,14 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   const prompt = () => {
     const bgCount = taskRunner.active + agentSpawner.active;
     const bgLabel = bgCount > 0 ? `${c.yellow}[${bgCount} bg]${c.reset}` : "";
-    return `${c.cyan}mycli${c.reset}${dryRun ? `${c.dim}(dry)` : ""}${bgLabel}${c.reset}> `;
+    // Show current directory — shorten home dir to ~
+    const home = process.env.HOME ?? "/root";
+    let dir = process.cwd();
+    if (dir.startsWith(home)) dir = "~" + dir.slice(home.length);
+    // Truncate long paths — show last 2 segments
+    const parts = dir.split("/");
+    if (parts.length > 3) dir = "…/" + parts.slice(-2).join("/");
+    return `${c.cyan}${dir}${c.reset}${dryRun ? `${c.dim}(dry)` : ""}${bgLabel}${c.reset}> `;
   };
 
   while (true) {
