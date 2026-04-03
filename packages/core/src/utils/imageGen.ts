@@ -288,13 +288,8 @@ export function detectGpu(): GpuInfo {
   const nvidia = tryExec("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null");
   const cuda = tryExec("nvcc --version 2>/dev/null");
   const amd = tryExec("rocm-smi --showproductname 2>/dev/null");
-  // WSL check — try Windows-side nvidia-smi via multiple paths
-  let wslNvidia: string | null = null;
-  if (!nvidia) {
-    wslNvidia = tryExec("nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null")
-      ?? tryExec("/mnt/c/Windows/System32/nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null")
-      ?? tryExec("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits\" 2>/dev/null");
-  }
+  // WSL check
+  const wslNvidia = !nvidia ? tryExec("nvidia-smi.exe --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null") : null;
 
   const gpuLine = nvidia ?? wslNvidia;
   let gpuName: string | undefined;
@@ -508,15 +503,22 @@ async function autoStartEngine(engine: ImageEngineStatus): Promise<boolean> {
 
       const { spawn } = await import("node:child_process");
       const venvPython = resolve(engine.path, "venv", "bin", "python");
-      const launchCmd = existsSync(venvPython)
-        ? { cmd: venvPython, args: ["launch.py", "--api", "--listen", "--skip-torch-cuda-test"] }
-        : { cmd: "bash", args: [resolve(engine.path, "webui.sh"), "--api", "--listen"] };
+      const winVenvPython = resolve(engine.path, "venv", "Scripts", "python.exe");
+      const pythonCmd = existsSync(venvPython) ? venvPython : existsSync(winVenvPython) ? winVenvPython : "python3";
 
-      const child = spawn(launchCmd.cmd, launchCmd.args, {
+      // Force CPU mode — disable CUDA completely to avoid DXG GPU errors on WSL
+      const cpuEnv = {
+        ...process.env,
+        CUDA_VISIBLE_DEVICES: "",           // hide all GPUs
+        TORCH_CUDA_ARCH_LIST: "",           // no CUDA architectures
+        COMMANDLINE_ARGS: "--api --listen --skip-torch-cuda-test --use-cpu all --no-half",
+      };
+
+      const child = spawn(pythonCmd, ["launch.py", "--api", "--listen", "--skip-torch-cuda-test", "--use-cpu", "all", "--no-half"], {
         cwd: engine.path,
         detached: true,
         stdio: "ignore",
-        env: { ...process.env, COMMANDLINE_ARGS: "--api --listen --skip-torch-cuda-test" },
+        env: cpuEnv,
       });
       child.unref();
       return waitForReady("http://localhost:7860/sdapi/v1/sd-models", timeout);
@@ -1274,23 +1276,16 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
       if (!existsSync(`${dir}/venv`)) {
         console.log(`${c.dim}  Creating virtual environment...${c.reset}`);
         execSync(`${pythonCmd} -m venv "${dir}/venv"`, { stdio: "inherit", timeout: 120000 });
-      } else {
-        console.log(`${c.dim}  ✓ Virtual environment exists (resuming)${c.reset}`);
       }
 
-      // Check if torch already installed (resume after crash)
-      const hasTorch = !!tryExec(`${venvPip} show torch 2>/dev/null`);
-      if (hasTorch) {
-        console.log(`${c.dim}  ✓ PyTorch already installed (resuming)${c.reset}`);
-      } else {
-        console.log(`${c.dim}  Upgrading pip...${c.reset}`);
-        await runWithProgress(venvPip, ["install", "--upgrade", "pip"], dir);
-        console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
-        await runWithProgress(venvPip, [
-          "install", "torch", "torchvision",
-          "--index-url", `https://download.pytorch.org/whl/${torchExtra}`,
-        ], dir);
-      }
+      console.log(`${c.dim}  Upgrading pip...${c.reset}`);
+      await runWithProgress(venvPip, ["install", "--upgrade", "pip"], dir);
+
+      console.log(`${c.dim}  Installing PyTorch (${gpu.hasNvidia ? "GPU/CUDA" : "CPU"} version)...${c.reset}`);
+      await runWithProgress(venvPip, [
+        "install", "torch", "torchvision",
+        "--index-url", `https://download.pytorch.org/whl/${torchExtra}`,
+      ], dir);
 
       if (engine === "auto1111" && existsSync(resolve(dir, "requirements_versions.txt"))) {
         console.log(`${c.dim}  Installing Stable Diffusion requirements...${c.reset}`);
@@ -1307,13 +1302,8 @@ export async function installImageEngine(engine: "auto1111" | "comfyui" | "foooc
         const fixedReqPath = resolve(dir, "requirements_notoken.txt");
         writeFileSync(fixedReqPath, fixedReq);
         // Pre-install packages that are hard to build from source
-        const hasTokenizers = !!tryExec(`${venvPip} show tokenizers 2>/dev/null`);
-        if (hasTokenizers) {
-          console.log(`${c.dim}  ✓ Pre-built packages already installed (resuming)${c.reset}`);
-        } else {
-          console.log(`${c.dim}  Pre-installing packages with pre-built wheels...${c.reset}`);
-          await runWithProgress(venvPip, ["install", "--only-binary=:all:", "tokenizers>=0.14", "transformers>=4.30", "safetensors>=0.3"], dir);
-        }
+        console.log(`${c.dim}  Pre-installing packages with pre-built wheels...${c.reset}`);
+        await runWithProgress(venvPip, ["install", "--only-binary=:all:", "tokenizers>=0.14", "transformers>=4.30", "safetensors>=0.3"], dir);
         console.log(`${c.dim}  Relaxed version pins for wheel compatibility${c.reset}`);
         await runWithProgress(venvPip, ["install", "--prefer-binary", "-r", fixedReqPath], dir);
       } else if (engine === "comfyui" || engine === "fooocus") {
