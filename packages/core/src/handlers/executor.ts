@@ -1297,6 +1297,10 @@ expect eof
   if (intent.intent === "tool.install") {
     let toolName = resolveToolName(intent.rawText) || ((fields.tool as string) ?? "").toLowerCase();
     toolName = TOOL_ALIASES[toolName] ?? toolName;
+    // Don't let env qualifiers get mistaken for tool names
+    if (["windows", "wsl", "linux", "host", "both"].includes(toolName)) {
+      toolName = resolveToolName(intent.rawText.replace(/\b(on\s+)?(windows|wsl|linux|host|both)\b/gi, "").trim()) || toolName;
+    }
 
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
 
@@ -1305,11 +1309,14 @@ expect eof
     }
 
     const info = INSTALL_INFO[toolName];
+    const wantWindows = !!intent.rawText.match(/\b(on\s+)?windows\b|\b(on\s+)?win\b|\bon\s+d\b|\bd\s+drive\b/i);
 
-    // Check if already installed
-    const existing = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
-    if (existing) {
-      return `${cc.green}✓${cc.reset} ${info.name} is already installed: ${cc.bold}${existing.trim()}${cc.reset}`;
+    // Check if already installed — but for "on windows" requests, check Windows specifically
+    if (!wantWindows) {
+      const existing = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+      if (existing) {
+        return `${cc.green}✓${cc.reset} ${info.name} is already installed: ${cc.bold}${existing.trim()}${cc.reset}`;
+      }
     }
 
     // Check Node.js for npm-based tools
@@ -1317,6 +1324,84 @@ expect eof
       const nodeVer = await runLocalCommand("node --version 2>/dev/null").catch(() => "");
       if (!nodeVer) {
         return `${cc.red}✗ Node.js is required to install ${info.name}.${cc.reset}\n  ${cc.dim}Say: "install node" first.${cc.reset}`;
+      }
+    }
+
+    // ── Special handling: Ollama in WSL — recommend/install Windows native for GPU ──
+    if (toolName === "ollama") {
+      const installIsWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+
+      if (installIsWSL) {
+        // Check for GPU on Windows host
+        const gpuInfo = await runLocalCommand("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_VideoController | Select -Exp Name\" 2>/dev/null").catch(() => "");
+        const hasNvidiaGpu = gpuInfo.toLowerCase().includes("nvidia");
+
+        // Check if Ollama already installed on Windows
+        const winOllama = await runLocalCommand("/mnt/c/Windows/System32/cmd.exe /c \"where ollama\" 2>/dev/null").catch(() => "");
+        const winInstalled = winOllama.includes("ollama");
+
+        // Check target from user input — "install ollama on windows", "install ollama on d drive"
+        const wantWindows = intent.rawText.match(/\b(on\s+)?windows\b|\b(on\s+)?win\b|\bon\s+d\b|\bd\s+drive\b/i);
+        const wantWSL = intent.rawText.match(/\b(on\s+|in\s+)?wsl\b|\b(on\s+)?linux\b/i);
+
+        if (winInstalled && !wantWSL) {
+          const winVer = await runLocalCommand("/mnt/c/Windows/System32/cmd.exe /c \"ollama --version\" 2>/dev/null").catch(() => "");
+          return `${cc.green}✓${cc.reset} Ollama already installed on Windows: ${cc.bold}${winVer.trim().replace(/\r/g, "")}${cc.reset}${hasNvidiaGpu ? `\n  ${cc.green}✓${cc.reset} GPU: ${gpuInfo.trim().replace(/\r/g, "")}` : ""}`;
+        }
+
+        if ((hasNvidiaGpu && !wantWSL) || wantWindows) {
+          // Install Ollama natively on Windows for GPU access
+          console.log(`\n${cc.bold}${cc.cyan}── Installing Ollama for Windows ──${cc.reset}\n`);
+          if (hasNvidiaGpu) {
+            console.log(`  ${cc.green}✓${cc.reset} GPU detected: ${cc.bold}${gpuInfo.trim().replace(/\r/g, "")}${cc.reset}`);
+            console.log(`  ${cc.dim}Installing natively on Windows for GPU acceleration.${cc.reset}`);
+            console.log(`  ${cc.dim}(WSL Ollama would be CPU-only — 10-50x slower)${cc.reset}\n`);
+          }
+
+          // Check D: drive space
+          const dFree = await runLocalCommand("df -BG /mnt/d 2>/dev/null | tail -1 | awk '{print $4}'").catch(() => "0G");
+          const dFreeGB = parseInt(dFree);
+
+          // Download Ollama installer to D: drive
+          const installDir = "D:\\\\Ollama";
+          const installerUrl = "https://ollama.com/download/OllamaSetup.exe";
+          const downloadPath = "D:\\\\OllamaSetup.exe";
+
+          console.log(`  ${cc.dim}Downloading Ollama installer...${cc.reset}`);
+          try {
+            await withSpinner("Downloading Ollama...", () => runLocalCommand(
+              `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Invoke-WebRequest -Uri '${installerUrl}' -OutFile '${downloadPath}' -UseBasicParsing" 2>/dev/null`,
+              120_000
+            ));
+
+            // Set OLLAMA_MODELS to D: drive before installing
+            console.log(`  ${cc.dim}Setting models directory to D:\\\\Ollama\\\\models...${cc.reset}`);
+            await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "[Environment]::SetEnvironmentVariable('OLLAMA_MODELS', 'D:\\\\Ollama\\\\models', 'User')" 2>/dev/null`).catch(() => "");
+
+            // Launch installer
+            console.log(`  ${cc.dim}Launching installer...${cc.reset}`);
+            await runLocalCommand(`/mnt/c/Windows/System32/cmd.exe /c "start ${downloadPath}" 2>/dev/null`).catch(() => "");
+
+            const lines = [
+              `\n${cc.green}✓${cc.reset} Ollama installer launched on Windows.`,
+              `  ${cc.bold}Follow the setup wizard to complete installation.${cc.reset}\n`,
+              `  ${cc.bold}Models directory:${cc.reset} D:\\Ollama\\models (set via OLLAMA_MODELS)`,
+              hasNvidiaGpu ? `  ${cc.bold}GPU:${cc.reset} ${cc.green}${gpuInfo.trim().replace(/\r/g, "")} — CUDA acceleration enabled${cc.reset}` : "",
+              `\n  ${cc.dim}After install, verify: ollama --version${cc.reset}`,
+              `  ${cc.dim}Then: "ollama pull llama3.2" to download a model${cc.reset}`,
+              `  ${cc.dim}Both WSL and Windows can reach it at localhost:11434${cc.reset}`,
+            ].filter(Boolean);
+            return lines.join("\n");
+          } catch (err: unknown) {
+            return `${cc.yellow}⚠${cc.reset} Auto-download failed. Install manually:\n  ${cc.cyan}${installerUrl}${cc.reset}\n  ${cc.dim}Set OLLAMA_MODELS=D:\\Ollama\\models before installing${cc.reset}`;
+          }
+        }
+
+        // WSL install but warn about CPU-only
+        if (hasNvidiaGpu && wantWSL) {
+          console.log(`${cc.yellow}⚠ Installing in WSL — GPU (${gpuInfo.trim().replace(/\r/g, "")}) won't be used.${cc.reset}`);
+          console.log(`  ${cc.dim}For GPU acceleration, say: "install ollama on windows"${cc.reset}\n`);
+        }
       }
     }
 
