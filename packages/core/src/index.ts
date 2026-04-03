@@ -169,6 +169,17 @@ export { recordHistory, loadHistory, getRecentHistory, searchHistory } from "./c
 export { pluginRegistry } from "./plugins/index.js";
 export type { NotokenPlugin, PluginIntent, PluginPlaybook, PluginHooks, LoadedPlugin } from "./plugins/index.js";
 
+// ── Stability Matrix Automation ──
+export {
+  isSMRunning, launchSM, focusSMWindow, clickButton, clickByText,
+  listUIElements, automateInstallPackage, automateLaunch,
+} from "./automation/smAutomation.js";
+export {
+  findStabilityMatrix, readSMSettings, getInstalledPackages, getActivePackage,
+  isPackageRunning, launchPackage, stopPackage, listModels, downloadModel,
+  formatSMStatus, enableAPI, setLaunchArgs,
+} from "./utils/stabilityMatrixManager.js";
+
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";
 export type { RulePatch, RulePatchChange, FailureLog, RulesConfig } from "./types/rules.js";
