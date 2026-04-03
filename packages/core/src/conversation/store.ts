@@ -305,13 +305,15 @@ export function setEntityFocus(
 
 /**
  * Get the currently focused entity.
- * Returns null if nothing is focused or focus is stale (>5 min).
+ * Returns null if nothing is focused or focus is stale.
+ * Staleness = too many turns have passed without re-mentioning the entity.
+ * (Not wall-clock time — if user leaves and comes back, focus is still valid.)
  */
-export function getEntityFocus(conv: Conversation): EntityFocus | null {
+export function getEntityFocus(conv: Conversation, maxTurnsSinceFocus = 8): EntityFocus | null {
   if (!conv.focus) return null;
-  // Focus expires after 5 minutes of no updates
-  const age = Date.now() - new Date(conv.focus.focusedAt).getTime();
-  if (age > 5 * 60 * 1000) return null;
+  // Focus expires after N turns without re-mentioning
+  const turnsSinceFocus = conv.turns.length - conv.focus.focusedAtTurn;
+  if (turnsSinceFocus > maxTurnsSinceFocus) return null;
   return conv.focus;
 }
 

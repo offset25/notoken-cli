@@ -70,12 +70,22 @@ describe("getEntityFocus", () => {
     expect(focus!.entityId).toBe("openclaw-wsl");
   });
 
-  it("returns null when focus is stale (>5 min)", () => {
+  it("returns null when focus is stale (too many turns passed)", () => {
     const conv = makeConv();
     setEntityFocus(conv, "openclaw-wsl", "installation", 1);
-    // Backdate the focus
-    conv.focus!.focusedAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    // Add 10 more turns without mentioning the entity
+    for (let i = 0; i < 10; i++) {
+      conv.turns.push({ id: conv.turns.length + 1, timestamp: new Date().toISOString(), role: "user", rawText: "unrelated stuff", entities: [] });
+    }
     expect(getEntityFocus(conv)).toBeNull();
+  });
+
+  it("retains focus even after long idle time if few turns", () => {
+    const conv = makeConv();
+    setEntityFocus(conv, "openclaw-wsl", "installation", 1);
+    // Backdate the focus 30 minutes — should still be valid (only 2 turns since)
+    conv.focus!.focusedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    expect(getEntityFocus(conv)).not.toBeNull();
   });
 });
 
