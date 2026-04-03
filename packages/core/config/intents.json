@@ -7264,6 +7264,65 @@
       ]
     },
     {
+      "name": "openclaw.channel.setup",
+      "description": "Set up a chat channel for OpenClaw — Telegram, Discord, Matrix, WhatsApp, etc.",
+      "synonyms": [
+        "setup telegram",
+        "setup discord",
+        "setup matrix",
+        "setup whatsapp",
+        "connect telegram",
+        "connect discord",
+        "connect matrix",
+        "connect whatsapp",
+        "add telegram",
+        "add discord",
+        "add matrix",
+        "add whatsapp",
+        "setup openclaw telegram",
+        "setup openclaw discord",
+        "setup openclaw matrix",
+        "setup openclaw channel",
+        "setup channel",
+        "add channel",
+        "connect channel",
+        "openclaw add telegram",
+        "openclaw add discord",
+        "openclaw add matrix",
+        "openclaw setup telegram",
+        "openclaw setup discord",
+        "openclaw setup matrix",
+        "link telegram",
+        "link discord",
+        "link matrix",
+        "configure telegram",
+        "configure discord",
+        "configure matrix",
+        "setup openclaw channels"
+      ],
+      "fields": {
+        "channel": {
+          "type": "string",
+          "required": false
+        },
+        "token": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command": "[openclaw-channel-setup]",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "setup telegram for openclaw",
+        "connect discord to openclaw",
+        "add matrix channel",
+        "setup openclaw telegram",
+        "setup whatsapp"
+      ]
+    },
+    {
       "name": "openclaw.logs",
       "description": "Tail OpenClaw gateway logs",
       "synonyms": [

@@ -281,6 +281,261 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       : await withSpinner("Diagnosing OpenClaw...", () => diagnoseOpenclaw(false));
   }
 
+  // ── OpenClaw channel setup — Telegram, Discord, Matrix, WhatsApp ──
+  if (intent.intent === "openclaw.channel.setup") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Detect which channel from the raw text
+    const rawLower = intent.rawText.toLowerCase();
+    let channel: string | null = null;
+    if (/telegram/i.test(rawLower)) channel = "telegram";
+    else if (/discord/i.test(rawLower)) channel = "discord";
+    else if (/matrix/i.test(rawLower)) channel = "matrix";
+    else if (/whatsapp/i.test(rawLower)) channel = "whatsapp";
+    else if (/signal/i.test(rawLower)) channel = "signal";
+    else if (/slack/i.test(rawLower)) channel = "slack";
+    // Only use fields.channel if it's a known channel name
+    if (!channel && (fields.channel as string)) {
+      const fc = (fields.channel as string).toLowerCase();
+      if (["telegram", "discord", "matrix", "whatsapp", "signal", "slack", "irc"].includes(fc)) {
+        channel = fc;
+      }
+    }
+
+    // Check if openclaw is installed and running
+    const ocVer = await runLocalCommand("openclaw --version 2>/dev/null").catch(() => "");
+    if (!ocVer) {
+      return `${cc.red}✗ OpenClaw is not installed.${cc.reset}\n  ${cc.dim}Say: "install openclaw" first.${cc.reset}`;
+    }
+
+    const CHANNEL_INFO: Record<string, {
+      name: string;
+      tokenFlag: string;
+      instructions: string[];
+      browserUrl?: string;
+      extraFlags?: string;
+      loginBased?: boolean;
+    }> = {
+      telegram: {
+        name: "Telegram",
+        tokenFlag: "--token",
+        browserUrl: "https://t.me/BotFather",
+        instructions: [
+          `${cc.bold}To set up Telegram:${cc.reset}`,
+          `  1. Open ${cc.cyan}https://t.me/BotFather${cc.reset} in your browser`,
+          `  2. Send ${cc.bold}/newbot${cc.reset} and follow the prompts`,
+          `  3. Copy the bot token (looks like ${cc.dim}123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11${cc.reset})`,
+          `  4. Paste it here when prompted`,
+        ],
+      },
+      discord: {
+        name: "Discord",
+        tokenFlag: "--token",
+        browserUrl: "https://discord.com/developers/applications",
+        instructions: [
+          `${cc.bold}To set up Discord:${cc.reset}`,
+          `  1. Open ${cc.cyan}https://discord.com/developers/applications${cc.reset}`,
+          `  2. Click ${cc.bold}New Application${cc.reset} → name it → go to ${cc.bold}Bot${cc.reset} tab`,
+          `  3. Click ${cc.bold}Reset Token${cc.reset} and copy the bot token`,
+          `  4. Under ${cc.bold}Privileged Gateway Intents${cc.reset}, enable ${cc.bold}Message Content Intent${cc.reset}`,
+          `  5. Go to ${cc.bold}OAuth2 > URL Generator${cc.reset}, select ${cc.bold}bot${cc.reset} scope + ${cc.bold}Send Messages${cc.reset} permission`,
+          `  6. Copy the invite URL and open it to add the bot to your server`,
+          `  7. Paste the bot token here when prompted`,
+        ],
+      },
+      matrix: {
+        name: "Matrix",
+        tokenFlag: "--password",
+        instructions: [
+          `${cc.bold}To set up Matrix:${cc.reset}`,
+          `  ${cc.dim}Matrix can run locally — no external account needed.${cc.reset}`,
+          ``,
+          `  ${cc.bold}Option A: Use an existing Matrix account${cc.reset}`,
+          `  You'll need: homeserver URL, user ID, and password`,
+          ``,
+          `  ${cc.bold}Option B: Create a free account${cc.reset}`,
+          `  1. Open ${cc.cyan}https://app.element.io/#/register${cc.reset}`,
+          `  2. Create an account on matrix.org (or any homeserver)`,
+          `  3. Use those credentials here`,
+        ],
+        browserUrl: "https://app.element.io/#/register",
+      },
+      whatsapp: {
+        name: "WhatsApp",
+        tokenFlag: "",
+        loginBased: true,
+        instructions: [
+          `${cc.bold}To set up WhatsApp:${cc.reset}`,
+          `  WhatsApp uses QR code pairing — no token needed.`,
+          `  OpenClaw will show a QR code to scan with your phone.`,
+        ],
+      },
+      signal: {
+        name: "Signal",
+        tokenFlag: "",
+        loginBased: true,
+        instructions: [
+          `${cc.bold}To set up Signal:${cc.reset}`,
+          `  Signal requires signal-cli to be installed.`,
+          `  Run: ${cc.cyan}openclaw channels add --channel signal${cc.reset}`,
+        ],
+      },
+      slack: {
+        name: "Slack",
+        tokenFlag: "--bot-token",
+        browserUrl: "https://api.slack.com/apps",
+        instructions: [
+          `${cc.bold}To set up Slack:${cc.reset}`,
+          `  1. Open ${cc.cyan}https://api.slack.com/apps${cc.reset}`,
+          `  2. Create a new app → add Bot Token Scopes`,
+          `  3. Install to workspace and copy the bot token (xoxb-...)`,
+          `  4. Also copy the app token (xapp-...) from Basic Information`,
+        ],
+      },
+    };
+
+    // No channel specified — show menu
+    if (!channel) {
+      const lines = [
+        `\n${cc.bold}${cc.cyan}── OpenClaw Channel Setup ──${cc.reset}\n`,
+        `  Available channels:\n`,
+        `  ${cc.cyan}1.${cc.reset} ${cc.bold}Telegram${cc.reset}  — Bot via BotFather (easiest)`,
+        `  ${cc.cyan}2.${cc.reset} ${cc.bold}Discord${cc.reset}   — Bot via Developer Portal`,
+        `  ${cc.cyan}3.${cc.reset} ${cc.bold}Matrix${cc.reset}    — Can run locally, no external account needed`,
+        `  ${cc.cyan}4.${cc.reset} ${cc.bold}WhatsApp${cc.reset}  — QR code pairing with your phone`,
+        `  ${cc.cyan}5.${cc.reset} ${cc.bold}Signal${cc.reset}    — Via signal-cli`,
+        `  ${cc.cyan}6.${cc.reset} ${cc.bold}Slack${cc.reset}     — Bot via Slack API`,
+        ``,
+        `  ${cc.dim}Say: "setup telegram" or "setup discord" to configure a channel.${cc.reset}`,
+      ];
+      return lines.join("\n");
+    }
+
+    const info = CHANNEL_INFO[channel];
+    if (!info) {
+      return `${cc.red}✗ Unknown channel: "${channel}"${cc.reset}\n  ${cc.dim}Available: ${Object.keys(CHANNEL_INFO).join(", ")}${cc.reset}`;
+    }
+
+    // Show instructions
+    console.log("");
+    for (const line of info.instructions) console.log(line);
+    console.log("");
+
+    // Open browser to the setup page
+    if (info.browserUrl) {
+      console.log(`${cc.cyan}Opening ${info.browserUrl} in your browser...${cc.reset}\n`);
+      try {
+        if (process.platform === "win32") {
+          await runLocalCommand(`powershell -Command "Start-Process '${info.browserUrl}'" 2>/dev/null`);
+        } else if (process.platform === "darwin") {
+          await runLocalCommand(`open "${info.browserUrl}" 2>/dev/null`);
+        } else {
+          await runLocalCommand(`xdg-open "${info.browserUrl}" 2>/dev/null || wslview "${info.browserUrl}" 2>/dev/null`);
+        }
+      } catch { /* browser open is best-effort */ }
+    }
+
+    // Login-based channels (WhatsApp, Signal) — just run openclaw's interactive login
+    if (info.loginBased) {
+      console.log(`${cc.cyan}Starting ${info.name} pairing...${cc.reset}\n`);
+      try {
+        const { execSync } = await import("node:child_process");
+        execSync(`openclaw channels login --channel ${channel}`, { stdio: "inherit", timeout: 120_000 });
+        // Verify
+        const status = await runLocalCommand(`openclaw channels status 2>&1`).catch(() => "");
+        if (status.toLowerCase().includes(channel)) {
+          return `${cc.green}✓${cc.reset} ${info.name} connected to OpenClaw!`;
+        }
+        return `${cc.yellow}⚠${cc.reset} ${info.name} pairing may still be in progress.\n  ${cc.dim}Check: "openclaw channels status"${cc.reset}`;
+      } catch {
+        return `${cc.yellow}⚠${cc.reset} ${info.name} pairing timed out or was cancelled.\n  ${cc.dim}Try manually: openclaw channels login --channel ${channel}${cc.reset}`;
+      }
+    }
+
+    // Token-based channels — prompt for the token
+    const { askForConfirmation: confirm } = await import("../policy/confirm.js");
+    const readline = await import("node:readline/promises");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+    try {
+      if (channel === "matrix") {
+        // Matrix needs homeserver, user ID, and password
+        const homeserver = await rl.question(`${cc.cyan}Homeserver URL${cc.reset} (e.g. https://matrix.org): `);
+        const userId = await rl.question(`${cc.cyan}User ID${cc.reset} (e.g. @mybot:matrix.org): `);
+        const password = await rl.question(`${cc.cyan}Password${cc.reset}: `);
+
+        if (!homeserver.trim() || !userId.trim() || !password.trim()) {
+          return `${cc.yellow}⚠ Setup cancelled — missing required fields.${cc.reset}`;
+        }
+
+        console.log(`\n${cc.cyan}Configuring Matrix...${cc.reset}`);
+        const addOut = await withSpinner("Adding Matrix channel...", () => runLocalCommand(
+          `openclaw channels add --channel matrix --homeserver "${homeserver.trim()}" --user-id "${userId.trim()}" --password "${password.trim()}" 2>&1`, 30_000
+        ));
+
+        // Restart gateway to pick up new channel
+        await runLocalCommand("openclaw gateway reload 2>&1").catch(() => "");
+
+        const status = await runLocalCommand("openclaw channels status 2>&1").catch(() => "");
+        if (status.toLowerCase().includes("matrix")) {
+          return `${cc.green}✓${cc.reset} Matrix channel configured!\n  ${cc.dim}Homeserver: ${homeserver.trim()}${cc.reset}\n  ${cc.dim}User: ${userId.trim()}${cc.reset}\n\n  ${cc.dim}Send a message to the bot in Matrix to test.${cc.reset}`;
+        }
+        return `${cc.yellow}⚠${cc.reset} Matrix added but may need gateway restart.\n  ${cc.dim}Try: "restart openclaw"${cc.reset}\n\n${cc.dim}${addOut.substring(0, 300)}${cc.reset}`;
+
+      } else if (channel === "slack") {
+        // Slack needs bot token + app token
+        const botToken = await rl.question(`${cc.cyan}Bot token${cc.reset} (xoxb-...): `);
+        const appToken = await rl.question(`${cc.cyan}App token${cc.reset} (xapp-...): `);
+
+        if (!botToken.trim() || !appToken.trim()) {
+          return `${cc.yellow}⚠ Setup cancelled — missing required tokens.${cc.reset}`;
+        }
+
+        console.log(`\n${cc.cyan}Configuring Slack...${cc.reset}`);
+        const addOut = await withSpinner("Adding Slack channel...", () => runLocalCommand(
+          `openclaw channels add --channel slack --bot-token "${botToken.trim()}" --app-token "${appToken.trim()}" 2>&1`, 30_000
+        ));
+
+        await runLocalCommand("openclaw gateway reload 2>&1").catch(() => "");
+
+        return `${cc.green}✓${cc.reset} Slack channel configured!\n  ${cc.dim}Test it by messaging the bot in Slack.${cc.reset}`;
+
+      } else {
+        // Telegram, Discord — single token
+        const tokenLabel = channel === "telegram" ? "Bot token from BotFather" : "Bot token";
+        const token = await rl.question(`${cc.cyan}${tokenLabel}${cc.reset}: `);
+
+        if (!token.trim()) {
+          return `${cc.yellow}⚠ Setup cancelled — no token provided.${cc.reset}`;
+        }
+
+        console.log(`\n${cc.cyan}Configuring ${info.name}...${cc.reset}`);
+        const addOut = await withSpinner(`Adding ${info.name} channel...`, () => runLocalCommand(
+          `openclaw channels add --channel ${channel} ${info.tokenFlag} "${token.trim()}" 2>&1`, 30_000
+        ));
+
+        // Restart gateway to pick up new channel
+        await runLocalCommand("openclaw gateway reload 2>&1").catch(() => "");
+
+        const status = await runLocalCommand("openclaw channels status 2>&1").catch(() => "");
+        if (status.toLowerCase().includes(channel)) {
+          const lines = [`${cc.green}✓${cc.reset} ${info.name} channel configured!`];
+          if (channel === "telegram") {
+            lines.push(`\n  ${cc.dim}Send a message to your bot in Telegram to test.${cc.reset}`);
+            lines.push(`  ${cc.dim}Then try: "tell openclaw hello" to see it respond.${cc.reset}`);
+          } else if (channel === "discord") {
+            lines.push(`\n  ${cc.dim}Make sure you've invited the bot to a server.${cc.reset}`);
+            lines.push(`  ${cc.dim}Send a message in a channel the bot can see to test.${cc.reset}`);
+          }
+          return lines.join("\n");
+        }
+        return `${cc.yellow}⚠${cc.reset} ${info.name} added but may need gateway restart.\n  ${cc.dim}Try: "restart openclaw"${cc.reset}\n\n${cc.dim}${addOut.substring(0, 300)}${cc.reset}`;
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
   // Codex message — send a prompt to OpenAI Codex CLI
   if (intent.intent === "codex.message") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
