@@ -7950,6 +7950,10 @@
         "ask codex to refactor utils",
         "use codex for adding types"
       ]
-    }
+    },
+
+    {"name":"ai.diagnose","description":"Diagnose image generation issues — check engine, GPU, model, API, disk","synonyms":["diagnose image generation","why isnt it working","image not working","sd not working","troubleshoot image","debug image generation","fix image generation","is the server up","check if sd is running","is sd running","is stable diffusion running","check image server","restart sd","restart stable diffusion","diagnose sd"],"fields":{},"command":"notoken:ai-diagnose","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["why isnt image generation working","is the server up","diagnose sd","restart stable diffusion","check if sd is running"]},
+
+    {"name":"system.install_history","description":"Show what NoToken has installed and where","synonyms":["what did you install","install history","what have you installed","show installs","what did notoken install","what packages did notoken install","show what you installed","what have we installed"],"fields":{},"command":"notoken:install-history","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what did you install","show install history","what have you installed"]}
   ]
 }
