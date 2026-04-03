@@ -3223,17 +3223,55 @@ expect eof
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    // Simple: strip the command prefix, pass everything else as the prompt
-    // "can you generate a picture of a dragon flying over a castle at sunset"
-    // → "a dragon flying over a castle at sunset"
-    const prompt = intent.rawText
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Extract the prompt — strip command prefix
+    let prompt = intent.rawText
       .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
       .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
       .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
       .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
       .replace(/\s+(please|for me|for us)\s*$/i, "")
-      .trim()
-      || ((fields.prompt as string) ?? "a beautiful landscape");
+      .trim();
+
+    // Load random prompts from JSON file — user can add their own
+    let RANDOM_PROMPTS = ["a beautiful landscape at sunset"];
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      for (const p of [
+        resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "image-prompts.json"),
+        resolve(process.cwd(), "packages/core/config/image-prompts.json"),
+        resolve(process.cwd(), "config/image-prompts.json"),
+      ]) {
+        if (existsSync(p)) { RANDOM_PROMPTS = JSON.parse(readFileSync(p, "utf-8")).prompts ?? RANDOM_PROMPTS; break; }
+      }
+    } catch { /* use default */ }
+
+    // Check if this is a bare "can you generate an image?" or "generate an image" with no actual prompt
+    const isBareCan = (!prompt || prompt === "?" || /^(an?\s+)?(image|picture|photo|art|artwork|drawing|painting|one)?\??$/i.test(prompt));
+
+    if (isBareCan) {
+      // Check if image generation is set up
+      const engines = detectImageEngines();
+      const localInstalled = engines.some(e => e.installed);
+
+      if (!localInstalled) {
+        return `${cc.yellow}⚠${cc.reset} No image generation engine installed.\n\n  ${cc.bold}Options:${cc.reset}\n    ${cc.cyan}1.${cc.reset} Install locally: ${cc.dim}"install stable diffusion"${cc.reset}\n    ${cc.cyan}2.${cc.reset} Use cloud API: ${cc.dim}set STABILITY_API_KEY or OPENAI_API_KEY${cc.reset}\n\n  ${cc.dim}Say "install stable diffusion" to get started.${cc.reset}`;
+      }
+
+      // Engine installed — generate a random image
+      prompt = RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+      console.log(`${cc.cyan}Generating random image...${cc.reset}`);
+      console.log(`${cc.dim}Prompt: "${prompt}"${cc.reset}`);
+    }
+
+    if (!prompt || /^(an?\s+)?(image|picture|photo|art|one)\??$/i.test(prompt)) {
+      prompt = RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+      console.log(`${cc.dim}Random prompt: "${prompt}"${cc.reset}`);
+    }
+
+    prompt = prompt || (fields.prompt as string) ?? "a beautiful landscape";
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";

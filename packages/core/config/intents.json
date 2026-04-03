@@ -4764,7 +4764,8 @@
       "fields": {
         "prompt": {
           "type": "string",
-          "required": true
+          "required": false,
+          "description": "text description of the image to generate"
         }
       },
       "command": "notoken:image-gen:{{prompt}}",

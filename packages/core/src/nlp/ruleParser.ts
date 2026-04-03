@@ -15,6 +15,11 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     if (statusDef) return { intent: "notoken.status", confidence: 0.95, rawText, fields: {} };
   }
 
+  // Pre-check: "can you generate an image" → ai.generate_image (not ai.image_status)
+  if (/^(can you|could you|are you able to|do you)\s+(generate|create|make|draw)\s+(an?\s+)?(image|picture|photo|art)/i.test(text)) {
+    return { intent: "ai.generate_image", confidence: 0.9, rawText, fields: {} };
+  }
+
   // Pre-check: "cd /path" → shell cd (change directory)
   const cdMatch = text.match(/^cd\s+(\/\S+|~\S*|\.\S*)$/);
   if (cdMatch) {
