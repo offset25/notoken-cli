@@ -59,8 +59,9 @@
       "service": "openclaw",
       "environment": "wsl",
       "path": "/usr/local/bin/openclaw",
+      "version": "2026.4.2",
       "port": 18789,
-      "model": "ollama/llama3.2",
+      "model": "anthropic/claude-sonnet-4-6",
       "status": "running",
       "aliases": [
         "wsl openclaw",
@@ -69,7 +70,7 @@
         "linux openclaw",
         "openclaw #1"
       ],
-      "lastSeen": "2026-04-03T01:05:22.855Z"
+      "lastSeen": "2026-04-03T16:49:12.166Z"
     },
     "openclaw-windows": {
       "service": "openclaw",
@@ -86,7 +87,7 @@
         "the other openclaw",
         "openclaw #2"
       ],
-      "lastSeen": "2026-04-03T01:05:22.855Z"
+      "lastSeen": "2026-04-03T16:49:12.166Z"
     }
   }
 }

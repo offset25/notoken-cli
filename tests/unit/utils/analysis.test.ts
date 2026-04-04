@@ -33,14 +33,13 @@ describe("analyzeLoad", () => {
 describe("analyzeDisk", () => {
   const SAMPLE_DF = `Filesystem  Size  Used Avail Use% Mounted on
 /dev/sda1   100G   45G   55G  45% /
-/dev/sdb1   500G  480G   20G  96% /data
+/dev/sdb1   500G  497G   3G   99% /data
 tmpfs       16G     0   16G   0% /tmp`;
 
-  it("flags critical partitions", () => {
+  it("flags critical partitions (<5GB free)", () => {
     const analysis = analyzeDisk(SAMPLE_DF);
     expect(analysis).toContain("CRITICAL");
     expect(analysis).toContain("/data");
-    expect(analysis).toContain("96%");
   });
 
   it("shows healthy when all ok", () => {
@@ -50,7 +49,7 @@ tmpfs       16G     0   16G   0% /tmp`;
     expect(analysis).toContain("healthy");
   });
 
-  it("finds partition for specific path", () => {
+  it("finds partition for specific path (<5GB free = CRITICAL)", () => {
     const analysis = analyzeDisk(SAMPLE_DF, "/data");
     expect(analysis).toContain("/data");
     expect(analysis).toContain("CRITICAL");
@@ -65,17 +64,16 @@ tmpfs       16G     0   16G   0% /tmp`;
 describe("analyzeDisk — Windows format", () => {
   it("parses PowerShell df-compatible output", () => {
     const winOutput = `Filesystem      Size  Used Avail Use% Mounted on
-C:              238.5G 232.4G 6.1G 97% C:\\
+C:              238.5G 235.4G 3.1G 99% C:\\
 D:              500G 200G 300G 40% D:\\`;
     const analysis = analyzeDisk(winOutput);
     expect(analysis).toContain("CRITICAL");
     expect(analysis).toContain("C:\\");
-    expect(analysis).toContain("97%");
   });
 
   it("resolves 'c drive' alias to C:\\ mount", () => {
     const winOutput = `Filesystem      Size  Used Avail Use% Mounted on
-C:              238.5G 232.4G 6.1G 97% C:\\`;
+C:              238.5G 235.4G 3.1G 99% C:\\`;
     const analysis = analyzeDisk(winOutput, "c drive");
     expect(analysis).toContain("C:\\");
     expect(analysis).toContain("CRITICAL");

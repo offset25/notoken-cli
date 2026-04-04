@@ -80,6 +80,30 @@ export function analyzeLoad(output: string): string {
     lines.push(`  ${c.dim}→ Load is stable.${c.reset}`);
   }
 
+  // Extract top CPU-heavy processes from the output
+  const psLines = output.split("\n").filter(l => /^\S+\s+\d+\s+\d+/.test(l));
+  const heavyProcs = psLines
+    .map(l => {
+      const parts = l.trim().split(/\s+/);
+      const cpu = parseFloat(parts[2]);
+      const mem = parseFloat(parts[3]);
+      const cmd = parts.slice(10).join(" ").replace(/^\/\S+\//, "").split(" ")[0]; // basename
+      return { user: parts[0], pid: parts[1], cpu, mem, cmd };
+    })
+    .filter(p => p.cpu > 5) // Only show processes using >5% CPU
+    .filter((p, i, arr) => arr.findIndex(x => x.pid === p.pid) === i) // Dedup by PID
+    .slice(0, 5);
+
+  if (heavyProcs.length > 0) {
+    lines.push(`\n  ${c.bold}Heavy processes:${c.reset}`);
+    for (const p of heavyProcs) {
+      const cpuBar = p.cpu > 50 ? c.red : p.cpu > 20 ? c.yellow : c.dim;
+      lines.push(`    ${cpuBar}${p.cpu.toFixed(0)}% CPU${c.reset}  ${p.mem.toFixed(0)}% RAM  ${c.bold}${p.cmd}${c.reset} ${c.dim}(${p.user}, PID ${p.pid})${c.reset}`);
+    }
+  } else if (ratio1 < 0.3) {
+    lines.push(`\n  ${c.green}No heavy processes — system is idle.${c.reset}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -125,17 +149,25 @@ export function analyzeDisk(output: string, specificPath?: string): string {
     !p.filesystem.startsWith("none") &&
     !p.filesystem.startsWith("rootfs") &&
     p.mountPoint !== "/snap" &&
-    !p.mountPoint.startsWith("/snap/")
+    !p.mountPoint.startsWith("/snap/") &&
+    !p.mountPoint.includes("docker-desktop/cli-tools") &&
+    !p.filesystem.startsWith("/dev/loop")
   );
 
   for (const p of realPartitions) {
-    if (p.usePercent >= 95) {
-      lines.push(`  ${c.red}⚠ CRITICAL: ${p.mountPoint} is ${p.usePercent}% full (${p.available} free)${c.reset}`);
+    // Use absolute free space (GB) for thresholds — percentage is misleading on large drives
+    // e.g. 97% on 2TB = 60GB free (fine), 95% on 100GB = 5GB free (critical)
+    const freeGB = parseFloat(p.available.replace(/[^\d.]/g, ""));
+    const freeUnit = p.available.replace(/[\d.]/g, "").trim().toUpperCase();
+    const freeGBNorm = freeUnit.startsWith("T") ? freeGB * 1024 : freeUnit.startsWith("M") ? freeGB / 1024 : freeGB;
+
+    if (freeGBNorm < 5) {
+      lines.push(`  ${c.red}⚠ CRITICAL: ${p.mountPoint} has only ${p.available} free (${p.usePercent}% used)${c.reset}`);
       criticalCount++;
-    } else if (p.usePercent >= 85) {
-      lines.push(`  ${c.yellow}⚠ WARNING: ${p.mountPoint} is ${p.usePercent}% full (${p.available} free)${c.reset}`);
+    } else if (freeGBNorm < 20 && p.usePercent >= 90) {
+      lines.push(`  ${c.yellow}⚠ WARNING: ${p.mountPoint} has ${p.available} free (${p.usePercent}% used)${c.reset}`);
       warningCount++;
-    } else if (p.usePercent >= 70) {
+    } else if (p.usePercent >= 85) {
       lines.push(`  ${c.dim}  ${p.mountPoint}: ${p.usePercent}% used (${p.available} free)${c.reset}`);
     }
   }
@@ -154,7 +186,13 @@ export function analyzeDisk(output: string, specificPath?: string): string {
       // WSL-specific: warn about I/O errors and need to restart WSL
       const platform = detectLocalPlatform();
       if (platform.isWSL) {
-        const windowsDriveFull = realPartitions.some((p) => p.mountPoint.startsWith("/mnt/") && p.usePercent >= 95);
+        const windowsDriveFull = realPartitions.some((p) => {
+          if (!p.mountPoint.startsWith("/mnt/")) return false;
+          const fGB = parseFloat(p.available.replace(/[^\d.]/g, ""));
+          const fU = p.available.replace(/[\d.]/g, "").trim().toUpperCase();
+          const freeNorm = fU.startsWith("T") ? fGB * 1024 : fU.startsWith("M") ? fGB / 1024 : fGB;
+          return freeNorm < 5;
+        });
         if (windowsDriveFull) {
           lines.push(`\n  ${c.red}${c.bold}  ⚠ WSL WARNING:${c.reset} Windows drive is critically full.`);
           lines.push(`  ${c.yellow}  WSL shares disk with Windows — I/O errors and instability are likely.${c.reset}`);
@@ -244,8 +282,11 @@ function findPartitionForPath(partitions: DiskPartition[], path: string): DiskPa
 }
 
 function formatPartitionHealth(p: DiskPartition): string {
-  if (p.usePercent >= 95) return `${c.red}⚠ CRITICAL: ${p.usePercent}% full! Only ${p.available} free on ${p.size} total.${c.reset}`;
-  if (p.usePercent >= 85) return `${c.yellow}⚠ WARNING: ${p.usePercent}% full. ${p.available} free on ${p.size} total.${c.reset}`;
+  const fGB = parseFloat(p.available.replace(/[^\d.]/g, ""));
+  const fU = p.available.replace(/[\d.]/g, "").trim().toUpperCase();
+  const freeNorm = fU.startsWith("T") ? fGB * 1024 : fU.startsWith("M") ? fGB / 1024 : fGB;
+  if (freeNorm < 5) return `${c.red}⚠ CRITICAL: Only ${p.available} free on ${p.size} total (${p.usePercent}% used).${c.reset}`;
+  if (freeNorm < 20 && p.usePercent >= 90) return `${c.yellow}⚠ WARNING: ${p.available} free on ${p.size} total (${p.usePercent}% used).${c.reset}`;
   if (p.usePercent >= 70) return `${c.dim}Moderate: ${p.usePercent}% full. ${p.available} free on ${p.size} total.${c.reset}`;
   return `${c.green}✓ Healthy: ${p.usePercent}% used. ${p.available} free on ${p.size} total.${c.reset}`;
 }

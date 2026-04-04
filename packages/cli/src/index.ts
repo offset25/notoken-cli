@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "upgrade", "rollback", "heal", "heal:claude", "browse"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "upgrade", "rollback", "heal", "heal:claude", "browse", "service"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -117,6 +117,11 @@ async function main() {
       case "browse": {
         const { runBrowse } = await import("./commands/browse.js");
         await runBrowse(subArgs, flags);
+        return;
+      }
+      case "service": {
+        process.argv = [process.argv[0], process.argv[1], ...subArgs];
+        await import("./service.js");
         return;
       }
     }

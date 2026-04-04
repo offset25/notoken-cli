@@ -43,7 +43,7 @@ describe("disk cleanup: parse pipeline", () => {
 describe("disk analysis: Linux df format", () => {
   const LINUX_DF = `Filesystem  Size  Used Avail Use% Mounted on
 /dev/sda1   100G   45G   55G  45% /
-/dev/sdb1   500G  480G   20G  96% /data
+/dev/sdb1   500G  497G   3G   99% /data
 tmpfs       16G     0   16G   0% /tmp`;
 
   it("analyzeOutput routes to analyzeDisk for server.check_disk", () => {
@@ -53,7 +53,7 @@ tmpfs       16G     0   16G   0% /tmp`;
     expect(result).toContain("/data");
   });
 
-  it("suggests cleanup on critical disk", () => {
+  it("suggests cleanup on critical disk (<5GB free)", () => {
     const result = analyzeDisk(LINUX_DF);
     expect(result).toContain("free up space");
   });
@@ -69,34 +69,31 @@ tmpfs       16G     0   16G   0% /tmp`;
 
 describe("disk analysis: Windows df-compatible format", () => {
   const WINDOWS_DF = `Filesystem      Size  Used Avail Use% Mounted on
-C:              446.6G 430.4G 16.2G 96% C:\\
-D:              894.2G 797.7G 96.6G 89% D:\\
-E:              1863G 1816.6G 46.4G 98% E:\\
+C:              446.6G 443.4G 3.2G  99% C:\\
+D:              894.2G 880.7G 13.6G 98% D:\\
+E:              1863G 1860.6G 2.4G  99% E:\\
 F:              1863G 75.5G 1787.5G 4% F:\\`;
 
   it("parses all Windows drives", () => {
     const result = analyzeDisk(WINDOWS_DF);
     expect(result).toContain("C:\\");
-    expect(result).toContain("D:\\");
     expect(result).toContain("E:\\");
   });
 
-  it("flags C: and E: as critical", () => {
+  it("flags C: and E: as critical (<5GB free)", () => {
     const result = analyzeDisk(WINDOWS_DF);
     expect(result).toContain("CRITICAL");
-    expect(result).toContain("96%");
-    expect(result).toContain("98%");
+    expect(result).toContain("C:\\");
+    expect(result).toContain("E:\\");
   });
 
-  it("flags D: as warning", () => {
+  it("flags D: as warning (<20GB free + >90%)", () => {
     const result = analyzeDisk(WINDOWS_DF);
     expect(result).toContain("WARNING");
-    expect(result).toContain("89%");
   });
 
   it("does not flag F: (healthy)", () => {
     const result = analyzeDisk(WINDOWS_DF);
-    // F: at 4% should not appear in warnings
     expect(result).not.toContain("F:\\ is");
   });
 

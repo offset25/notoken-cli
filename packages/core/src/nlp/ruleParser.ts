@@ -7,6 +7,268 @@ export function parseByRules(rawText: string): DynamicIntent | null {
   const intents = loadIntents();
   const text = rawText.trim().toLowerCase();
 
+  // Pre-check: casual conversation / greetings / social
+  const casualPatterns: Array<{ pattern: RegExp; intent: string }> = [
+    { pattern: /^(hey|hi|hello|howdy|yo|sup|what'?s up|good (morning|afternoon|evening|night)|greetings)\s*[!?.]*$/i, intent: "chat.greeting" },
+    { pattern: /^how (are you|you doing|is it going|do you feel|are things)/i, intent: "chat.howru" },
+    { pattern: /^(how'?s it going|what'?s good|you good|you ok)\s*[!?.]*$/i, intent: "chat.howru" },
+    { pattern: /^(thanks|thank you|thx|cheers|appreciate it|good job|nice work|well done|great job|awesome|perfect|excellent)\s*[!?.]*$/i, intent: "chat.thanks" },
+    { pattern: /^(bye|goodbye|see you|later|gotta go|peace|cya|goodnight|good night|take care)\s*[!?.]*$/i, intent: "chat.bye" },
+    { pattern: /^(who are you|what are you|tell me about yourself|what is notoken)/i, intent: "chat.about" },
+    { pattern: /^(tell me a joke|say something funny|make me laugh|joke)\s*[!?.]*$/i, intent: "chat.joke" },
+    { pattern: /^(i'?m (bored|tired|frustrated|confused|stuck|lost))/i, intent: "chat.empathy" },
+    { pattern: /^(this (sucks|is broken|doesn'?t work|is frustrating))/i, intent: "chat.empathy" },
+    { pattern: /^(what do you think|your opinion|do you like|which is better)/i, intent: "chat.opinion" },
+    // Compliments
+    { pattern: /^(you('re| are) (awesome|great|amazing|the best|cool|smart|helpful|incredible))/i, intent: "chat.compliment" },
+    { pattern: /^(nice|love it|love you|love this|you rock|brilliant)/i, intent: "chat.compliment" },
+    // Insults (playful)
+    { pattern: /^(you('re| are) (stupid|dumb|useless|terrible|bad|wrong|slow|broken))/i, intent: "chat.insult" },
+    { pattern: /^(you suck|this sucks|worst|hate this)/i, intent: "chat.insult" },
+    // What can you do / capabilities
+    { pattern: /^(what (else )?can you do|show me what you can do|what are your (skills|capabilities|features))/i, intent: "chat.capabilities" },
+    // Bored / entertain me
+    { pattern: /^(i('m| am) bored|entertain me|do something (cool|fun|interesting)|surprise me|show me something)/i, intent: "chat.bored" },
+    // Existential
+    { pattern: /^(are you (alive|real|sentient|conscious|human|ai|a robot|a bot))/i, intent: "chat.existential" },
+    { pattern: /^(do you (dream|sleep|feel|think|have feelings|have emotions))/i, intent: "chat.existential" },
+    // Motivational
+    { pattern: /^(motivate me|inspire me|give me a (quote|pep talk)|i need motivation)/i, intent: "chat.motivate" },
+    // Facts / trivia
+    { pattern: /^(tell me a fact|random fact|fun fact|did you know|trivia)/i, intent: "chat.fact" },
+    // Easter eggs
+    { pattern: /^(42|meaning of life|do a barrel roll|make me a sandwich|sudo make me a sandwich)/i, intent: "chat.easter" },
+    { pattern: /^(what is the matrix|open the pod bay doors|i am your father|may the force)/i, intent: "chat.easter" },
+    // Apology
+    { pattern: /^(sorry|my bad|i('m| am) sorry|apologies|oops|my mistake)/i, intent: "chat.sorry" },
+    // Agreement / affirmation (not pending action)
+    { pattern: /^(cool|nice|ok cool|awesome|sweet|neat|dope|sick|rad|lit)\s*[!.]*$/i, intent: "chat.acknowledge" },
+    // How old are you / version
+    { pattern: /^(how old are you|when were you (made|born|created)|your (age|birthday|version))/i, intent: "chat.age" },
+    // Favorite things
+    { pattern: /^(what('s| is) your favorite|do you have a favorite)/i, intent: "chat.favorite" },
+    // Riddles
+    { pattern: /^(tell me a riddle|riddle|give me a riddle|riddle me|got a riddle|brain teaser)\s*[!?.]*$/i, intent: "chat.riddle" },
+    // Today in history
+    { pattern: /^(what happened today|today in history|on this day|this day in history|historical fact|history fact)\s*[!?.]*$/i, intent: "chat.history_today" },
+    // Task management (natural language)
+    { pattern: /^(what'?s running in (the )?background|any(thing)? running in (the )?background|running tasks|background tasks|active tasks|show (my )?tasks|what tasks)\s*[!?.]*$/i, intent: "notoken.jobs" },
+    { pattern: /^(cancel|stop|kill|abort)\s+(it|that|everything|all( tasks)?|the (task|job|scan|download))\s*$/i, intent: "notoken.cancel" },
+    { pattern: /^(cancel|stop|kill) (task|job) #?\d+$/i, intent: "notoken.cancel" },
+  ];
+  for (const { pattern, intent } of casualPatterns) {
+    if (pattern.test(text)) return { intent, confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Pre-check: negation detection — "don't restart nginx", "do not check disk", "never mind"
+  // Note: "stop <service>" is a legitimate stop command, so we only match "stop" when
+  // followed by a verb (e.g. "stop checking") or on its own, not "stop <noun>"
+  if (/^(don'?t|do not|no don'?t)\s+/i.test(text)
+      || /^(cancel|never mind|abort|nevermind)$/i.test(text)
+      || /^never\s+(do|run|execute|mind)/i.test(text)
+      || /^stop\s+(doing|checking|running|monitoring|that|it)(\s|$)/i.test(text)) {
+    return { intent: "notoken.cancel", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Pre-check: status queries → notoken.status (not knowledge.lookup or service.status)
+  if (/^(what is |what's |show |check |give me )?(the )?(system |computer |machine |notoken )?status( of)?( this| the| my)?( machine| computer| system| server)?[?.!]?$/.test(text)
+      || /^(how is |how's )?(this |the |my )?(system|machine|computer|server) doing/.test(text)
+      || /^system status$/.test(text)) {
+    const statusDef = intents.find(i => i.name === "notoken.status");
+    if (statusDef) return { intent: "notoken.status", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Pre-check: server/system queries — "what is load", "what is cpu usage", "what is memory", "how much ram"
+  if (/^(what is |what's |show |check |how much |how's )?(the )?(load|cpu|cpu usage|uptime|server load)( right now| currently| on this)?\??$/.test(text)
+      || /^(what is |show )?(the )?(load|cpu) (average|right now|currently)/.test(text)) {
+    return { intent: "server.uptime", confidence: 0.9, rawText, fields: {} };
+  }
+  // "what is using heavy cpu" / "what is eating cpu" / "any heavy load processes"
+  if (/\b(what|which|any)\b.*(using|eating|taking|hogging|consuming)\b.*(cpu|processing|resources|memory|ram|load)\b/i.test(text)
+      || /\b(heavy|high)\s+(load|cpu|processing|processes)\b/i.test(text)) {
+    return { intent: "process.list", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^(what is |what's |show |check |how much )?(the )?(memory|ram|memory usage|ram usage)( right now| left| free| used| currently)?\??$/.test(text)) {
+    return { intent: "server.check_memory", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^(what is |what's |show |check |how much )?(the |my )?(disk|disk space|storage|space|drives)( left| free| used| right now| currently)?\??$/.test(text)) {
+    return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Pre-check: common conversational queries that get misrouted
+
+  // Weather
+  if (/\b(weather|forecast|temperature|rain|snow|sunny|cloudy)\b/i.test(text)
+      && !/\b(log|error|server|disk)\b/i.test(text)) {
+    const locMatch = text.match(/(?:weather|forecast|temperature)\s+(?:in|at|for|of)\s+(.+?)(?:\?|$)/i)
+      ?? text.match(/(?:in|at|for)\s+(.+?)(?:\s+weather|\s+forecast|\?|$)/i);
+    return { intent: "weather.current", confidence: 0.95, rawText, fields: locMatch ? { location: locMatch[1].trim() } : {} };
+  }
+
+  // News
+  if (/^(what is |what's |show me )?(the )?(latest |today's |current )?(news|headlines|top stories)/i.test(text)
+      || /^(any |what's? )?news( today)?\??$/i.test(text)) {
+    return { intent: "news.headlines", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Database size
+  if (/\b(how big|size of|how much space)\b.*\b(database|db|mysql|postgres|mongo)\b/i.test(text)
+      || /\b(database|db)\s+(size|storage|disk|space)\b/i.test(text)) {
+    return { intent: "db.size", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Time/date
+  if (/^(what is |what's )?(the )?(time|date|day|today)( right now| today)?\??$/.test(text)) {
+    return { intent: "system.datetime", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Help / capabilities
+  // Only match bare help — not "ask openclaw what can you do"
+  if (/^(help|help me|what can you do|what do you do|show me help|commands)\??$/.test(text) && !text.includes("openclaw") && !text.includes("claw")) {
+    return { intent: "notoken.help", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // History / undo
+  if (/^(show me |what is )?(my )?history$/.test(text) || /^what did i (do|run|ask) (last|before|previously)/.test(text)) {
+    return { intent: "notoken.history", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^undo( that| last| it)?$/.test(text)) {
+    return { intent: "notoken.undo", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Who am I / logged in users
+  if (/^who am i\??$/.test(text) || /^(what is |what's )?my (user|username|login)\??$/.test(text)) {
+    return { intent: "user.whoami", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^who (else )?(is |are )?(logged in|online|connected)\??$/.test(text)) {
+    return { intent: "user.who", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Running services
+  if (/^(show me |list |what are )?(the )?(running |active )?services$/.test(text)) {
+    return { intent: "service.list", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Network: ip address, bandwidth, speed, slow
+  if (/^(what is |what's |show )?(my )?(ip|ip address|public ip)\??$/.test(text)) {
+    return { intent: "network.ip", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/\b(bandwidth|network speed|connection speed|speed test|speedtest)\b/i.test(text) || /^(is the )?network slow\??$/.test(text)) {
+    return { intent: "network.speedtest", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Block/unblock IP → firewall
+  if (/^(block|unblock|ban|unban)\s+(this\s+)?ip/i.test(text) || /^(block|unblock|ban|unban)\s+\d+\.\d+/i.test(text)) {
+    return { intent: "firewall.block_ip", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Docker queries with "show me"
+  if (/^(show me |list )?(docker )?(images|containers)$/.test(text) || /^what (containers|images) are (running|there)\??$/.test(text)) {
+    const isImages = /images/.test(text);
+    return { intent: isImages ? "docker.images" : "docker.list", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Large files
+  if (/^find (large|big|huge) files$/.test(text) || /\b(large|big|huge) files\b/.test(text)) {
+    return { intent: "disk.scan", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Error logs
+  if (/^(show me |check |any )?(the )?(error|recent) logs$/.test(text) || /^any errors in (the )?logs\??$/.test(text)) {
+    return { intent: "logs.errors", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Clear screen
+  if (/^clear( the)?( screen| terminal)?$/.test(text)) {
+    return { intent: "shell.clear", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Disk IO
+  if (/^(show me |check )?(disk|io|disk io|iops)( stats| usage)?\??$/.test(text)) {
+    return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Website up check
+  if (/^(check if |is )?(the |my )?(website|site|server|page) (is )?(up|down|running|alive|responding)\??$/.test(text)) {
+    return { intent: "network.curl", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Pre-check: attack/security/ddos queries → security.scan
+  if (/\b(attack|ddos|brute.?force|intrusion|hacked|breach|compromised|unauthorized|virus|malware|rootkit)\b/i.test(text)
+      || /\b(are we|am i|is .* being)\s+(under\s+)?attack/i.test(text)
+      || /\b(suspicious|failed)\s+(activity|login|connection|traffic|access)/i.test(text)
+      || /\bwho is (attacking|hacking|connecting|hitting)/i.test(text)
+      || /\bcheck (for )?(attacks|security|intrusion|viruses|malware)/i.test(text)
+      || /\b(any )?(viruses|malware|rootkits?) (on|in|running)/i.test(text)) {
+    return { intent: "security.scan", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Pre-check: "can you generate an image" → ai.generate_image (not ai.image_status)
+  if (/^(can you|could you|are you able to|do you)\s+(generate|create|make|draw)\s+(an?\s+)?(image|picture|photo|art)/i.test(text)) {
+    return { intent: "ai.generate_image", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Pre-check: "cd /path" → shell cd (change directory)
+  const cdMatch = text.match(/^cd\s+(\/\S+|~\S*|\.\S*)$/);
+  if (cdMatch) {
+    return { intent: "shell.cd", confidence: 0.95, rawText, fields: { path: cdMatch[1] } };
+  }
+
+  // Pre-check: "what is in my documents/folder/drive" → dir.list
+  const whatIsInMatch = text.match(/^(?:what is |what's |show me what(?:'s| is) )in (?:my |the |this )?(.*?)(?:\?|$)/);
+  if (whatIsInMatch) {
+    const target = whatIsInMatch[1].trim();
+    // Resolve common folder names
+    const folderMap: Record<string, string> = {
+      "documents": process.platform === "win32" ? "%USERPROFILE%\\Documents" : "~/Documents",
+      "documents folder": process.platform === "win32" ? "%USERPROFILE%\\Documents" : "~/Documents",
+      "downloads": process.platform === "win32" ? "%USERPROFILE%\\Downloads" : "~/Downloads",
+      "downloads folder": process.platform === "win32" ? "%USERPROFILE%\\Downloads" : "~/Downloads",
+      "desktop": process.platform === "win32" ? "%USERPROFILE%\\Desktop" : "~/Desktop",
+      "home": "~",
+      "home folder": "~",
+      "home directory": "~",
+      "root": "/",
+      "root folder": "/",
+      "root c drive": "/mnt/c/",
+      "c drive": "/mnt/c/",
+      "d drive": "/mnt/d/",
+      "e drive": "/mnt/e/",
+    };
+    const path = folderMap[target] ?? target;
+    if (target.includes("drive")) {
+      return { intent: "disk.scan", confidence: 0.9, rawText, fields: { path } };
+    }
+    return { intent: "dir.list", confidence: 0.9, rawText, fields: { path } };
+  }
+
+  // Pre-check: "what projects are on this drive" → project.scan
+  if (/\bwhat projects\b.*\b(on|in)\b.*\b(this|the|my|c|d)\b/.test(text)) {
+    return { intent: "project.scan", confidence: 0.9, rawText, fields: { path: "." } };
+  }
+
+  // Pre-check: "what's on this drive" / "show me whats on this drive" → disk.scan
+  if (/\b(what.?s|show me what.?s|what is) on (this|the|my|c|d) drive\b/.test(text)
+      || /\bshow me (this|the|my) drive\b/.test(text)) {
+    return { intent: "disk.scan", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Pre-check: "what files" / "what are files in this folder" → dir.list or project.detect
+  if (/^(what are |what's in |show me |list |show )(the )?(files|contents)( in| of)?( this| the| my| current)?( folder| directory| dir| project)?[?.!]?$/.test(text)
+      || /^(show me |list )(project |all )?files$/.test(text)) {
+    const isDirList = text.includes("folder") || text.includes("directory") || text.includes("dir");
+    const intentName = isDirList ? "dir.list" : "project.detect";
+    return { intent: intentName, confidence: 0.9, rawText, fields: { path: "." } };
+  }
+
+  // Pre-check: "how is openclaw doing" / "how is discord doing" → *.status
+  const howIsMatch = text.match(/^how(?:'s| is| are) (openclaw|claw|discord|ollama|notoken) (?:doing|going|running|working)/);
+  if (howIsMatch) {
+    const target = howIsMatch[1] === "claw" ? "openclaw" : howIsMatch[1];
+    const intentName = target === "notoken" ? "notoken.status" : `${target}.status`;
+    return { intent: intentName, confidence: 0.9, rawText, fields: {} };
+  }
+
   // Match intent by synonyms defined in intents.json
   const matched = matchIntent(text, intents);
   if (!matched) return null;
@@ -105,6 +367,11 @@ function extractStringFields(
       remaining = remaining.replace(v, " ");
     }
   }
+  remaining = remaining.replace(/\s+/g, " ").trim();
+
+  // Strip filler words that aren't meaningful field values
+  remaining = remaining.replace(/^(can you |could you |would you |please |hey |yo |just )+/i, "").trim();
+  remaining = remaining.replace(/\b(please|for me|for errors|for issues)\b/gi, "").trim();
   remaining = remaining.replace(/\s+/g, " ").trim();
 
   // Check for quoted strings first

@@ -1,0 +1,20 @@
+{
+  "description": "Random image prompts used when user asks to generate an image without specifying what. Add your own!",
+  "prompts": [
+    "a cyberpunk cityscape at sunset with neon reflections on wet streets",
+    "a serene mountain lake surrounded by autumn trees and morning fog",
+    "a steampunk robot reading a book in a cozy library",
+    "an underwater temple with glowing coral and tropical fish",
+    "a wolf howling at a massive aurora borealis in the arctic",
+    "a floating island with waterfalls and ancient ruins at golden hour",
+    "a cozy cabin in a snowy forest with warm light glowing from the windows",
+    "a dragon perched on a crystal mountain at dawn",
+    "a futuristic space station orbiting a ringed planet",
+    "a samurai standing in a field of cherry blossoms in the rain",
+    "a magical library with books flying off the shelves",
+    "an old lighthouse on a cliff during a dramatic thunderstorm",
+    "a fox walking through an enchanted forest with glowing mushrooms",
+    "a vintage train crossing a massive stone bridge over a misty valley",
+    "a robot tending a garden of bioluminescent flowers on Mars"
+  ]
+}

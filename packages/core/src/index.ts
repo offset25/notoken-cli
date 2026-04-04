@@ -14,16 +14,33 @@ export { parseByRules } from "./nlp/ruleParser.js";
 export { disambiguate } from "./nlp/disambiguate.js";
 export { classifyMulti } from "./nlp/multiClassifier.js";
 export { semanticParse, tokenize, keyboardDistance, fuzzyMatch } from "./nlp/semantic.js";
+export { findSimilarIntents, phraseSimilarity, expandWithCooccurrences } from "./nlp/semanticSimilarity.js";
+export { loadKnowledgeGraph, saveKnowledgeGraph, addEntity, addRelation, getEntity, getRelated, resolveReference, resolveCandidates, inferIntent, queryGraph, rebuildGraph, learnFromExecution, flushGraph } from "./nlp/knowledgeGraph.js";
+export { expandQuery, findCluster, suggestIntents, clusterWords } from "./nlp/conceptExpansion.js";
 export { analyzeUncertainty, getUncoveredSpans } from "./nlp/uncertainty.js";
 export { llmFallback, isLLMConfigured, getLLMBackend, formatLLMFallback } from "./nlp/llmFallback.js";
+export { suggestEntityCorrection, correctEntities, resolveDescription, resetEntityVocab } from "./nlp/entitySpellCorrect.js";
+export { recordOutcome, getMultiplier, calibrateVotes, recordCorrection, getCalibrationStats, flushCalibration } from "./nlp/confidenceCalibrator.js";
+export { detectBatch, expandBatch, expandEnvironmentBatch } from "./nlp/batchParser.js";
+export { getCurrentTopic, suggestFollowups, getTopicDefault } from "./conversation/topicTracker.js";
+
+// ── Progress & History ──
+export { progressReporter, reportProgress, reportStep } from "./utils/progressReporter.js";
+export { loadHistory as loadCommandHistory, addToHistory, searchHistory as searchCommandHistory, getRecentCommands, getReadlineHistory } from "./utils/commandHistory.js";
+
+// ── Achievements & Teach ──
+export { recordCommand, getAchievements, getUsageStats, flushStats } from "./utils/achievements.js";
+export { teachCommand, getLearnedCommand, listLearnedCommands, forgetCommand, parseTeachStatement } from "./utils/teachMode.js";
 
 // ── Execution ──
-export { executeIntent } from "./handlers/executor.js";
+export { executeIntent, getRandomTip } from "./handlers/executor.js";
 export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";
 
 // ── Config ──
 export { loadRules, loadIntents, getIntentDef, loadHosts, getConfigDir } from "./utils/config.js";
 export { CONFIG_DIR, DATA_DIR, LOG_DIR, PACKAGE_ROOT, USER_HOME, isSEA, ensureUserDirs } from "./utils/paths.js";
+export { loadAliases, resolveAlias, saveAlias, removeAlias, listAliases } from "./utils/aliases.js";
+export { buildCompletions, completeInput } from "./utils/completer.js";
 
 // ── Platform & Detection ──
 export { detectLocalPlatform, getInstallCommand, getServiceCommand, getPackageForCommand, formatPlatform } from "./utils/platform.js";
@@ -96,6 +113,12 @@ export {
   createFullBackup, restoreFromBackup, listFullBackups, formatBackupsList,
   type BackupInfo,
 } from "./utils/sessionBackup.js";
+
+// ── Smart Retry ──
+export {
+  analyzeFailure,
+  type FailureAnalysis,
+} from "./utils/smartRetry.js";
 
 // ── Pending Actions ──
 export {
@@ -179,6 +202,23 @@ export {
   isPackageRunning, launchPackage, stopPackage, listModels, downloadModel,
   formatSMStatus, enableAPI, setLaunchArgs,
 } from "./utils/stabilityMatrixManager.js";
+
+// ── Developer Tools ──
+export {
+  formatJson, validateJson, testRegex, encodeBase64, decodeBase64,
+  encodeUrl, decodeUrl, hashString, hashFile, generateUuid,
+  convertUnixTimestamp, diffStrings,
+} from "./utils/devTools.js";
+
+// ── Timer / Reminders ──
+export { startTimer, listTimers, cancelTimer, drainNotifications, pendingNotifications } from "./utils/timer.js";
+export type { Timer } from "./utils/timer.js";
+
+// ── Bookmarks ──
+export { saveBookmark, listBookmarks, getBookmark, removeBookmark } from "./utils/bookmarks.js";
+
+// ── Snippets ──
+export { saveSnippet, listSnippets, getSnippet, runSnippet } from "./utils/snippets.js";
 
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";

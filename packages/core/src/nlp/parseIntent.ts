@@ -13,6 +13,48 @@ import { isAffirmation, consumePendingAction, isRedirectingPendingAction } from 
 export type { MultiIntentPlan };
 
 export async function parseIntent(rawText: string): Promise<ParsedCommand & { plan?: MultiIntentPlan }> {
+  // Stage -2: Knowledge graph reference resolution
+  // Only resolve if coreference hasn't already handled it (avoid double resolution).
+  // Coreference runs in interactive mode (interactive.ts), knowledge graph here covers one-shot mode.
+  // Stage -2: Knowledge graph reference resolution with candidate scoring
+  const hasPronouns = /\b(it|that|this)\b/i.test(rawText) && !/\b(it's|that's|this is)\b/i.test(rawText);
+  if (hasPronouns) {
+    try {
+      const { resolveCandidates } = await import("./knowledgeGraph.js");
+      const { getOrCreateConversation, getRecentEntities } = await import("../conversation/store.js");
+      const conv = getOrCreateConversation(process.cwd());
+      const recentEnts = getRecentEntities(conv, 5).map((e: { entity: string }) => e.entity);
+
+      const words = rawText.split(/\s+/);
+      let resolved = rawText;
+      for (const word of words) {
+        if (/^(it|that|this)$/i.test(word)) {
+          const candidates = resolveCandidates(word, recentEnts);
+          if (candidates.length > 0) {
+            const best = candidates[0];
+            // Only resolve if confident (score > 0.5) or clear winner (gap > 0.2)
+            const gap = candidates.length > 1 ? best.score - candidates[1].score : 1;
+            if (best.score > 0.5 || gap > 0.2) {
+              resolved = resolved.replace(new RegExp(`\\b${word}\\b`, "i"), best.entity.name);
+              // Show candidates if close (for transparency)
+              if (candidates.length > 1 && gap < 0.3) {
+                const alt = candidates.slice(0, 3).map(c => `${c.entity.name} (${(c.score * 100).toFixed(0)}%)`).join(", ");
+                console.error(`\x1b[2mResolved "${word}" → ${best.entity.name} (candidates: ${alt})\x1b[0m`);
+              }
+            }
+          }
+        }
+      }
+      if (resolved !== rawText) {
+        const resolvedResult = parseByRules(resolved);
+        if (resolvedResult && resolvedResult.confidence >= 0.7) {
+          resolvedResult.rawText = rawText;
+          return disambiguate(resolvedResult);
+        }
+      }
+    } catch { /* knowledge graph not available */ }
+  }
+
   // Stage -1a: check if user is redirecting a pending action ("put it on F drive")
   const redirect = isRedirectingPendingAction(rawText);
   if (redirect) {
@@ -107,6 +149,24 @@ export async function parseIntent(rawText: string): Promise<ParsedCommand & { pl
       fields: mFields,
     });
   }
+
+  // Stage 2.75: semantic similarity — catches paraphrases that exact matching misses
+  try {
+    const { findSimilarIntents } = await import("./semanticSimilarity.js");
+    const similar = findSimilarIntents(rawText, 3);
+    if (similar.length > 0 && similar[0].score >= 0.4) {
+      // Only use if it's clearly the best match (gap > 0.1 from second)
+      const gap = similar.length > 1 ? similar[0].score - similar[1].score : 1;
+      if (gap > 0.08 || similar[0].score >= 0.6) {
+        return disambiguate({
+          intent: similar[0].intent,
+          rawText,
+          confidence: Math.min(0.85, similar[0].score + 0.3),
+          fields: {},
+        });
+      }
+    }
+  } catch { /* semantic similarity not available */ }
 
   // Stage 3: LLM fallback
   const llmResult = await parseByLLM(rawText);

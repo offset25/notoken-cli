@@ -26,9 +26,48 @@ import { resolveEntity, verbalizeResolution, learnEntity, listEntities } from ".
 import { diagnoseOpenclaw, autoFixOpenclaw, quickConnectivityCheck } from "../utils/openclawDiag.js";
 const execAsync = promisify(exec);
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
+import {
+  formatJson, validateJson, testRegex, encodeBase64, decodeBase64,
+  encodeUrl, decodeUrl, hashString, hashFile, generateUuid,
+  convertUnixTimestamp, diffStrings,
+} from "../utils/devTools.js";
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
 import { suggestAction } from "../conversation/pendingActions.js";
+import { resolve as pathResolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync as _existsSync, readFileSync as _readFileSync } from "node:fs";
+
+/** Resolve a config file path — works from any cwd, any OS, including global npm install. */
+const _configDir = pathResolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "config");
+const _userHome = process.env.NOTOKEN_HOME ?? pathResolve(process.env.HOME ?? process.env.USERPROFILE ?? process.env.HOMEPATH ?? ".", ".notoken");
+function resolveConfig(filename: string): string | null {
+  const candidates = [
+    pathResolve(_userHome, filename),
+    pathResolve(_configDir, filename),
+    pathResolve(process.cwd(), "packages", "core", "config", filename),
+    pathResolve(process.cwd(), "config", filename),
+  ];
+  for (const p of candidates) {
+    if (_existsSync(p)) return p;
+  }
+  return null;
+}
+
+function loadConfigJson(filename: string): any {
+  const p = resolveConfig(filename);
+  if (!p) return null;
+  try { return JSON.parse(_readFileSync(p, "utf-8")); } catch { return null; }
+}
+
+/** Return a random formatted CLI tip. */
+export function getRandomTip(): string {
+  const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+  const tipsData = loadConfigJson("daily-tips.json");
+  if (!tipsData?.tips?.length) return `${cc.dim}No tips available.${cc.reset}`;
+  const tip = tipsData.tips[Math.floor(Math.random() * tipsData.tips.length)];
+  return `${cc.cyan}${cc.bold}Tip:${cc.reset} ${tip}`;
+}
 
 /**
  * Generic command executor.
@@ -41,6 +80,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
   if (!def) {
     throw new Error(`No intent definition found for: ${intent.intent}`);
   }
+
+  // Learn from this execution — grows the knowledge graph over time
+  try {
+    const { learnFromExecution } = await import("../nlp/knowledgeGraph.js");
+    learnFromExecution(intent.intent, intent.fields as Record<string, unknown>, intent.rawText);
+  } catch { /* knowledge graph not available */ }
 
   // Plugin beforeExecute hooks — can cancel execution
   const proceed = await pluginRegistry.runBeforeExecute({
@@ -70,7 +115,9 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     // For ambiguous intents (diagnose, fix, check, status, restart, etc.)
     // without an explicit service name — resolve from entity focus
     const ambiguousVerbs = /^(diagnose|fix|check|troubleshoot|repair|restart|start|stop|status|update)\s*$/i;
-    if (ambiguousVerbs.test(rawLower.trim()) || (rawLower.match(/^(diagnose|fix|check|troubleshoot|repair)\s+(it|this|that)$/i))) {
+    // Don't override notoken.status — bare "status" should stay as system dashboard
+    if (intent.intent === "notoken.status") { /* skip context injection */ }
+    else if (ambiguousVerbs.test(rawLower.trim()) || (rawLower.match(/^(diagnose|fix|check|troubleshoot|repair)\s+(it|this|that)$/i))) {
       const focus = getEntityFocus(conv);
       if (focus) {
         const target = focus.entityId;
@@ -284,6 +331,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
       ocLabel = `${cc.bold}${cc.cyan}Targeting: local${cc.reset}`;
     }
     console.log(`\n  ${ocLabel}\n`);
+  }
+
+  // Discord monitor — lightweight watcher that tails gateway logs
+  if (intent.intent === "discord.monitor" || intent.rawText.match(/\b(monitor|watch|tail)\b.*\bdiscord\b/i)) {
+    const { monitorDiscord } = await import("../utils/discordDiag.js");
+    return monitorDiscord();
   }
 
   // Discord diagnose/fix/check — by intent or raw text match
@@ -884,13 +937,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
         // Load model database for context window info
         let modelDb: Record<string, any> = {};
-        try {
-          const { readFileSync, existsSync } = await import("node:fs");
-          const { resolve } = await import("node:path");
-          for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
-            if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
-          }
-        } catch { /* */ }
+        try { modelDb = loadConfigJson("ollama-models.json")?.models ?? {}; } catch { /* */ }
 
         const modelInfo = modelDb[ollamaModelName] ?? modelDb[ollamaModelName.split(":")[0]];
         const ctxWindow = modelInfo?.context ?? 0;
@@ -1205,7 +1252,56 @@ expect eof
     return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n    ${codexOk ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m codex\n\n  \x1b[2mSwitch: "use claude", "use ollama", "use codex"\x1b[0m`;
   }
 
+  // ── Cheat sheet handler ──
+  if (intent.intent === "dev.cheatsheet") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
+    const sheetsData = loadConfigJson("cheat-sheets.json");
+    if (!sheetsData?.sheets) return `${cc.red}Could not load cheat sheets.${cc.reset}`;
+
+    // Extract topic from fields or raw text
+    let topic = (intent.fields as any)?.topic?.toLowerCase?.() ?? "";
+    if (!topic) {
+      const raw = intent.rawText.toLowerCase();
+      const available = Object.keys(sheetsData.sheets);
+      for (const key of available) {
+        if (raw.includes(key)) { topic = key; break; }
+      }
+    }
+
+    if (!topic || !sheetsData.sheets[topic]) {
+      const available = Object.keys(sheetsData.sheets).join(", ");
+      return `${cc.yellow}Unknown topic.${cc.reset} Available cheat sheets: ${cc.bold}${available}${cc.reset}`;
+    }
+
+    const sheet = sheetsData.sheets[topic];
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}${sheet.title}${cc.reset}\n`);
+
+    // Calculate column widths for table alignment
+    const maxCmd = Math.max(...sheet.commands.map((c: any) => c.cmd.length));
+    const pad = Math.min(maxCmd + 2, 50);
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}`);
+    lines.push(`  ${cc.bold}${"Command".padEnd(pad)}Description${cc.reset}`);
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}`);
+
+    for (const entry of sheet.commands) {
+      lines.push(`  ${cc.green}${entry.cmd.padEnd(pad)}${cc.reset}${cc.dim}${entry.desc}${cc.reset}`);
+    }
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}\n`);
+    return lines.join("\n");
+  }
+
+  // ── Daily tip handler ──
+  if (intent.intent === "notoken.tip") {
+    return getRandomTip();
+  }
+
   // Notoken status — comprehensive overview
+  // notoken.jobs — in one-shot mode just say "use interactive mode"
+  if (intent.intent === "notoken.jobs") {
+    return `\x1b[32m✓\x1b[0m No background tasks (one-shot mode).\n\x1b[2m  Run \x1b[1mnotoken\x1b[0m\x1b[2m for interactive mode with background task support.\x1b[0m`;
+  }
+
   if (intent.intent === "notoken.status") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
     const lines: string[] = [];
@@ -1388,13 +1484,7 @@ expect eof
 
     // Load model database
     let modelDb: any = {};
-    try {
-      const { readFileSync, existsSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
-        if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
-      }
-    } catch { /* no model db */ }
+    try { modelDb = loadConfigJson("ollama-models.json")?.models ?? {}; } catch { /* no model db */ }
 
     lines.push(`  ${cc.bold}Installed:${cc.reset}`);
     if (installed.includes("NAME")) {
@@ -2536,6 +2626,698 @@ expect eof
     return lines.join("\n");
   }
 
+  // Weather — uses wttr.in (free, no API key)
+  if (intent.intent === "weather.current") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    let location = (fields.location as string) ?? "";
+
+    // Auto-detect location if not specified
+    if (!location) {
+      try {
+        const geoResp = await fetch("https://ipinfo.io/json", { signal: AbortSignal.timeout(5000) });
+        if (geoResp.ok) {
+          const geo = await geoResp.json() as { city?: string; region?: string; country?: string };
+          location = geo.city ?? geo.region ?? "";
+          if (location) console.log(`${cc.dim}Detected location: ${location}${cc.reset}`);
+        }
+      } catch { /* use empty — wttr.in will auto-detect */ }
+    }
+
+    const query = encodeURIComponent(location);
+    try {
+      // Get compact weather from wttr.in
+      const resp = await fetch(`https://wttr.in/${query}?format=j1`, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) throw new Error(`wttr.in returned ${resp.status}`);
+      const data = await resp.json() as any;
+
+      const current = data.current_condition?.[0];
+      const area = data.nearest_area?.[0];
+      const forecast = data.weather?.slice(0, 3);
+
+      if (!current) return `${cc.yellow}⚠${cc.reset} Could not get weather data.`;
+
+      const cityName = area?.areaName?.[0]?.value ?? location ?? "your location";
+      const region = area?.region?.[0]?.value ?? "";
+      const country = area?.country?.[0]?.value ?? "";
+
+      const lines: string[] = [];
+      lines.push(`\n${cc.bold}${cc.cyan}── Weather: ${cityName}${region ? `, ${region}` : ""}${country ? ` (${country})` : ""} ──${cc.reset}\n`);
+
+      // Current conditions
+      const tempC = current.temp_C;
+      const tempF = current.temp_F;
+      const desc = current.weatherDesc?.[0]?.value ?? "Unknown";
+      const feelsLikeC = current.FeelsLikeC;
+      const feelsLikeF = current.FeelsLikeF;
+      const humidity = current.humidity;
+      const wind = current.windspeedKmph;
+      const windDir = current.winddir16Point;
+      const precip = current.precipMM;
+      const visibility = current.visibility;
+      const uv = current.uvIndex;
+
+      lines.push(`  ${cc.bold}Now:${cc.reset} ${desc}`);
+      lines.push(`  ${cc.bold}Temp:${cc.reset} ${tempC}°C / ${tempF}°F ${feelsLikeC !== tempC ? `(feels like ${feelsLikeC}°C / ${feelsLikeF}°F)` : ""}`);
+      lines.push(`  ${cc.bold}Humidity:${cc.reset} ${humidity}%  ${cc.bold}Wind:${cc.reset} ${wind} km/h ${windDir}`);
+      if (parseFloat(precip) > 0) lines.push(`  ${cc.bold}Precipitation:${cc.reset} ${precip}mm`);
+      lines.push(`  ${cc.bold}Visibility:${cc.reset} ${visibility}km  ${cc.bold}UV:${cc.reset} ${uv}`);
+
+      // 3-day forecast
+      if (forecast?.length) {
+        lines.push(`\n  ${cc.bold}Forecast:${cc.reset}`);
+        for (const day of forecast) {
+          const date = day.date;
+          const maxC = day.maxtempC;
+          const minC = day.mintempC;
+          const maxF = day.maxtempF;
+          const minF = day.mintempF;
+          const dayDesc = day.hourly?.[4]?.weatherDesc?.[0]?.value ?? "—";
+          const rainChance = day.hourly?.[4]?.chanceofrain ?? "0";
+          lines.push(`    ${cc.dim}${date}${cc.reset} ${dayDesc} — ${minC}–${maxC}°C / ${minF}–${maxF}°F${parseInt(rainChance) > 30 ? ` 🌧 ${rainChance}% rain` : ""}`);
+        }
+      }
+
+      // Also get the ASCII art version for fun
+      const asciiResp = await fetch(`https://wttr.in/${query}?format=3`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+      if (asciiResp?.ok) {
+        const ascii = await asciiResp.text();
+        lines.push(`\n  ${cc.dim}${ascii.trim()}${cc.reset}`);
+      }
+
+      return lines.join("\n");
+    } catch (err: unknown) {
+      // Fallback to simple text format
+      try {
+        const simpleResp = await fetch(`https://wttr.in/${query}?format=%l:+%c+%t+%h+%w`, { signal: AbortSignal.timeout(5000) });
+        if (simpleResp.ok) return await simpleResp.text();
+      } catch {}
+      return `${cc.yellow}⚠${cc.reset} Could not fetch weather: ${(err as Error).message}`;
+    }
+  }
+
+  // News headlines — fetches from RSS feeds
+  if (intent.intent === "news.headlines") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+
+    // Load RSS feeds from config or use defaults
+    let feeds = [
+      { name: "Hacker News", url: "https://hnrss.org/frontpage?count=5" },
+      { name: "Tech", url: "https://feeds.arstechnica.com/arstechnica/technology-lab?count=5" },
+    ];
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const feedFile = resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "news-feeds.json");
+      if (existsSync(feedFile)) {
+        feeds = JSON.parse(readFileSync(feedFile, "utf-8")).feeds ?? feeds;
+      }
+    } catch {}
+
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Headlines ──${cc.reset}\n`);
+
+    for (const feed of feeds) {
+      try {
+        const resp = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
+        if (!resp.ok) continue;
+        const xml = await resp.text();
+
+        // Simple XML parsing for RSS <item><title>
+        const items = xml.match(/<item>[\s\S]*?<\/item>/g)?.slice(0, 5) ?? [];
+        if (items.length === 0) continue;
+
+        lines.push(`  ${cc.bold}${feed.name}:${cc.reset}`);
+        for (const item of items) {
+          const title = item.match(/<title><!\[CDATA\[(.*?)\]\]>|<title>(.*?)<\/title>/)?.[1] ?? item.match(/<title>(.*?)<\/title>/)?.[1] ?? "";
+          const link = item.match(/<link>(.*?)<\/link>/)?.[1] ?? "";
+          if (title) {
+            lines.push(`    ${cc.cyan}•${cc.reset} ${title.trim()}`);
+            if (link) lines.push(`      ${cc.dim}${link.trim()}${cc.reset}`);
+          }
+        }
+        lines.push("");
+      } catch { /* skip failed feed */ }
+    }
+
+    if (lines.length <= 2) {
+      lines.push(`  ${cc.dim}Could not fetch news. Check your internet connection.${cc.reset}`);
+    }
+
+    lines.push(`  ${cc.dim}Customize feeds: ~/.notoken/news-feeds.json${cc.reset}`);
+    return lines.join("\n");
+  }
+
+  // Database size check
+  if (intent.intent === "db.size") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Database Size ──${cc.reset}\n`);
+
+    // Check MySQL
+    const mysql = await runLocalCommand("mysql -e \"SELECT table_schema AS 'Database', ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)' FROM information_schema.tables GROUP BY table_schema ORDER BY SUM(data_length + index_length) DESC;\" 2>/dev/null").catch(() => "");
+    if (mysql.trim()) {
+      lines.push(`  ${cc.bold}MySQL:${cc.reset}`);
+      for (const l of mysql.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check PostgreSQL
+    const pg = await runLocalCommand("sudo -u postgres psql -c \"SELECT pg_database.datname AS database, pg_size_pretty(pg_database_size(pg_database.datname)) AS size FROM pg_database ORDER BY pg_database_size(pg_database.datname) DESC LIMIT 10;\" 2>/dev/null").catch(() => "");
+    if (pg.trim()) {
+      lines.push(`${mysql.trim() ? "\n" : ""}  ${cc.bold}PostgreSQL:${cc.reset}`);
+      for (const l of pg.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check MongoDB
+    const mongo = await runLocalCommand("mongosh --quiet --eval 'db.adminCommand(\"listDatabases\").databases.forEach(d => print(d.name + \": \" + (d.sizeOnDisk/1024/1024).toFixed(2) + \" MB\"))' 2>/dev/null").catch(() => "");
+    if (mongo.trim()) {
+      lines.push(`${(mysql.trim() || pg.trim()) ? "\n" : ""}  ${cc.bold}MongoDB:${cc.reset}`);
+      for (const l of mongo.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check SQLite files
+    const sqlite = await runLocalCommand("find /var/lib /home -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' 2>/dev/null | head -5").catch(() => "");
+    if (sqlite.trim()) {
+      lines.push(`\n  ${cc.bold}SQLite files:${cc.reset}`);
+      for (const f of sqlite.trim().split("\n")) {
+        const size = await runLocalCommand(`du -sh "${f}" 2>/dev/null | awk '{print $1}'`).catch(() => "?");
+        lines.push(`    ${cc.dim}${size.trim().padEnd(8)} ${f}${cc.reset}`);
+      }
+    }
+
+    if (!mysql.trim() && !pg.trim() && !mongo.trim() && !sqlite.trim()) {
+      lines.push(`  ${cc.dim}No databases detected (MySQL, PostgreSQL, MongoDB, SQLite).${cc.reset}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  // Security scan — check for attacks, brute force, DDoS, suspicious activity
+  if (intent.intent === "security.scan") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    // Detect WSL
+    const secIsWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+
+    lines.push(`\n${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}`);
+    lines.push(`${cc.bold}${cc.cyan}  Security Scan${cc.reset}${secIsWSL ? ` ${cc.dim}(WSL + Windows)${cc.reset}` : ""}`);
+    lines.push(`${cc.bold}${cc.cyan}══════════════════════════════════════${cc.reset}\n`);
+
+    // 1. Identify user's own IP (SSH_CLIENT or who)
+    const sshClient = process.env.SSH_CLIENT?.split(" ")[0] ?? "";
+    const whoOutput = await runLocalCommand("who -u 2>/dev/null | head -5").catch(() => "");
+    const myIPs = new Set<string>();
+    if (sshClient) myIPs.add(sshClient);
+    for (const m of whoOutput.matchAll(/(\d+\.\d+\.\d+\.\d+)/g)) myIPs.add(m[1]);
+    // Also get local IPs
+    const localIPs = await runLocalCommand("hostname -I 2>/dev/null").catch(() => "");
+    for (const ip of localIPs.trim().split(/\s+/)) if (ip) myIPs.add(ip);
+
+    lines.push(`  ${cc.bold}Your IPs:${cc.reset} ${[...myIPs].join(", ") || "localhost"}`);
+
+    // 2. SSH brute force — failed login attempts
+    lines.push(`\n  ${cc.bold}── SSH (port 22) ──${cc.reset}`);
+    const authLog = await runLocalCommand("grep 'Failed password\\|Invalid user\\|authentication failure' /var/log/auth.log 2>/dev/null | tail -100").catch(() => "");
+    const authLogBtmp = await runLocalCommand("lastb 2>/dev/null | head -20").catch(() => "");
+
+    if (authLog) {
+      // Count failed attempts per IP in last 100 lines
+      const ipCounts: Record<string, number> = {};
+      for (const m of authLog.matchAll(/from\s+(\d+\.\d+\.\d+\.\d+)/g)) {
+        ipCounts[m[1]] = (ipCounts[m[1]] || 0) + 1;
+      }
+      const sorted = Object.entries(ipCounts).sort((a, b) => b[1] - a[1]);
+      const totalFailed = Object.values(ipCounts).reduce((a, b) => a + b, 0);
+
+      if (totalFailed > 0) {
+        const recentFailed = await runLocalCommand("grep -c 'Failed password' /var/log/auth.log 2>/dev/null").catch(() => "0");
+        lines.push(`    ${totalFailed > 50 ? cc.red + "⚠" : cc.yellow + "⚠"}${cc.reset} ${cc.bold}${recentFailed.trim()} total failed login attempts${cc.reset}`);
+
+        // Show top attackers
+        lines.push(`    ${cc.bold}Top sources:${cc.reset}`);
+        for (const [ip, count] of sorted.slice(0, 10)) {
+          const isMe = myIPs.has(ip);
+          const severity = count > 50 ? cc.red : count > 10 ? cc.yellow : cc.dim;
+          lines.push(`      ${severity}${count.toString().padStart(5)} attempts${cc.reset} from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← your IP${cc.reset}` : ""}`);
+        }
+
+        // Check if any IP has >100 attempts (likely brute force)
+        const bruteForce = sorted.filter(([, c]) => c > 100);
+        if (bruteForce.length > 0) {
+          lines.push(`\n    ${cc.red}${cc.bold}⚠ BRUTE FORCE DETECTED:${cc.reset} ${bruteForce.length} IP(s) with 100+ attempts`);
+          lines.push(`    ${cc.dim}Block with: "block ip ${bruteForce[0][0]}" or "enable fail2ban"${cc.reset}`);
+        }
+      } else {
+        lines.push(`    ${cc.green}✓${cc.reset} No failed SSH login attempts`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No auth log found (may need root access)${cc.reset}`);
+    }
+
+    // Check fail2ban status
+    const fail2ban = await runLocalCommand("fail2ban-client status sshd 2>/dev/null").catch(() => "");
+    if (fail2ban.includes("Banned")) {
+      const bannedMatch = fail2ban.match(/Currently banned:\s*(\d+)/);
+      const bannedIPs = fail2ban.match(/Banned IP list:\s*(.*)/);
+      lines.push(`    ${cc.green}✓${cc.reset} fail2ban active — ${bannedMatch?.[1] ?? "?"} IP(s) banned`);
+      if (bannedIPs?.[1]?.trim()) lines.push(`      ${cc.dim}Banned: ${bannedIPs[1].trim()}${cc.reset}`);
+    } else {
+      lines.push(`    ${cc.yellow}○${cc.reset} fail2ban not active ${cc.dim}(recommend: "install fail2ban")${cc.reset}`);
+    }
+
+    // 3. Active network connections — look for DDoS patterns
+    lines.push(`\n  ${cc.bold}── Network Connections ──${cc.reset}`);
+    const connections = await runLocalCommand("ss -tun state established 2>/dev/null | awk '{print $5}' | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+' | sort | uniq -c | sort -rn | head -15").catch(() => "");
+
+    if (connections.trim()) {
+      const connLines = connections.trim().split("\n");
+      let totalConns = 0;
+      let suspiciousConns = 0;
+
+      lines.push(`    ${cc.bold}Active connections by source IP:${cc.reset}`);
+      for (const cl of connLines) {
+        const match = cl.trim().match(/(\d+)\s+(\d+\.\d+\.\d+\.\d+)/);
+        if (!match) continue;
+        const [, countStr, ip] = match;
+        const count = parseInt(countStr);
+        totalConns += count;
+        const isMe = myIPs.has(ip);
+        const severity = count > 100 ? cc.red : count > 20 ? cc.yellow : cc.dim;
+
+        if (count > 20 && !isMe) suspiciousConns++;
+        lines.push(`      ${severity}${count.toString().padStart(5)} connections${cc.reset} from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← you${cc.reset}` : count > 50 ? ` ${cc.red}⚠ suspicious${cc.reset}` : ""}`);
+      }
+
+      lines.push(`    ${cc.dim}Total: ${totalConns} established connections${cc.reset}`);
+      if (suspiciousConns > 0) {
+        lines.push(`    ${cc.red}${cc.bold}⚠ ${suspiciousConns} source(s) with unusually high connection count${cc.reset}`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No established connections (or ss not available)${cc.reset}`);
+    }
+
+    // 4. Check listening ports for unexpected services
+    lines.push(`\n  ${cc.bold}── Open Ports ──${cc.reset}`);
+    const listening = await runLocalCommand("ss -tlnp 2>/dev/null | grep LISTEN | awk '{print $4, $6}' | head -15").catch(() => "");
+    if (listening.trim()) {
+      const knownPorts: Record<string, string> = { "22": "SSH", "53": "DNS", "80": "HTTP", "443": "HTTPS", "111": "RPC", "3000": "Dev server", "3306": "MySQL", "5432": "PostgreSQL", "6379": "Redis", "8080": "HTTP alt", "8443": "HTTPS alt", "9090": "Prometheus", "11434": "Ollama", "18789": "OpenClaw", "18791": "OpenClaw ws" };
+      for (const l of listening.trim().split("\n")) {
+        const portMatch = l.match(/:(\d+)\s/);
+        const procMatch = l.match(/users:\(\("([^"]+)"/);
+        if (portMatch) {
+          const port = portMatch[1];
+          const proc = procMatch?.[1] ?? "unknown";
+          const known = knownPorts[port];
+          lines.push(`    ${known ? cc.green + "✓" : cc.yellow + "?"}${cc.reset} :${port} ${cc.bold}${proc}${cc.reset}${known ? ` ${cc.dim}(${known})${cc.reset}` : ` ${cc.yellow}← unknown service${cc.reset}`}`);
+        }
+      }
+    }
+
+    // 5. Web server access — check for request floods
+    lines.push(`\n  ${cc.bold}── Web Traffic ──${cc.reset}`);
+    const webLog = await runLocalCommand("tail -500 /var/log/nginx/access.log 2>/dev/null || tail -500 /var/log/apache2/access.log 2>/dev/null || tail -500 /var/log/httpd/access_log 2>/dev/null").catch(() => "");
+    if (webLog.trim()) {
+      const webIPs: Record<string, number> = {};
+      for (const m of webLog.matchAll(/^(\d+\.\d+\.\d+\.\d+)/gm)) {
+        webIPs[m[1]] = (webIPs[m[1]] || 0) + 1;
+      }
+      const webSorted = Object.entries(webIPs).sort((a, b) => b[1] - a[1]);
+      const totalReqs = Object.values(webIPs).reduce((a, b) => a + b, 0);
+      lines.push(`    ${cc.dim}${totalReqs} requests in recent logs${cc.reset}`);
+
+      // Show top requesters
+      const floodThreshold = totalReqs * 0.5; // If one IP makes >50% of requests
+      for (const [ip, count] of webSorted.slice(0, 5)) {
+        const isMe = myIPs.has(ip);
+        const isFlood = count > floodThreshold && count > 50;
+        lines.push(`      ${isFlood ? cc.red + "⚠" : cc.dim + " "}${cc.reset} ${count.toString().padStart(5)} requests from ${cc.bold}${ip}${cc.reset}${isMe ? ` ${cc.green}← you${cc.reset}` : ""}${isFlood ? ` ${cc.red}FLOOD${cc.reset}` : ""}`);
+      }
+    } else {
+      lines.push(`    ${cc.dim}No web server logs found${cc.reset}`);
+    }
+
+    // 6. Initial assessment summary
+    lines.push(`\n${cc.bold}${cc.cyan}── Initial Assessment ──${cc.reset}`);
+    const hasBruteForce = authLog.split("\n").length > 50;
+    const hasFail2ban = fail2ban.includes("Banned");
+
+    if (!authLog && !webLog.trim() && !connections.trim()) {
+      lines.push(`  ${cc.green}✓ No attack indicators found. System looks clean.${cc.reset}`);
+    } else if (hasBruteForce && !hasFail2ban) {
+      lines.push(`  ${cc.yellow}⚠ SSH brute force attempts detected — recommend enabling fail2ban${cc.reset}`);
+    } else if (hasFail2ban) {
+      lines.push(`  ${cc.green}✓ fail2ban is active and blocking attackers.${cc.reset}`);
+    } else {
+      lines.push(`  ${cc.green}✓ No significant attack patterns detected.${cc.reset}`);
+    }
+
+    // 7. Security tools — detect, install if missing, run deep scans
+    lines.push(`\n${cc.bold}${cc.cyan}── Security Tools (Linux/WSL) ──${cc.reset}`);
+
+    interface ScanTool { name: string; pkg: string; check: string; scan: string; description: string; }
+    const tools: ScanTool[] = [
+      { name: "rkhunter", pkg: "rkhunter", check: "which rkhunter", scan: "rkhunter --check --skip-keypress --report-warnings-only 2>&1", description: "Rootkit scanner" },
+      { name: "chkrootkit", pkg: "chkrootkit", check: "which chkrootkit", scan: "chkrootkit 2>&1 | grep -i 'INFECTED\\|warning\\|suspicious' || echo 'No infections found'", description: "Rootkit checker" },
+      { name: "ClamAV", pkg: "clamav", check: "which clamscan", scan: "freshclam --quiet 2>/dev/null; clamscan --recursive --infected --no-summary /tmp /var/tmp /home 2>&1 | head -20", description: "Antivirus scanner" },
+      { name: "Lynis", pkg: "lynis", check: "which lynis", scan: "lynis audit system --quick --no-colors 2>&1 | tail -30", description: "Security auditing tool" },
+      { name: "fail2ban", pkg: "fail2ban", check: "which fail2ban-client", scan: "fail2ban-client status 2>&1", description: "Intrusion prevention" },
+    ];
+
+    const installed: ScanTool[] = [];
+    const missing: ScanTool[] = [];
+
+    for (const tool of tools) {
+      const exists = await runLocalCommand(`${tool.check} 2>/dev/null`).catch(() => "");
+      if (exists.trim()) {
+        installed.push(tool);
+        lines.push(`    ${cc.green}✓${cc.reset} ${cc.bold}${tool.name}${cc.reset} — ${tool.description}`);
+      } else {
+        missing.push(tool);
+        lines.push(`    ${cc.dim}○ ${tool.name}${cc.reset} — ${tool.description} ${cc.dim}(not installed)${cc.reset}`);
+      }
+    }
+
+    // Print initial assessment first
+    console.log(lines.join("\n"));
+
+    // Auto-install missing tools
+    if (missing.length > 0) {
+      console.log(`\n  ${cc.cyan}Installing ${missing.length} missing security tool(s)...${cc.reset}`);
+      const pkgMgr = await runLocalCommand("which apt-get >/dev/null 2>&1 && echo apt || which dnf >/dev/null 2>&1 && echo dnf || which yum >/dev/null 2>&1 && echo yum || echo none").catch(() => "none");
+      const mgr = pkgMgr.trim();
+
+      for (const tool of missing) {
+        if (mgr === "none") {
+          console.log(`    ${cc.yellow}⚠${cc.reset} Can't auto-install ${tool.name} — no package manager found`);
+          continue;
+        }
+        const installCmd = mgr === "apt" ? `DEBIAN_FRONTEND=noninteractive apt-get install -y ${tool.pkg}` : `${mgr} install -y ${tool.pkg}`;
+        console.log(`    ${cc.dim}Installing ${tool.name}...${cc.reset}`);
+        try {
+          await runLocalCommand(`${installCmd} 2>&1`, 120_000);
+          const verify = await runLocalCommand(`${tool.check} 2>/dev/null`).catch(() => "");
+          if (verify.trim()) {
+            console.log(`    ${cc.green}✓${cc.reset} ${tool.name} installed`);
+            installed.push(tool);
+            // Special: update rkhunter database after install
+            if (tool.name === "rkhunter") await runLocalCommand("rkhunter --update --propupd 2>/dev/null").catch(() => "");
+            // Special: update ClamAV database after install
+            if (tool.name === "ClamAV") {
+              console.log(`    ${cc.dim}Updating virus definitions...${cc.reset}`);
+              await runLocalCommand("freshclam --quiet 2>/dev/null", 120_000).catch(() => "");
+            }
+          } else {
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${tool.name} install may have failed`);
+          }
+        } catch {
+          console.log(`    ${cc.yellow}⚠${cc.reset} Could not install ${tool.name}`);
+        }
+      }
+    }
+
+    // Run deep scans as background jobs
+    if (installed.length > 0) {
+      console.log(`\n${cc.bold}${cc.cyan}── Running Deep Scans ──${cc.reset}`);
+      console.log(`  ${cc.dim}Scans run in background — results will appear when done.${cc.reset}`);
+      console.log(`  ${cc.dim}Type "/jobs" to check progress.${cc.reset}\n`);
+
+      const scanResults: string[] = [];
+      const scanPromises: Promise<void>[] = [];
+
+      for (const tool of installed) {
+        // Skip fail2ban — it's a service, not a scanner
+        if (tool.name === "fail2ban") continue;
+
+        console.log(`  ${cc.cyan}↗${cc.reset} Starting ${cc.bold}${tool.name}${cc.reset} scan...`);
+
+        const scanPromise = (async () => {
+          try {
+            const output = await runLocalCommand(tool.scan, 300_000);
+            const trimmed = output.trim();
+            const hasIssues = /infected|warning|suspicious|rootkit|backdoor|trojan/i.test(trimmed);
+
+            scanResults.push(`\n${hasIssues ? cc.red + "⚠" : cc.green + "✓"}${cc.reset} ${cc.bold}${tool.name} results:${cc.reset}`);
+            // Show first 15 lines of output
+            const outputLines = trimmed.split("\n").slice(0, 15);
+            for (const ol of outputLines) {
+              scanResults.push(`    ${cc.dim}${ol}${cc.reset}`);
+            }
+            if (trimmed.split("\n").length > 15) {
+              scanResults.push(`    ${cc.dim}... (${trimmed.split("\n").length - 15} more lines)${cc.reset}`);
+            }
+          } catch (err: unknown) {
+            scanResults.push(`  ${cc.yellow}⚠${cc.reset} ${tool.name} scan error: ${(err as Error).message.split("\n")[0]}`);
+          }
+        })();
+
+        scanPromises.push(scanPromise);
+      }
+
+      // Wait for all scans to complete
+      await Promise.all(scanPromises);
+
+      // Print all results
+      console.log(`\n${cc.bold}${cc.cyan}── Scan Results ──${cc.reset}`);
+      for (const r of scanResults) console.log(r);
+
+      // Final verdict
+      const allClean = !scanResults.some(r => /⚠/.test(r) && /infected|warning|suspicious|rootkit/i.test(r));
+      // Windows-side scanning (when in WSL)
+      if (secIsWSL) {
+        console.log(`\n${cc.bold}${cc.cyan}── Windows Security ──${cc.reset}`);
+
+        // Windows Defender status
+        console.log(`  ${cc.dim}Checking Windows Defender...${cc.reset}`);
+        const defenderStatus = await runLocalCommand("powershell.exe -Command \"Get-MpComputerStatus | Select-Object -Property AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureLastUpdated | Format-List\" 2>/dev/null").catch(() => "");
+        if (defenderStatus.includes("AntivirusEnabled")) {
+          const avEnabled = defenderStatus.includes("AntivirusEnabled") && defenderStatus.includes("True");
+          const rtEnabled = defenderStatus.includes("RealTimeProtectionEnabled") && /RealTimeProtectionEnabled\s*:\s*True/i.test(defenderStatus);
+          const sigDate = defenderStatus.match(/AntivirusSignatureLastUpdated\s*:\s*(.+)/)?.[1]?.trim() ?? "unknown";
+          console.log(`    ${avEnabled ? cc.green + "✓" : cc.red + "✗"}${cc.reset} Windows Defender: ${avEnabled ? "enabled" : "disabled"}`);
+          console.log(`    ${rtEnabled ? cc.green + "✓" : cc.yellow + "⚠"}${cc.reset} Real-time protection: ${rtEnabled ? "on" : "off"}`);
+          console.log(`    ${cc.dim}Signatures updated: ${sigDate}${cc.reset}`);
+        } else {
+          console.log(`    ${cc.dim}Could not check Windows Defender status${cc.reset}`);
+        }
+
+        // Recent threats detected by Defender
+        const threats = await runLocalCommand("powershell.exe -Command \"Get-MpThreatDetection | Select-Object -First 5 -Property ThreatID,DomainUser,ProcessName,ActionSuccess | Format-Table -AutoSize\" 2>/dev/null").catch(() => "");
+        if (threats.trim() && !threats.includes("No threats")) {
+          const threatLines = threats.trim().split("\n").filter(l => l.trim());
+          if (threatLines.length > 2) { // Has header + data
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${cc.bold}Recent threats detected by Defender:${cc.reset}`);
+            for (const tl of threatLines.slice(0, 7)) {
+              console.log(`      ${cc.dim}${tl.trim()}${cc.reset}`);
+            }
+          } else {
+            console.log(`    ${cc.green}✓${cc.reset} No recent threats detected by Defender`);
+          }
+        } else {
+          console.log(`    ${cc.green}✓${cc.reset} No recent threats detected by Defender`);
+        }
+
+        // Windows failed logins from Security Event Log
+        const winLogins = await runLocalCommand("powershell.exe -Command \"Get-WinEvent -FilterHashtable @{LogName='Security';ID=4625} -MaxEvents 10 2>\\$null | Select-Object -Property TimeCreated,Message | Format-List\" 2>/dev/null").catch(() => "");
+        if (winLogins.trim() && !winLogins.includes("No events")) {
+          const failCount = (winLogins.match(/TimeCreated/g) || []).length;
+          if (failCount > 0) {
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${failCount} failed Windows login attempt(s) in event log`);
+          } else {
+            console.log(`    ${cc.green}✓${cc.reset} No failed Windows login attempts`);
+          }
+        } else {
+          console.log(`    ${cc.green}✓${cc.reset} No failed Windows login attempts`);
+        }
+
+        // Windows network connections
+        const winConns = await runLocalCommand("powershell.exe -Command \"Get-NetTCPConnection -State Established | Group-Object RemoteAddress | Sort-Object Count -Descending | Select-Object -First 10 Count,Name | Format-Table -AutoSize\" 2>/dev/null").catch(() => "");
+        if (winConns.trim()) {
+          console.log(`    ${cc.bold}Top Windows connections:${cc.reset}`);
+          for (const wl of winConns.trim().split("\n").slice(0, 8)) {
+            if (wl.trim()) console.log(`      ${cc.dim}${wl.trim()}${cc.reset}`);
+          }
+        }
+
+        // Quick Defender scan option
+        console.log(`\n    ${cc.dim}Run Windows Defender quick scan: "scan windows for viruses"${cc.reset}`);
+        console.log(`    ${cc.dim}Full scan: powershell.exe -Command "Start-MpScan -ScanType QuickScan"${cc.reset}`);
+      }
+
+      console.log(`\n${cc.bold}${cc.cyan}── Final Verdict ──${cc.reset}`);
+      if (allClean) {
+        console.log(`  ${cc.green}${cc.bold}✓ All scans passed. No threats detected.${cc.reset}`);
+      } else {
+        console.log(`  ${cc.red}${cc.bold}⚠ Issues found — review scan results above.${cc.reset}`);
+      }
+      console.log(`  ${cc.dim}For ongoing protection: "install fail2ban", "enable firewall"${cc.reset}`);
+    }
+
+    return "";
+  }
+
+  // ── Developer utility tools ──
+  if (intent.intent.startsWith("dev.")) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m", red: "\x1b[31m" };
+    const input = (intent.fields?.input as string) ?? (intent.rawText.replace(/^.*?(format|validate|encode|decode|hash|convert|test)\s*/i, "") || "").trim();
+
+    if (intent.intent === "dev.json_format") {
+      const r = formatJson(input);
+      if (r.valid) {
+        console.log(`${cc.green}${cc.bold}Valid JSON — formatted:${cc.reset}\n${r.formatted}`);
+      } else {
+        console.log(`${cc.red}${cc.bold}Invalid JSON:${cc.reset} ${r.error}\n${cc.dim}${input}${cc.reset}`);
+      }
+      return r.formatted;
+    }
+    if (intent.intent === "dev.json_validate") {
+      const r = validateJson(input);
+      if (r.valid) {
+        console.log(`${cc.green}${cc.bold}✓ Valid JSON${cc.reset}`);
+      } else {
+        console.log(`${cc.red}${cc.bold}✗ Invalid JSON:${cc.reset} ${r.error}`);
+      }
+      return r.valid ? "valid" : `invalid: ${r.error}`;
+    }
+    if (intent.intent === "dev.regex") {
+      const pattern = (intent.fields?.pattern as string) ?? input;
+      const testStr = (intent.fields?.testString as string) ?? "";
+      const r = testRegex(pattern, testStr);
+      console.log(`${cc.cyan}${cc.bold}Regex results:${cc.reset} ${r.count} match(es)`);
+      for (const m of r.matches) console.log(`  ${cc.green}${m[0]}${cc.reset}`);
+      if (r.groups.length) console.log(`${cc.dim}Groups:${cc.reset}`, JSON.stringify(r.groups, null, 2));
+      return JSON.stringify(r);
+    }
+    if (intent.intent === "dev.base64_encode") {
+      const result = encodeBase64(input);
+      console.log(`${cc.cyan}${cc.bold}Base64:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.base64_decode") {
+      const result = decodeBase64(input);
+      console.log(`${cc.cyan}${cc.bold}Decoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.url_encode") {
+      const result = encodeUrl(input);
+      console.log(`${cc.cyan}${cc.bold}URL-encoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.url_decode") {
+      const result = decodeUrl(input);
+      console.log(`${cc.cyan}${cc.bold}URL-decoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.hash") {
+      const algo = ((intent.fields?.algo as string) ?? "sha256").toLowerCase() as "md5" | "sha1" | "sha256";
+      const result = hashString(input, algo);
+      console.log(`${cc.cyan}${cc.bold}${algo.toUpperCase()}:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.uuid") {
+      const result = generateUuid();
+      console.log(`${cc.cyan}${cc.bold}UUID:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.timestamp") {
+      const r = convertUnixTimestamp(input);
+      console.log(`${cc.cyan}${cc.bold}Timestamp conversion:${cc.reset}`);
+      console.log(`  Unix:  ${r.unix}`);
+      console.log(`  ISO:   ${r.iso}`);
+      console.log(`  UTC:   ${r.utc}`);
+      console.log(`  Local: ${r.local}`);
+      return r.iso;
+    }
+
+    return "";
+  }
+
+  // Casual chat responses — loaded from config/chat-responses.json
+  if (intent.intent.startsWith("chat.")) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m" };
+    const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+    // Load responses from JSON — user can customize
+    let responses: Record<string, string[]> = {};
+    try {
+      const data = loadConfigJson("chat-responses.json");
+      if (data) { responses = data.responses ?? {};
+      }
+    } catch { /* use empty — fallback below */ }
+
+    // Template variables for dynamic responses
+    const fillTemplate = async (text: string): Promise<string> => {
+      let filled = text;
+      if (filled.includes("{{uptime}}")) {
+        const up = await runLocalCommand("uptime -p 2>/dev/null || uptime").catch(() => "unknown");
+        filled = filled.replace(/\{\{uptime\}\}/g, up.trim().replace("up ", ""));
+      }
+      if (filled.includes("{{load}}")) {
+        const ld = await runLocalCommand("cat /proc/loadavg 2>/dev/null | awk '{print $1}'").catch(() => "?");
+        filled = filled.replace(/\{\{load\}\}/g, ld.trim());
+      }
+      if (filled.includes("{{llm}}")) {
+        const { getLLMBackend } = await import("../nlp/llmFallback.js");
+        const llm = getLLMBackend();
+        filled = filled.replace(/\{\{llm\}\}/g, llm ? `LLM: ${llm}.` : "");
+      }
+      if (filled.includes("{{loadStatus}}")) {
+        const ld = await runLocalCommand("cat /proc/loadavg 2>/dev/null | awk '{print $1}'").catch(() => "0");
+        filled = filled.replace(/\{\{loadStatus\}\}/g, parseFloat(ld) < 2 ? "System is chill." : "System's a bit busy.");
+      }
+      if (filled.includes("{{intentCount}}")) {
+        const { loadIntents } = await import("../utils/config.js");
+        filled = filled.replace(/\{\{intentCount\}\}/g, String(loadIntents().length));
+      }
+      return filled;
+    };
+
+    const chatType = intent.intent.replace("chat.", "");
+    let key = chatType;
+
+    // Empathy subtypes
+    if (chatType === "empathy") {
+      if (/frustrat|sucks|broken|doesn'?t work/i.test(intent.rawText)) key = "empathy_frustrated";
+      else if (/tired|bored/i.test(intent.rawText)) key = "empathy_tired";
+      else if (/confused|stuck|lost/i.test(intent.rawText)) key = "empathy_confused";
+      else key = "empathy_frustrated"; // default
+    }
+
+    // Special: "today in history" — reads date-organized file for actual today
+    if (key === "history_today") {
+      try {
+        const histData = loadConfigJson("history-today.json");
+        if (histData?.events) {
+          const now = new Date();
+          const dateKey = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const todayEvents = histData.events[dateKey];
+          if (todayEvents && todayEvents.length > 0) {
+            const event = todayEvents[Math.floor(Math.random() * todayEvents.length)] as { year: number; event: string; emoji?: string };
+            return `\n  ${cc.bold}${cc.cyan}On This Day — ${dateKey}${cc.reset}\n\n  ${cc.bold}${event.year}:${cc.reset} ${event.event} ${event.emoji ?? ""}`;
+          }
+        }
+      } catch { /* fall through to flat responses */ }
+    }
+
+    const pool = responses[key];
+    if (pool && pool.length > 0) {
+      const raw = pick(pool);
+      const filled = await fillTemplate(raw);
+      // Add ANSI coloring
+      const colorized = filled
+        .replace(/^([^.!?\n]+[.!?])/, `${cc.green}$1${cc.reset}`) // First sentence green
+        .replace(/\n/g, `\n  `); // Indent continuation
+      return `\n  ${colorized}`;
+    }
+
+    // Fallback if no JSON responses loaded
+    return `${cc.cyan}I'm NoToken.${cc.reset} Type "help" to see what I can do.`;
+  }
+
   // Entity define/list
   if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
   if (intent.intent === "entity.list") return listEntities();
@@ -3215,17 +3997,49 @@ expect eof
 
   // Image generation — natural language to image
   if (intent.intent === "ai.generate_image") {
-    // Simple: strip the command prefix, pass everything else as the prompt
-    // "can you generate a picture of a dragon flying over a castle at sunset"
-    // → "a dragon flying over a castle at sunset"
-    const prompt = intent.rawText
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Extract the prompt — strip command prefix
+    let prompt = intent.rawText
       .replace(/^(can you|could you|please|will you|would you)\s+/i, "")
       .replace(/^(generate|create|make|draw|paint|imagine)\s+(me\s+)?/i, "")
       .replace(/^(a\s+)?(picture|image|photo|drawing|painting|art|artwork)\s+(of\s+)?/i, "")
       .replace(/\s+(and\s+)?(show|open|display|view)\s+(it\s+)?(to\s+)?(me|us)?\s*$/i, "")
       .replace(/\s+(please|for me|for us)\s*$/i, "")
-      .trim()
-      || ((fields.prompt as string) ?? "a beautiful landscape");
+      .trim();
+
+    // Load random prompts from JSON file — user can add their own
+    let RANDOM_PROMPTS = ["a beautiful landscape at sunset"];
+    try {
+      const data = loadConfigJson("image-prompts.json");
+      if (data) { RANDOM_PROMPTS = data.prompts ?? RANDOM_PROMPTS;
+      }
+    } catch { /* use default */ }
+
+    // Check if this is a bare "can you generate an image?" or "generate an image" with no actual prompt
+    const isBareCan = (!prompt || prompt === "?" || /^(an?\s+)?(image|picture|photo|art|artwork|drawing|painting|one)?\??$/i.test(prompt));
+
+    if (isBareCan) {
+      // Check if image generation is set up
+      const engines = detectImageEngines();
+      const localInstalled = engines.some(e => e.installed);
+
+      if (!localInstalled) {
+        return `${cc.yellow}⚠${cc.reset} No image generation engine installed.\n\n  ${cc.bold}Options:${cc.reset}\n    ${cc.cyan}1.${cc.reset} Install locally: ${cc.dim}"install stable diffusion"${cc.reset}\n    ${cc.cyan}2.${cc.reset} Use cloud API: ${cc.dim}set STABILITY_API_KEY or OPENAI_API_KEY${cc.reset}\n\n  ${cc.dim}Say "install stable diffusion" to get started.${cc.reset}`;
+      }
+
+      // Engine installed — generate a random image
+      prompt = RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+      console.log(`${cc.cyan}Generating random image...${cc.reset}`);
+      console.log(`${cc.dim}Prompt: "${prompt}"${cc.reset}`);
+    }
+
+    if (!prompt || /^(an?\s+)?(image|picture|photo|art|one)\??$/i.test(prompt)) {
+      prompt = RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+      console.log(`${cc.dim}Random prompt: "${prompt}"${cc.reset}`);
+    }
+
+    prompt = prompt || (fields.prompt as string) ?? "a beautiful landscape";
     command = `[image-gen] ${prompt}`;
     const genResult = await generateImage(prompt);
     result = genResult.message ?? genResult.error ?? "Unknown error";
@@ -3415,6 +4229,81 @@ expect eof
 
     result = formatImageEngineStatus(engines);
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
+  }
+
+  // ── Timer handlers ──
+  if (intent.intent === "timer.start") {
+    const { startTimer } = await import("../utils/timer.js");
+    const mins = Number(fields.minutes) || (intent.rawText.match(/pomodoro/i) ? 25 : 5);
+    const label = (fields.label as string) || undefined;
+    const id = startTimer(mins, label);
+    result = `Timer #${id} started — ${mins} minute${mins !== 1 ? "s" : ""}${label ? ` (${label})` : ""}`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-start]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "timer.list") {
+    const { listTimers } = await import("../utils/timer.js");
+    result = listTimers();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "timer.cancel") {
+    const { cancelTimer } = await import("../utils/timer.js");
+    const id = Number(fields.id) || 1;
+    result = cancelTimer(id) ? `Timer #${id} cancelled.` : `No active timer with ID #${id}.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-cancel]", environment, success: true });
+    return result;
+  }
+
+  // ── Bookmark handlers ──
+  if (intent.intent === "bookmark.save") {
+    const { saveBookmark } = await import("../utils/bookmarks.js");
+    const name = (fields.name as string) || "untitled";
+    const cmd = (fields.command as string) || intent.rawText;
+    saveBookmark(name, cmd);
+    result = `Bookmark "${name}" saved.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[bookmark-save]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "bookmark.list") {
+    const { listBookmarks } = await import("../utils/bookmarks.js");
+    result = listBookmarks();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[bookmark-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "bookmark.run") {
+    const { getBookmark } = await import("../utils/bookmarks.js");
+    const name = (fields.name as string) || "";
+    const cmd = getBookmark(name);
+    if (!cmd) { result = `Bookmark "${name}" not found.`; }
+    else { result = await runLocalCommand(cmd); }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: `[bookmark-run] ${name}`, environment, success: true });
+    return result;
+  }
+
+  // ── Snippet handlers ──
+  if (intent.intent === "snippet.save") {
+    const { saveSnippet } = await import("../utils/snippets.js");
+    const name = (fields.name as string) || "untitled";
+    const code = (fields.code as string) || "";
+    const lang = (fields.language as string) || undefined;
+    saveSnippet(name, code, lang);
+    result = `Snippet "${name}" saved.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[snippet-save]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "snippet.list") {
+    const { listSnippets } = await import("../utils/snippets.js");
+    result = listSnippets();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[snippet-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "snippet.run") {
+    const { runSnippet } = await import("../utils/snippets.js");
+    const name = (fields.name as string) || "";
+    result = runSnippet(name);
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: `[snippet-run] ${name}`, environment, success: true });
     return result;
   }
 

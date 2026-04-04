@@ -109,41 +109,280 @@ function restartGateway(): boolean {
 }
 
 /**
+ * Check gateway logs for current Discord connection state.
+ * Returns snapshot — does not poll.
+ */
+function checkGatewayLogs(): { connected: boolean; error4014: boolean; rateLimited: boolean; retryAfter: number; awaiting: boolean; silentRateLimit: boolean; staleSeconds: number } {
+  const logFile = tryExec("ls /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null");
+  if (!logFile) return { connected: false, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false, silentRateLimit: false, staleSeconds: 0 };
+
+  const recentLogs = tryExec(`tail -50 "${logFile}" 2>/dev/null`);
+
+  // Check if connected (and it's the most recent state, not stale)
+  const lastLoggedIn = recentLogs.lastIndexOf("logged in to discord");
+  const lastAwaiting = recentLogs.lastIndexOf("awaiting gateway readiness");
+  if (lastLoggedIn > -1 && lastLoggedIn > lastAwaiting) {
+    return { connected: true, error4014: false, rateLimited: false, retryAfter: 0, awaiting: false, silentRateLimit: false, staleSeconds: 0 };
+  }
+
+  const error4014 = recentLogs.includes("4014");
+  const explicitRateLimit = recentLogs.includes("rate limited") || recentLogs.includes("status=429");
+
+  // Extract retry_after if present
+  let retryAfter = 0;
+  const retryMatch = recentLogs.match(/retry_after[":]*\s*([\d.]+)/);
+  if (retryMatch) retryAfter = Math.ceil(parseFloat(retryMatch[1]));
+
+  const awaiting = recentLogs.includes("awaiting gateway readiness");
+
+  // Detect silent rate limit: "awaiting gateway readiness" with no new Discord log activity.
+  // Discord silently drops the WebSocket — no 429, no error, just never sends READY.
+  // This happens after too many gateway restarts in a short period.
+  let staleSeconds = 0;
+  let silentRateLimit = false;
+  if (awaiting && !explicitRateLimit) {
+    // Check how long since the last log line was written.
+    // Logs may have UTC timestamps (2026-04-03T08:36:11) or local with offset (2026-04-03T01:36:11-07:00).
+    // Use file modification time as a reliable staleness indicator.
+    const mtime = tryExec(`stat -c %Y "${logFile}" 2>/dev/null`);
+    if (mtime) {
+      staleSeconds = Math.round(Date.now() / 1000 - parseInt(mtime));
+      // If awaiting readiness and no log activity for 2+ minutes, likely silent rate limit
+      if (staleSeconds > 120) silentRateLimit = true;
+    }
+  }
+
+  return { connected: false, error4014, rateLimited: explicitRateLimit || silentRateLimit, retryAfter, awaiting, silentRateLimit, staleSeconds };
+}
+
+/**
  * Poll gateway logs for Discord connection, up to `maxSeconds`.
- * Checks both logs and REST API as fallback.
  * Returns { connected, error4014, stuck, rateLimited }.
  */
 function pollGatewayConnection(maxSeconds = 60): { connected: boolean; error4014: boolean; stuck: boolean; rateLimited: boolean } {
   for (let elapsed = 0; elapsed < maxSeconds; elapsed += 3) {
-    const logFile = tryExec("ls /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null");
-    if (logFile) {
-      // Search the last 50 lines for recent events
-      const recentLogs = tryExec(`tail -50 "${logFile}" 2>/dev/null`);
-      if (recentLogs.includes("logged in to discord")) {
-        // Make sure it's from the current gateway instance, not a stale log
-        // Check if "awaiting gateway readiness" appears AFTER the last "logged in"
-        const lastLoggedIn = recentLogs.lastIndexOf("logged in to discord");
-        const lastAwaiting = recentLogs.lastIndexOf("awaiting gateway readiness");
-        if (lastLoggedIn > lastAwaiting) {
-          return { connected: true, error4014: false, stuck: false, rateLimited: false };
-        }
-      }
-      if (recentLogs.includes("4014")) {
-        return { connected: false, error4014: true, stuck: false, rateLimited: false };
-      }
-      if (recentLogs.includes("rate limited") || recentLogs.includes("status=429")) {
-        // Rate limited — may take longer but not a fatal error
-        if (elapsed > 0 && elapsed % 15 === 0) {
-          process.stdout.write(`  ${c.yellow}Rate limited by Discord — waiting for cooldown... ${elapsed}s${c.reset}\n`);
-        }
-      }
+    const status = checkGatewayLogs();
+    if (status.connected) return { connected: true, error4014: false, stuck: false, rateLimited: false };
+    if (status.error4014) return { connected: false, error4014: true, stuck: false, rateLimited: false };
+    if (status.rateLimited && elapsed % 15 === 0 && elapsed > 0) {
+      process.stdout.write(`  ${c.yellow}Rate limited by Discord — waiting for cooldown... ${elapsed}s${c.reset}\n`);
     }
     if (elapsed > 0 && elapsed % 15 === 0) {
       process.stdout.write(`  ${c.dim}Waiting for Discord connection... ${elapsed}s${c.reset}\n`);
     }
     tryExec("sleep 3");
   }
-  return { connected: false, error4014: false, stuck: true, rateLimited: false };
+  // Final check
+  const finalStatus = checkGatewayLogs();
+  return {
+    connected: false,
+    error4014: finalStatus.error4014,
+    stuck: !finalStatus.rateLimited,
+    rateLimited: finalStatus.rateLimited,
+  };
+}
+
+/**
+ * Monitor a rate-limited gateway, reporting progress until connected or timeout.
+ * Restarts the gateway once after the rate limit cooldown, then monitors.
+ * Returns lines to append and whether it connected.
+ */
+async function monitorRateLimit(maxMinutes = 5): Promise<{ connected: boolean; lines: string[] }> {
+  const out: string[] = [];
+  const startTime = Date.now();
+  const maxMs = maxMinutes * 60_000;
+  let restarted = false;
+  let lastRestart = 0;
+
+  out.push(`  ${c.cyan}Monitoring rate limit recovery (up to ${maxMinutes} min)...${c.reset}`);
+
+  while (Date.now() - startTime < maxMs) {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const status = checkGatewayLogs();
+
+    if (status.connected) {
+      out.push(`  ${c.green}✓${c.reset} Discord connected after ${elapsed}s`);
+      return { connected: true, lines: out };
+    }
+
+    // If rate limit has cleared (no more 429 in logs) and we haven't restarted recently, restart once
+    if (!status.rateLimited && status.awaiting && !restarted && (Date.now() - lastRestart > 60_000)) {
+      out.push(`  ${c.dim}Rate limit appears cleared — restarting gateway...${c.reset}`);
+      restartGateway();
+      restarted = true;
+      lastRestart = Date.now();
+      // Give it time to connect
+      tryExec("sleep 10");
+      continue;
+    }
+
+    // After a restart, check if it connected
+    if (restarted && (Date.now() - lastRestart > 30_000)) {
+      const postRestart = checkGatewayLogs();
+      if (postRestart.connected) {
+        out.push(`  ${c.green}✓${c.reset} Discord connected after restart (${elapsed}s total)`);
+        return { connected: true, lines: out };
+      }
+      if (postRestart.rateLimited) {
+        out.push(`  ${c.yellow}Still rate limited after restart — continuing to wait...${c.reset}`);
+        restarted = false; // Allow another restart later
+      }
+    }
+
+    if (elapsed % 30 === 0 && elapsed > 0) {
+      const remaining = Math.round((maxMs - (Date.now() - startTime)) / 1000);
+      if (status.rateLimited) {
+        const retryInfo = status.retryAfter > 0 ? ` (retry_after: ${status.retryAfter}s)` : "";
+        out.push(`  ${c.yellow}⏳${c.reset} Rate limited${retryInfo} — ${remaining}s remaining`);
+      } else {
+        out.push(`  ${c.dim}Still waiting... ${remaining}s remaining${c.reset}`);
+      }
+    }
+
+    tryExec("sleep 5");
+  }
+
+  out.push(`  ${c.yellow}⚠${c.reset} Timed out after ${maxMinutes} minutes`);
+  return { connected: false, lines: out };
+}
+
+/**
+ * Live Discord connection monitor.
+ * Prints real-time status updates as the gateway connects to Discord.
+ * Auto-restarts if stuck, auto-waits through rate limits.
+ *
+ * Usage: "monitor discord" or "watch discord"
+ */
+export async function monitorDiscord(maxMinutes = 10): Promise<string> {
+  const lines: string[] = [];
+  const startTime = Date.now();
+  const maxMs = maxMinutes * 60_000;
+  let restartCount = 0;
+  const MAX_RESTARTS = 3;
+
+  lines.push(`\n${c.bold}${c.cyan}── Discord Connection Monitor ──${c.reset}`);
+  lines.push(`  ${c.dim}Monitoring for up to ${maxMinutes} minutes. Ctrl+C to stop.${c.reset}\n`);
+
+  // Check basics first
+  const token = getDiscordToken();
+  if (!token) {
+    lines.push(`  ${c.red}✗ No Discord bot token configured.${c.reset}`);
+    lines.push(`  ${c.dim}Run: "diagnose discord" to set up.${c.reset}`);
+    return lines.join("\n");
+  }
+
+  // Verify token is valid
+  const me = await discordApi("/users/@me", token);
+  if (me.error) {
+    lines.push(`  ${c.red}✗ Bot token invalid (${me.error}).${c.reset}`);
+    return lines.join("\n");
+  }
+  lines.push(`  ${c.green}✓${c.reset} Bot: ${c.bold}${me.username}${c.reset} (${me.id})`);
+
+  // Check if gateway is running
+  const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
+  if (!health.includes('"ok"')) {
+    lines.push(`  ${c.yellow}⚠${c.reset} Gateway not running — starting...`);
+    console.log(lines.join("\n"));
+    lines.length = 0;
+    const started = restartGateway();
+    if (!started) {
+      lines.push(`  ${c.red}✗ Failed to start gateway.${c.reset}`);
+      return lines.join("\n");
+    }
+    lines.push(`  ${c.green}✓${c.reset} Gateway started`);
+    restartCount++;
+  } else {
+    lines.push(`  ${c.green}✓${c.reset} Gateway running`);
+  }
+
+  // Print initial status
+  console.log(lines.join("\n"));
+  lines.length = 0;
+
+  // Monitor loop
+  let lastState = "";
+  while (Date.now() - startTime < maxMs) {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const status = checkGatewayLogs();
+
+    // Build state string for dedup
+    const stateStr = `${status.connected}|${status.rateLimited}|${status.error4014}|${status.awaiting}`;
+
+    if (status.connected) {
+      if (lastState !== "connected") {
+        process.stdout.write(`\r\x1b[2K  ${c.green}✓${c.reset} ${c.bold}Discord connected!${c.reset} (${elapsed}s)\n`);
+        // Verify with REST API
+        const guilds = await discordApi("/users/@me/guilds", token);
+        if (Array.isArray(guilds)) {
+          process.stdout.write(`  ${c.green}✓${c.reset} Receiving events from ${guilds.length} server(s)\n`);
+        }
+        // Test DM capability
+        const canDM = await testBotDM(token, me.id);
+        if (canDM) {
+          process.stdout.write(`  ${c.green}✓${c.reset} Bot can send and receive DMs\n`);
+        }
+        process.stdout.write(`\n  ${c.green}${c.bold}Discord is fully operational.${c.reset}\n`);
+        return "";  // Already printed everything
+      }
+      lastState = "connected";
+      await sleep(5000);
+      continue;
+    }
+
+    if (status.silentRateLimit && !lastState.startsWith("silent")) {
+      process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} ${c.bold}Silent rate limit detected${c.reset} — Discord isn't sending READY event\n`);
+      process.stdout.write(`    ${c.dim}No log activity for ${status.staleSeconds}s. This happens after too many gateway restarts.${c.reset}\n`);
+      process.stdout.write(`    ${c.dim}Discord typically recovers in 5-15 minutes. Don't restart — just wait.${c.reset}\n`);
+      lastState = "silent_ratelimit";
+    } else if (status.rateLimited && !status.silentRateLimit && lastState !== "ratelimited") {
+      const retryInfo = status.retryAfter > 0 ? ` (retry_after: ${status.retryAfter}s)` : "";
+      process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Rate limited by Discord${retryInfo} — waiting for cooldown...\n`);
+      lastState = "ratelimited";
+    } else if (status.error4014 && lastState !== "error4014") {
+      process.stdout.write(`\r\x1b[2K  ${c.red}✗${c.reset} Error 4014 — privileged intents not enabled\n`);
+      process.stdout.write(`    ${c.dim}Run: "diagnose discord" to auto-fix intents${c.reset}\n`);
+      return "";
+    } else if (status.awaiting && !status.rateLimited && !status.silentRateLimit) {
+      // Stuck at awaiting readiness but NOT rate limited — safe to restart
+      if (stateStr !== lastState) {
+        process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Awaiting Discord gateway readiness... (${elapsed}s)\n`);
+      }
+      // If stuck for more than 90s, restart once — give Discord time
+      if (elapsed > 90 && restartCount < MAX_RESTARTS) {
+        process.stdout.write(`  ${c.dim}Stuck for ${elapsed}s — restarting gateway (attempt ${restartCount + 1}/${MAX_RESTARTS})...${c.reset}\n`);
+        restartGateway();
+        restartCount++;
+        lastState = "";
+        await sleep(15_000); // Give gateway time to reconnect
+        continue;
+      }
+    } else if (status.silentRateLimit) {
+      // Silent rate limit — don't restart, just wait
+      if (elapsed % 60 === 0 && elapsed > 0) {
+        process.stdout.write(`\r\x1b[2K  ${c.yellow}⏳${c.reset} Silent rate limit — waiting... (${Math.round(elapsed / 60)}min, logs stale ${status.staleSeconds}s)\n`);
+      }
+    }
+
+    // Don't overwrite named states (silent_ratelimit, ratelimited, etc.) with stateStr
+    if (!lastState.includes("ratelimit") && !lastState.includes("error4014")) {
+      lastState = stateStr;
+    }
+
+    // Progress tick every 30s — gentle, no hammering
+    // Skip if we already printed a state-specific message this cycle
+    if (!status.silentRateLimit && elapsed > 0 && elapsed % 30 === 0) {
+      const remaining = Math.round((maxMs - (Date.now() - startTime)) / 1000);
+      process.stdout.write(`\r\x1b[2K  ${c.dim}⏳ Monitoring... ${elapsed}s elapsed, ${remaining}s remaining${c.reset}`);
+    }
+
+    // Poll every 10s — only reading local log files, no API calls
+    await sleep(10_000);
+  }
+
+  process.stdout.write(`\n  ${c.yellow}⚠${c.reset} Timed out after ${maxMinutes} minutes.\n`);
+  process.stdout.write(`  ${c.dim}Run "diagnose discord" for full diagnostics.${c.reset}\n`);
+  return "";
 }
 
 /**
@@ -362,36 +601,51 @@ export async function diagnoseDiscord(): Promise<string> {
   if (connStatus.connected) {
     results.push({ name: "Discord gateway", status: "pass", detail: "Connected" });
     lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected`);
+  } else if (connStatus.rateLimited) {
+    // ── Rate limited — explain clearly and monitor ──
+    const logStatus = checkGatewayLogs();
+    lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} ${c.yellow}Rate limited by Discord${c.reset}`);
+    lines.push(``);
+    lines.push(`    ${c.bold}What happened:${c.reset} Too many gateway restarts triggered Discord's rate limit`);
+    lines.push(`    on the slash command deployment endpoint (/applications/{id}/commands).`);
+    lines.push(`    OpenClaw's gateway hangs at "awaiting readiness" because it doesn't`);
+    lines.push(`    retry after a 429 — it just stops.`);
+    if (logStatus.retryAfter > 0) {
+      lines.push(`    ${c.bold}Discord says:${c.reset} retry after ${c.yellow}${logStatus.retryAfter}s${c.reset}`);
+    }
+    lines.push(``);
+    lines.push(`    ${c.bold}What we're doing:${c.reset} Monitoring until the rate limit clears, then`);
+    lines.push(`    restarting the gateway once. Bot REST API (send DMs, check guilds)`);
+    lines.push(`    still works — only the WebSocket listener is affected.`);
+    lines.push(``);
+
+    // Monitor and wait for it to resolve
+    const monitor = await monitorRateLimit(5);
+    lines.push(...monitor.lines);
+
+    if (monitor.connected) {
+      results.push({ name: "Discord gateway", status: "fixed", detail: "Connected after rate limit cleared" });
+      connStatus = { connected: true, error4014: false, stuck: false, rateLimited: false };
+    } else {
+      // Still not connected — verify REST API at least works
+      lines.push(`  ${c.dim}Testing bot communication via REST API...${c.reset}`);
+      const canSendDM = await testBotDM(token, appId);
+      if (canSendDM) {
+        results.push({ name: "Discord gateway", status: "warn", detail: "Rate limited — REST API works, WebSocket still recovering" });
+        lines.push(`  ${c.green}✓${c.reset} Bot can still send DMs via REST API`);
+        lines.push(`    ${c.dim}The rate limit hasn't fully cleared yet. The gateway will recover`);
+        lines.push(`    on its own — run "diagnose discord" again in a few minutes.${c.reset}`);
+      } else {
+        results.push({ name: "Discord gateway", status: "fail", detail: "Rate limited and REST API not working" });
+        lines.push(`  ${c.red}✗${c.reset} Rate limited and REST API not responding`);
+      }
+    }
   } else if (connStatus.stuck) {
-    // Gateway stuck — try a restart and re-poll
+    // ── Stuck but not rate limited — check if gateway is running ──
     const health = tryExec("curl -sf http://127.0.0.1:18789/health 2>/dev/null");
     const gwUp = health.includes('"ok"');
-    if (gwUp) {
-      lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Stuck at "awaiting readiness" — restarting...`);
-      restartGateway();
-      // Re-poll with shorter timeout since this is a retry
-      const retry = pollGatewayConnection(45);
-      if (retry.connected) {
-        results.push({ name: "Discord gateway", status: "fixed", detail: "Connected after restart" });
-        lines.push(`  ${c.green}✓${c.reset} ${c.bold}Discord gateway:${c.reset} Connected after restart`);
-        connStatus = retry;
-      } else {
-        // Still stuck — test if bot can communicate via REST API (send + check DM)
-        lines.push(`  ${c.yellow}⚠${c.reset} Gateway still not connected after restart`);
-        lines.push(`  ${c.dim}Testing bot communication via REST API...${c.reset}`);
-        const canSendDM = await testBotDM(token, appId);
-        if (canSendDM) {
-          results.push({ name: "Discord gateway", status: "warn", detail: "WebSocket stuck but REST API works — bot can send messages" });
-          lines.push(`  ${c.green}✓${c.reset} Bot can send DMs via REST API`);
-          lines.push(`    ${c.dim}WebSocket gateway is stuck — bot can send but not receive messages.${c.reset}`);
-          lines.push(`    ${c.dim}This is an OpenClaw issue with Discord rate-limit recovery.${c.reset}`);
-        } else {
-          results.push({ name: "Discord gateway", status: "fail", detail: "Gateway stuck, REST API also failing" });
-          lines.push(`  ${c.red}✗${c.reset} Gateway stuck and REST API not working`);
-        }
-      }
-    } else {
-      // Gateway not even running — start it
+    if (!gwUp) {
+      // Gateway not running — start it
       lines.push(`  ${c.red}✗${c.reset} ${c.bold}Discord gateway:${c.reset} Not running — starting...`);
       const started = restartGateway();
       if (started) {
@@ -407,6 +661,35 @@ export async function diagnoseDiscord(): Promise<string> {
       } else {
         results.push({ name: "Discord gateway", status: "fail", detail: "Failed to start" });
         lines.push(`  ${c.red}✗${c.reset} Failed to start gateway`);
+      }
+    } else {
+      // Gateway running but stuck — check for hidden rate limit in logs
+      const logStatus = checkGatewayLogs();
+      if (logStatus.rateLimited) {
+        // Actually rate limited — redirect to monitor
+        lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} ${c.yellow}Rate limited by Discord${c.reset}`);
+        lines.push(`    ${c.dim}Monitoring until rate limit clears...${c.reset}`);
+        const monitor = await monitorRateLimit(5);
+        lines.push(...monitor.lines);
+        if (monitor.connected) {
+          results.push({ name: "Discord gateway", status: "fixed", detail: "Connected after rate limit cleared" });
+          connStatus = { connected: true, error4014: false, stuck: false, rateLimited: false };
+        } else {
+          results.push({ name: "Discord gateway", status: "warn", detail: "Rate limited — waiting for recovery" });
+        }
+      } else {
+        // Genuinely stuck — restart once
+        lines.push(`  ${c.yellow}⚠${c.reset} ${c.bold}Discord gateway:${c.reset} Stuck — restarting...`);
+        restartGateway();
+        const retry = pollGatewayConnection(45);
+        if (retry.connected) {
+          results.push({ name: "Discord gateway", status: "fixed", detail: "Connected after restart" });
+          lines.push(`  ${c.green}✓${c.reset} Connected after restart`);
+          connStatus = retry;
+        } else {
+          results.push({ name: "Discord gateway", status: "warn", detail: "Still not connected after restart" });
+          lines.push(`  ${c.yellow}⚠${c.reset} Still not connected — run "diagnose discord" again in a few minutes`);
+        }
       }
     }
   } else if (!connStatus.error4014) {

@@ -1,7 +1,7 @@
 {
   "name": "notoken-core",
-  "version": "1.6.0",
-  "description": "Shared engine for notoken — NLP parsing, execution, detection, analysis",
+  "version": "2.0.0",
+  "description": "Shared engine for notoken \u2014 NLP parsing, execution, detection, analysis",
   "type": "module",
   "license": "MIT",
   "author": "Dino Bartolome",

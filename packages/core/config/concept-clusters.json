@@ -1,0 +1,31 @@
+{
+  "synonymClusters": {
+    "attack": ["intrusion", "breach", "compromise", "hack", "exploit", "unauthorized", "malware", "virus"],
+    "slow": ["sluggish", "laggy", "unresponsive", "hanging", "frozen", "stuck", "crawling"],
+    "fast": ["quick", "speedy", "responsive", "snappy"],
+    "error": ["bug", "crash", "failure", "exception", "fault", "broken", "issue", "problem"],
+    "big": ["large", "huge", "enormous", "massive", "bloated", "oversized"],
+    "delete": ["remove", "drop", "purge", "wipe", "destroy", "erase", "clean"],
+    "install": ["setup", "deploy", "configure", "provision", "add"],
+    "check": ["verify", "test", "validate", "inspect", "examine", "audit", "scan", "diagnose"],
+    "restart": ["reboot", "bounce", "cycle", "reload"],
+    "stop": ["kill", "halt", "terminate", "shutdown", "disable"],
+    "start": ["launch", "boot", "enable", "activate", "spin up"],
+    "show": ["display", "list", "print", "view", "get", "see"],
+    "bandwidth": ["throughput", "transfer rate", "data rate", "network speed"],
+    "space": ["storage", "disk", "capacity", "room"],
+    "update": ["upgrade", "patch", "refresh"],
+    "backup": ["snapshot", "archive", "save", "preserve"],
+    "monitor": ["watch", "observe", "track", "tail", "follow"],
+    "connect": ["ssh", "login", "access", "reach"]
+  },
+  "domainConcepts": {
+    "service.*": ["restart", "stop", "start", "check"],
+    "server.*": ["check", "monitor"],
+    "docker.*": ["restart", "stop", "start", "show"],
+    "network.*": ["check", "connect", "bandwidth"],
+    "security.*": ["attack", "check"],
+    "disk.*": ["space", "big", "delete"],
+    "logs.*": ["error", "show", "monitor"]
+  }
+}
