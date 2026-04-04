@@ -8831,6 +8831,27 @@
         "what's your favorite language",
         "do you have a favorite"
       ]
+    },
+    {
+      "name": "chat.riddle",
+      "description": "Tell the user a riddle or brain teaser",
+      "synonyms": [
+        "tell me a riddle",
+        "riddle",
+        "give me a riddle",
+        "brain teaser",
+        "riddle me this"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "tell me a riddle",
+        "riddle me this",
+        "brain teaser"
+      ]
     }
   ]
 }

@@ -47,6 +47,8 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     { pattern: /^(how old are you|when were you (made|born|created)|your (age|birthday|version))/i, intent: "chat.age" },
     // Favorite things
     { pattern: /^(what('s| is) your favorite|do you have a favorite)/i, intent: "chat.favorite" },
+    // Riddles
+    { pattern: /^(tell me a riddle|riddle|give me a riddle|riddle me|got a riddle|brain teaser)\s*[!?.]*$/i, intent: "chat.riddle" },
   ];
   for (const { pattern, intent } of casualPatterns) {
     if (pattern.test(text)) return { intent, confidence: 0.95, rawText, fields: {} };
