@@ -137,6 +137,77 @@ interface TokenSyncResult {
  *   3. Is OpenClaw's copy stale?
  *   4. Sync if needed.
  */
+/**
+ * Full OpenClaw auth refresh — uses expect for proper TTY flow,
+ * falls back to direct file write if expect unavailable.
+ *
+ * Flow:
+ *   1. Read fresh token from Claude CLI credentials
+ *   2. Try: expect → openclaw models auth paste-token --provider anthropic
+ *   3. Fallback: write directly to auth-profiles.json
+ *   4. Update lastGood pointer
+ */
+export function refreshOpenclawAuth(): { success: boolean; method: string; message: string } {
+  try {
+    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
+
+    // Get fresh token from Claude
+    const claudePath = getClaudeCredsPath();
+    if (!ef(claudePath)) return { success: false, method: "none", message: "Claude CLI not found" };
+
+    const claude = JSON.parse(rf(claudePath, "utf-8"));
+    const freshToken = claude?.claudeAiOauth?.accessToken;
+    const freshExpires = claude?.claudeAiOauth?.expiresAt;
+    if (!freshToken) return { success: false, method: "none", message: "No Claude OAuth token" };
+
+    const node22 = getNode22();
+    const ocBin = getOcBin();
+
+    // Method 1: Try expect for proper OpenClaw registration
+    let expectAvailable = false;
+    try { execSync("which expect 2>/dev/null", { stdio: "pipe" }); expectAvailable = true; } catch {}
+
+    if (expectAvailable) {
+      try {
+        const expectScript = `
+set timeout 15
+spawn ${node22} ${ocBin} models auth paste-token --provider anthropic
+expect "Paste token"
+send "${freshToken}\\r"
+expect eof
+`;
+        const result = execSync(`expect -c '${expectScript.replace(/'/g, "'\\''")}'`, {
+          encoding: "utf-8", timeout: 20000, stdio: ["pipe", "pipe", "pipe"]
+        });
+        if (result.includes("Auth profile")) {
+          return { success: true, method: "expect", message: "Token registered via OpenClaw auth (proper flow)" };
+        }
+      } catch { /* fall through to direct write */ }
+    }
+
+    // Method 2: Direct write to auth-profiles.json
+    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+    if (!ef(authPath)) return { success: false, method: "none", message: "OpenClaw auth file not found" };
+
+    const auth = JSON.parse(rf(authPath, "utf-8"));
+    if (!auth.profiles) auth.profiles = {};
+
+    auth.profiles["anthropic:claude-oauth"] = {
+      type: "oauth",
+      provider: "anthropic",
+      access: freshToken,
+      expires: freshExpires,
+    };
+    if (!auth.lastGood) auth.lastGood = {};
+    auth.lastGood.anthropic = "anthropic:claude-oauth";
+
+    wf(authPath, JSON.stringify(auth, null, 2));
+    return { success: true, method: "direct", message: "Token written directly to auth profiles" };
+  } catch (err) {
+    return { success: false, method: "error", message: (err as Error).message };
+  }
+}
+
 function syncClaudeToken(): TokenSyncResult {
   try {
     const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
