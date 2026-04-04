@@ -268,6 +268,85 @@ export function parseOpenclawModels(output: string): {
   return result;
 }
 
+/**
+ * Parse `openclaw status` output to understand gateway and system state.
+ */
+export function parseOpenclawStatus(output: string): {
+  dashboard: string | null;
+  gateway: { status: string; url: string | null; reachable: boolean; latency: string | null };
+  agents: { count: number; lastActive: string | null };
+  sessions: { count: number; defaultModel: string | null; contextSize: string | null };
+  update: { available: boolean; version: string | null };
+  security: { critical: number; warn: number; info: number; issues: string[] };
+  services: { gateway: string; node: string };
+} {
+  const result = {
+    dashboard: null as string | null,
+    gateway: { status: "unknown", url: null as string | null, reachable: false, latency: null as string | null },
+    agents: { count: 0, lastActive: null as string | null },
+    sessions: { count: 0, defaultModel: null as string | null, contextSize: null as string | null },
+    update: { available: false, version: null as string | null },
+    security: { critical: 0, warn: 0, info: 0, issues: [] as string[] },
+    services: { gateway: "unknown", node: "unknown" },
+  };
+
+  // Dashboard URL
+  const dashMatch = output.match(/Dashboard\s*│\s*(https?:\/\/\S+)/);
+  if (dashMatch) result.dashboard = dashMatch[1].trim();
+
+  // Gateway
+  const gwMatch = output.match(/Gateway\s*│\s*(.+?)│/s);
+  if (gwMatch) {
+    const gwText = gwMatch[1];
+    result.gateway.status = gwText.includes("reachable") ? "running" : "unknown";
+    const urlMatch = gwText.match(/(wss?:\/\/\S+)/);
+    if (urlMatch) result.gateway.url = urlMatch[1];
+    result.gateway.reachable = gwText.includes("reachable");
+    const latMatch = gwText.match(/reachable\s+(\d+ms)/);
+    if (latMatch) result.gateway.latency = latMatch[1];
+  }
+
+  // Gateway/Node services
+  const gwSvcMatch = output.match(/Gateway service\s*│\s*(.+?)│/);
+  if (gwSvcMatch) result.services.gateway = gwSvcMatch[1].trim();
+  const nodeSvcMatch = output.match(/Node service\s*│\s*(.+?)│/);
+  if (nodeSvcMatch) result.services.node = nodeSvcMatch[1].trim();
+
+  // Agents
+  const agentMatch = output.match(/Agents\s*│\s*(\d+)/);
+  if (agentMatch) result.agents.count = parseInt(agentMatch[1]);
+  const activeMatch = output.match(/active\s+(\S+\s+ago)/);
+  if (activeMatch) result.agents.lastActive = activeMatch[1];
+
+  // Sessions
+  const sessMatch = output.match(/Sessions\s*│\s*(\d+)\s+active.*?default\s+(\S+)\s+\((\S+)\s+ctx\)/);
+  if (sessMatch) {
+    result.sessions.count = parseInt(sessMatch[1]);
+    result.sessions.defaultModel = sessMatch[2];
+    result.sessions.contextSize = sessMatch[3];
+  }
+
+  // Update
+  const updateMatch = output.match(/Update\s*│\s*(.+?)│/);
+  if (updateMatch) {
+    result.update.available = updateMatch[1].includes("available");
+    const verMatch = updateMatch[1].match(/(\d{4}\.\d+\.\d+)/);
+    if (verMatch) result.update.version = verMatch[1];
+  }
+
+  // Security
+  const secMatch = output.match(/Summary:\s*(\d+)\s*critical.*?(\d+)\s*warn.*?(\d+)\s*info/);
+  if (secMatch) {
+    result.security.critical = parseInt(secMatch[1]);
+    result.security.warn = parseInt(secMatch[2]);
+    result.security.info = parseInt(secMatch[3]);
+  }
+  const critLines = output.match(/CRITICAL\s+.+/g);
+  if (critLines) result.security.issues = critLines.map(l => l.trim());
+
+  return result;
+}
+
 function syncCodexToken(): TokenSyncResult {
   try {
     const ctx = getUserContext();
@@ -416,7 +495,10 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     const _tryExec = (cmd: string) => { try { return execSync(cmd, { encoding: "utf-8", timeout: 5000, stdio: "pipe" }).trim(); } catch { return ""; } };
     const _node22 = _tryExec("ls /home/ino/.nvm/versions/node/v22*/bin/node 2>/dev/null | tail -1") || "node";
     const _ocBin = _tryExec(`ls ${_node22.replace('/bin/node', '/lib/node_modules/openclaw/openclaw.mjs')} 2>/dev/null`) || _tryExec("readlink -f $(which openclaw) 2>/dev/null") || "openclaw";
-    const modelsOutput = await run(`${_node22} ${_ocBin} models 2>&1`);
+    const [modelsOutput, statusOutput] = await Promise.all([
+      run(`${_node22} ${_ocBin} models 2>&1`),
+      run(`${_node22} ${_ocBin} status 2>&1`).catch(() => ""),
+    ]);
     const ocStatus = parseOpenclawModels(modelsOutput);
     if (ocStatus.defaultModel) lines.push(`  ${c.bold}Model:${c.reset} ${ocStatus.defaultModel}`);
     if (ocStatus.providers.length > 0) {
@@ -428,6 +510,30 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     if (ocStatus.errors.length > 0) {
       for (const err of ocStatus.errors.slice(0, 3)) {
         lines.push(`  ${c.red}✗${c.reset} ${err}`);
+      }
+    }
+
+    // Parse status output for gateway/session/security info
+    if (statusOutput) {
+      const st = parseOpenclawStatus(statusOutput);
+      if (st.dashboard) lines.push(`  ${c.bold}Dashboard:${c.reset} ${st.dashboard}`);
+      if (st.gateway.reachable) {
+        lines.push(`  ${c.green}✓${c.reset} Gateway: ${st.gateway.url ?? "running"} ${st.gateway.latency ? `(${st.gateway.latency})` : ""}`);
+      }
+      if (st.sessions.defaultModel) {
+        lines.push(`  ${c.bold}Session:${c.reset} ${st.sessions.defaultModel} (${st.sessions.contextSize ?? "?"} ctx)`);
+      }
+      if (st.agents.lastActive) {
+        lines.push(`  ${c.dim}Last active: ${st.agents.lastActive}${c.reset}`);
+      }
+      if (st.update.available) {
+        lines.push(`  ${c.yellow}⬆${c.reset} Update available: ${st.update.version}`);
+      }
+      if (st.security.critical > 0) {
+        lines.push(`  ${c.red}⚠${c.reset} Security: ${st.security.critical} critical, ${st.security.warn} warnings`);
+        for (const issue of st.security.issues.slice(0, 2)) {
+          lines.push(`    ${c.dim}${issue.substring(0, 80)}${c.reset}`);
+        }
       }
     }
     lines.push("");
