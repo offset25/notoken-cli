@@ -3549,9 +3549,20 @@ function interpolateCommand(
   const isWSL = !isWindows && require("os").release().toLowerCase().includes("microsoft");
   // On Windows or WSL, prefer commandWindows if available
   let cmd = ((isWindows || isWSL) && def.commandWindows) ? def.commandWindows : def.command;
-  // In WSL, powershell needs full path
+  // In WSL, write PowerShell to a temp .ps1 file to avoid bash $variable stripping
   if (isWSL && cmd.startsWith("powershell ")) {
-    cmd = cmd.replace(/^powershell /, "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ");
+    const fs = require("fs");
+    const os = require("os");
+    const path = require("path");
+    // Extract the -Command "..." content
+    const match = cmd.match(/powershell\s+-Command\s+"(.+)"$/s);
+    if (match) {
+      const psScript = match[1];
+      const tmpFile = path.join(os.tmpdir(), `notoken-ps-${Date.now()}.ps1`);
+      fs.writeFileSync(tmpFile, psScript);
+      const winPath = tmpFile.replace(/^\/mnt\/([a-z])\//, (_m: string, d: string) => `${d.toUpperCase()}:\\\\`).replace(/\//g, "\\\\");
+      cmd = `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy Bypass -File "${winPath}"`;
+    }
   }
 
   for (const [key, value] of Object.entries(fields)) {
