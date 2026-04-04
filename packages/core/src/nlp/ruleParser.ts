@@ -19,6 +19,34 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     { pattern: /^(i'?m (bored|tired|frustrated|confused|stuck|lost))/i, intent: "chat.empathy" },
     { pattern: /^(this (sucks|is broken|doesn'?t work|is frustrating))/i, intent: "chat.empathy" },
     { pattern: /^(what do you think|your opinion|do you like|which is better)/i, intent: "chat.opinion" },
+    // Compliments
+    { pattern: /^(you('re| are) (awesome|great|amazing|the best|cool|smart|helpful|incredible))/i, intent: "chat.compliment" },
+    { pattern: /^(nice|love it|love you|love this|you rock|brilliant)/i, intent: "chat.compliment" },
+    // Insults (playful)
+    { pattern: /^(you('re| are) (stupid|dumb|useless|terrible|bad|wrong|slow|broken))/i, intent: "chat.insult" },
+    { pattern: /^(you suck|this sucks|worst|hate this)/i, intent: "chat.insult" },
+    // What can you do / capabilities
+    { pattern: /^(what (else )?can you do|show me what you can do|what are your (skills|capabilities|features))/i, intent: "chat.capabilities" },
+    // Bored / entertain me
+    { pattern: /^(i('m| am) bored|entertain me|do something (cool|fun|interesting)|surprise me|show me something)/i, intent: "chat.bored" },
+    // Existential
+    { pattern: /^(are you (alive|real|sentient|conscious|human|ai|a robot|a bot))/i, intent: "chat.existential" },
+    { pattern: /^(do you (dream|sleep|feel|think|have feelings|have emotions))/i, intent: "chat.existential" },
+    // Motivational
+    { pattern: /^(motivate me|inspire me|give me a (quote|pep talk)|i need motivation)/i, intent: "chat.motivate" },
+    // Facts / trivia
+    { pattern: /^(tell me a fact|random fact|fun fact|did you know|trivia)/i, intent: "chat.fact" },
+    // Easter eggs
+    { pattern: /^(42|meaning of life|do a barrel roll|make me a sandwich|sudo make me a sandwich)/i, intent: "chat.easter" },
+    { pattern: /^(what is the matrix|open the pod bay doors|i am your father|may the force)/i, intent: "chat.easter" },
+    // Apology
+    { pattern: /^(sorry|my bad|i('m| am) sorry|apologies|oops|my mistake)/i, intent: "chat.sorry" },
+    // Agreement / affirmation (not pending action)
+    { pattern: /^(cool|nice|ok cool|awesome|sweet|neat|dope|sick|rad|lit)\s*[!.]*$/i, intent: "chat.acknowledge" },
+    // How old are you / version
+    { pattern: /^(how old are you|when were you (made|born|created)|your (age|birthday|version))/i, intent: "chat.age" },
+    // Favorite things
+    { pattern: /^(what('s| is) your favorite|do you have a favorite)/i, intent: "chat.favorite" },
   ];
   for (const { pattern, intent } of casualPatterns) {
     if (pattern.test(text)) return { intent, confidence: 0.95, rawText, fields: {} };

@@ -334,7 +334,7 @@
     },
     {
       "name": "logs.check",
-      "description": "Check a specific log file — shows recent entries, size, and rotation status",
+      "description": "Check a specific log file \u2014 shows recent entries, size, and rotation status",
       "synonyms": [
         "check log",
         "check log file",
@@ -743,7 +743,7 @@
     },
     {
       "name": "docker.cleanup",
-      "description": "Clean up unused/orphaned Docker resources — stopped containers, dangling images, unused volumes and networks",
+      "description": "Clean up unused/orphaned Docker resources \u2014 stopped containers, dangling images, unused volumes and networks",
       "synonyms": [
         "docker cleanup",
         "docker prune",
@@ -974,7 +974,7 @@
     },
     {
       "name": "cron.list",
-      "description": "List all cron jobs — user crontab, system crons, and timers",
+      "description": "List all cron jobs \u2014 user crontab, system crons, and timers",
       "synonyms": [
         "cron",
         "crontab",
@@ -1122,7 +1122,7 @@
     },
     {
       "name": "files.find_media",
-      "description": "Find media files — videos, images, music, documents",
+      "description": "Find media files \u2014 videos, images, music, documents",
       "synonyms": [
         "find media",
         "find my media",
@@ -2122,7 +2122,7 @@
     },
     {
       "name": "file.read",
-      "description": "Read a file with smart output — shows sample if file is large",
+      "description": "Read a file with smart output \u2014 shows sample if file is large",
       "synonyms": [
         "show me",
         "output file",
@@ -2754,7 +2754,7 @@
     },
     {
       "name": "tool.info",
-      "description": "Show how to install a tool or CLI — installation commands, requirements, and tips",
+      "description": "Show how to install a tool or CLI \u2014 installation commands, requirements, and tips",
       "synonyms": [
         "how to install",
         "how do i install",
@@ -4436,7 +4436,7 @@
     },
     {
       "name": "project.scan",
-      "description": "Scan for software projects in a directory — detects type, version, deps, scripts",
+      "description": "Scan for software projects in a directory \u2014 detects type, version, deps, scripts",
       "synonyms": [
         "scan projects",
         "what projects",
@@ -4657,7 +4657,7 @@
         "openclaw problems"
       ],
       "fields": {},
-      "command": "openclaw doctor --fix 2>&1 || echo 'OpenClaw not available — run: notoken setup openclaw'",
+      "command": "openclaw doctor --fix 2>&1 || echo 'OpenClaw not available \u2014 run: notoken setup openclaw'",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
@@ -4901,7 +4901,7 @@
     },
     {
       "name": "ai.image_status",
-      "description": "Check status of image generation engines — what we use to make images",
+      "description": "Check status of image generation engines \u2014 what we use to make images",
       "synonyms": [
         "image status",
         "stable diffusion status",
@@ -5030,14 +5030,26 @@
       "name": "ai.gpu_mode",
       "description": "Switch image generation between GPU and CPU mode",
       "synonyms": [
-        "use gpu", "switch to gpu", "enable gpu", "gpu mode",
-        "use cpu", "switch to cpu", "cpu mode",
-        "use graphics card", "enable graphics card",
-        "disable gpu", "turn off gpu",
-        "switch to gpu mode", "switch to cpu mode"
+        "use gpu",
+        "switch to gpu",
+        "enable gpu",
+        "gpu mode",
+        "use cpu",
+        "switch to cpu",
+        "cpu mode",
+        "use graphics card",
+        "enable graphics card",
+        "disable gpu",
+        "turn off gpu",
+        "switch to gpu mode",
+        "switch to cpu mode"
       ],
       "fields": {
-        "mode": { "type": "string", "required": false, "default": "gpu" }
+        "mode": {
+          "type": "string",
+          "required": false,
+          "default": "gpu"
+        }
       },
       "command": "notoken:gpu-mode:{{mode}}",
       "execution": "local",
@@ -5052,12 +5064,21 @@
     },
     {
       "name": "hardware.gpu",
-      "description": "Show GPU information — model, VRAM, temperature, utilization",
+      "description": "Show GPU information \u2014 model, VRAM, temperature, utilization",
       "synonyms": [
-        "gpu info", "gpu status", "check gpu", "show gpu",
-        "graphics card", "what gpu do i have", "gpu temperature",
-        "gpu memory", "vram", "gpu utilization", "nvidia info",
-        "is gpu working", "gpu health"
+        "gpu info",
+        "gpu status",
+        "check gpu",
+        "show gpu",
+        "graphics card",
+        "what gpu do i have",
+        "gpu temperature",
+        "gpu memory",
+        "vram",
+        "gpu utilization",
+        "nvidia info",
+        "is gpu working",
+        "gpu health"
       ],
       "fields": {},
       "command": "notoken:gpu-info",
@@ -5137,7 +5158,7 @@
           "required": true
         }
       },
-      "command": "echo '{{domain}} → {{value}} ({{type}})' && echo 'To update /etc/hosts:' && echo '{{value}} {{domain}}' && echo '' && echo 'For cloud DNS, use your provider CLI:' && echo '  aws route53 change-resource-record-sets ...' && echo '  gcloud dns record-sets update ...' && echo '  doctl compute domain records create ...'",
+      "command": "echo '{{domain}} \u2192 {{value}} ({{type}})' && echo 'To update /etc/hosts:' && echo '{{value}} {{domain}}' && echo '' && echo 'For cloud DNS, use your provider CLI:' && echo '  aws route53 change-resource-record-sets ...' && echo '  gcloud dns record-sets update ...' && echo '  doctl compute domain records create ...'",
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "high",
@@ -5627,7 +5648,7 @@
           "default": "local"
         }
       },
-      "command": "echo '=== Disk Usage Check (threshold: {{threshold}}%) ===' && df -h --output=target,pcent,size,avail | tail -n +2 | while read mount pct size avail; do num=$(echo $pct | tr -d '%'); if [ \"$num\" -ge {{threshold}} ] 2>/dev/null; then echo \"⚠ $mount: $pct used ($avail free of $size)\"; fi; done && echo '' && echo '=== All mounts ===' && df -h | head -15",
+      "command": "echo '=== Disk Usage Check (threshold: {{threshold}}%) ===' && df -h --output=target,pcent,size,avail | tail -n +2 | while read mount pct size avail; do num=$(echo $pct | tr -d '%'); if [ \"$num\" -ge {{threshold}} ] 2>/dev/null; then echo \"\u26a0 $mount: $pct used ($avail free of $size)\"; fi; done && echo '' && echo '=== All mounts ===' && df -h | head -15",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
@@ -5639,7 +5660,7 @@
     },
     {
       "name": "monitor.process",
-      "description": "Monitor a specific process — CPU, memory, uptime",
+      "description": "Monitor a specific process \u2014 CPU, memory, uptime",
       "synonyms": [
         "monitor process",
         "watch process",
@@ -5697,7 +5718,7 @@
           "default": "local"
         }
       },
-      "command": "traceroute -m 20 {{target}} 2>/dev/null || tracepath {{target}} 2>/dev/null || echo 'traceroute not installed — install with: apt install traceroute'",
+      "command": "traceroute -m 20 {{target}} 2>/dev/null || tracepath {{target}} 2>/dev/null || echo 'traceroute not installed \u2014 install with: apt install traceroute'",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
@@ -6202,7 +6223,7 @@
           "default": "local"
         }
       },
-      "command": "if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then env | grep -i '{{filter}}' | sort; else env | sort | head -50 && echo '' && echo '(showing first 50 — use filter to narrow)'; fi",
+      "command": "if [ -n '{{filter}}' ] && [ '{{filter}}' != '{{filter}}' ]; then env | grep -i '{{filter}}' | sort; else env | sort | head -50 && echo '' && echo '(showing first 50 \u2014 use filter to narrow)'; fi",
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
@@ -6215,7 +6236,7 @@
     },
     {
       "name": "system.resource_summary",
-      "description": "Full system resource summary — CPU, memory, disk, load, processes",
+      "description": "Full system resource summary \u2014 CPU, memory, disk, load, processes",
       "synonyms": [
         "system summary",
         "resource summary",
@@ -6319,7 +6340,7 @@
     },
     {
       "name": "hardware.info",
-      "description": "Show hardware information — CPU, RAM, GPU, storage",
+      "description": "Show hardware information \u2014 CPU, RAM, GPU, storage",
       "synonyms": [
         "hardware info",
         "cpu info",
@@ -6510,7 +6531,7 @@
     },
     {
       "name": "db.query",
-      "description": "Query a database — search, list, count rows in PostgreSQL or MySQL",
+      "description": "Query a database \u2014 search, list, count rows in PostgreSQL or MySQL",
       "synonyms": [
         "query database",
         "query db",
@@ -6602,7 +6623,7 @@
     },
     {
       "name": "db.describe",
-      "description": "Describe a table's structure — columns, types, constraints",
+      "description": "Describe a table's structure \u2014 columns, types, constraints",
       "synonyms": [
         "describe table",
         "table structure",
@@ -6707,7 +6728,7 @@
     },
     {
       "name": "system.health",
-      "description": "Quick health check — disk, memory, load, and services",
+      "description": "Quick health check \u2014 disk, memory, load, and services",
       "synonyms": [
         "health check",
         "is server healthy",
@@ -6851,7 +6872,7 @@
     },
     {
       "name": "entity.define",
-      "description": "Define a named entity — server, database, or service alias",
+      "description": "Define a named entity \u2014 server, database, or service alias",
       "synonyms": [
         "define entity",
         "define server",
@@ -6887,7 +6908,7 @@
     },
     {
       "name": "entity.list",
-      "description": "List all defined entities — servers, databases, services",
+      "description": "List all defined entities \u2014 servers, databases, services",
       "synonyms": [
         "list entities",
         "show entities",
@@ -6947,7 +6968,7 @@
     },
     {
       "name": "llm.message",
-      "description": "Send a message to an AI — Claude, ChatGPT, or Ollama and get a response",
+      "description": "Send a message to an AI \u2014 Claude, ChatGPT, or Ollama and get a response",
       "synonyms": [
         "talk to claude",
         "ask claude",
@@ -7109,7 +7130,7 @@
     },
     {
       "name": "openclaw.add_channel",
-      "description": "Add a chat channel to OpenClaw — Telegram, Discord, Matrix, Slack, WhatsApp",
+      "description": "Add a chat channel to OpenClaw \u2014 Telegram, Discord, Matrix, Slack, WhatsApp",
       "synonyms": [
         "add telegram to openclaw",
         "add discord to openclaw",
@@ -7412,7 +7433,7 @@
     },
     {
       "name": "openclaw.diagnose",
-      "description": "Full OpenClaw diagnostic — checks gateway, connectivity, channels, config, and services",
+      "description": "Full OpenClaw diagnostic \u2014 checks gateway, connectivity, channels, config, and services",
       "synonyms": [
         "openclaw diagnose",
         "diagnose openclaw",
@@ -7478,7 +7499,7 @@
     },
     {
       "name": "openclaw.channels",
-      "description": "List OpenClaw connected channels — Telegram, Discord, WhatsApp, etc.",
+      "description": "List OpenClaw connected channels \u2014 Telegram, Discord, WhatsApp, etc.",
       "synonyms": [
         "openclaw channels",
         "claw channels",
@@ -7538,7 +7559,7 @@
     },
     {
       "name": "openclaw.channel.setup",
-      "description": "Set up a chat channel for OpenClaw — Telegram, Discord, Matrix, WhatsApp, etc.",
+      "description": "Set up a chat channel for OpenClaw \u2014 Telegram, Discord, Matrix, WhatsApp, etc.",
       "synonyms": [
         "setup telegram",
         "setup discord",
@@ -7745,7 +7766,7 @@
     },
     {
       "name": "discord.monitor",
-      "description": "Monitor Discord bot connection status in real-time — watches gateway logs, auto-restarts if stuck",
+      "description": "Monitor Discord bot connection status in real-time \u2014 watches gateway logs, auto-restarts if stuck",
       "synonyms": [
         "monitor discord",
         "watch discord",
@@ -7884,7 +7905,7 @@
     },
     {
       "name": "project.install",
-      "description": "Install project dependencies — auto-detects npm/yarn/pnpm/bun/composer/pip/cargo",
+      "description": "Install project dependencies \u2014 auto-detects npm/yarn/pnpm/bun/composer/pip/cargo",
       "synonyms": [
         "npm install",
         "yarn install",
@@ -7914,7 +7935,7 @@
     },
     {
       "name": "project.update",
-      "description": "Update project dependencies — auto-detects package manager",
+      "description": "Update project dependencies \u2014 auto-detects package manager",
       "synonyms": [
         "npm update",
         "yarn upgrade",
@@ -7944,7 +7965,7 @@
     },
     {
       "name": "project.run",
-      "description": "Run a project script — auto-detects package manager and available scripts",
+      "description": "Run a project script \u2014 auto-detects package manager and available scripts",
       "synonyms": [
         "run script",
         "run dev",
@@ -8008,7 +8029,7 @@
     },
     {
       "name": "ollama.pull",
-      "description": "Download a new Ollama model — checks disk space first",
+      "description": "Download a new Ollama model \u2014 checks disk space first",
       "synonyms": [
         "ollama pull",
         "pull ollama model",
@@ -8239,11 +8260,63 @@
         "use codex for adding types"
       ]
     },
-
-    {"name":"ai.diagnose","description":"Diagnose image generation issues — check engine, GPU, model, API, disk","synonyms":["diagnose image generation","why isnt it working","image not working","sd not working","troubleshoot image","debug image generation","fix image generation","is the server up","check if sd is running","is sd running","is stable diffusion running","check image server","restart sd","restart stable diffusion","diagnose sd"],"fields":{},"command":"notoken:ai-diagnose","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["why isnt image generation working","is the server up","diagnose sd","restart stable diffusion","check if sd is running"]},
-
-    {"name":"system.install_history","description":"Show what NoToken has installed and where","synonyms":["what did you install","install history","what have you installed","show installs","what did notoken install","what packages did notoken install","show what you installed","what have we installed"],"fields":{},"command":"notoken:install-history","execution":"local","requiresConfirmation":false,"riskLevel":"low","examples":["what did you install","show install history","what have you installed"]},
-
+    {
+      "name": "ai.diagnose",
+      "description": "Diagnose image generation issues \u2014 check engine, GPU, model, API, disk",
+      "synonyms": [
+        "diagnose image generation",
+        "why isnt it working",
+        "image not working",
+        "sd not working",
+        "troubleshoot image",
+        "debug image generation",
+        "fix image generation",
+        "is the server up",
+        "check if sd is running",
+        "is sd running",
+        "is stable diffusion running",
+        "check image server",
+        "restart sd",
+        "restart stable diffusion",
+        "diagnose sd"
+      ],
+      "fields": {},
+      "command": "notoken:ai-diagnose",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "why isnt image generation working",
+        "is the server up",
+        "diagnose sd",
+        "restart stable diffusion",
+        "check if sd is running"
+      ]
+    },
+    {
+      "name": "system.install_history",
+      "description": "Show what NoToken has installed and where",
+      "synonyms": [
+        "what did you install",
+        "install history",
+        "what have you installed",
+        "show installs",
+        "what did notoken install",
+        "what packages did notoken install",
+        "show what you installed",
+        "what have we installed"
+      ],
+      "fields": {},
+      "command": "notoken:install-history",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what did you install",
+        "show install history",
+        "what have you installed"
+      ]
+    },
     {
       "name": "weather.current",
       "description": "Check current weather for a location",
@@ -8276,7 +8349,6 @@
         "is it going to rain today"
       ]
     },
-
     {
       "name": "news.headlines",
       "description": "Show latest news headlines from RSS feeds",
@@ -8301,7 +8373,6 @@
         "any news today"
       ]
     },
-
     {
       "name": "db.size",
       "description": "Check database size and storage usage",
@@ -8323,9 +8394,11 @@
       "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
-      "examples": ["how big is my database", "database size"]
+      "examples": [
+        "how big is my database",
+        "database size"
+      ]
     },
-
     {
       "name": "user.delete",
       "description": "Delete a user account",
@@ -8346,11 +8419,14 @@
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "high",
-      "examples": ["delete user john", "remove user testuser"]
+      "examples": [
+        "delete user john",
+        "remove user testuser"
+      ]
     },
     {
       "name": "notoken.cancel",
-      "description": "Cancel or negate the current command — triggered by negation phrases",
+      "description": "Cancel or negate the current command \u2014 triggered by negation phrases",
       "synonyms": [
         "don't",
         "do not",
@@ -8379,7 +8455,6 @@
       "description": "User says hello or greets the assistant",
       "synonyms": [
         "hello",
-        "hi",
         "hey",
         "howdy",
         "good morning",
@@ -8527,6 +8602,234 @@
       "riskLevel": "low",
       "examples": [
         "what do you think"
+      ]
+    },
+    {
+      "name": "chat.compliment",
+      "description": "Respond to compliments",
+      "synonyms": [
+        "you are awesome",
+        "you rock",
+        "love it",
+        "nice work"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "you're awesome",
+        "love it"
+      ]
+    },
+    {
+      "name": "chat.insult",
+      "description": "Respond to playful insults",
+      "synonyms": [
+        "you suck",
+        "you are stupid",
+        "useless",
+        "terrible"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "you suck",
+        "you're dumb"
+      ]
+    },
+    {
+      "name": "chat.capabilities",
+      "description": "Show what notoken can do",
+      "synonyms": [
+        "what else can you do",
+        "your skills",
+        "your capabilities",
+        "show me what you can do"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what can you do",
+        "your skills"
+      ]
+    },
+    {
+      "name": "chat.bored",
+      "description": "Entertain the user",
+      "synonyms": [
+        "i am bored",
+        "entertain me",
+        "surprise me",
+        "do something cool"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "i'm bored",
+        "entertain me"
+      ]
+    },
+    {
+      "name": "chat.existential",
+      "description": "Philosophical questions about being AI",
+      "synonyms": [
+        "are you alive",
+        "are you real",
+        "are you sentient",
+        "do you dream"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "are you alive",
+        "do you dream"
+      ]
+    },
+    {
+      "name": "chat.motivate",
+      "description": "Motivational quotes and pep talks",
+      "synonyms": [
+        "motivate me",
+        "inspire me",
+        "give me a quote",
+        "pep talk"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "motivate me",
+        "inspire me"
+      ]
+    },
+    {
+      "name": "chat.fact",
+      "description": "Random tech facts and trivia",
+      "synonyms": [
+        "tell me a fact",
+        "random fact",
+        "fun fact",
+        "trivia"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "tell me a fact",
+        "fun fact"
+      ]
+    },
+    {
+      "name": "chat.easter",
+      "description": "Easter egg responses",
+      "synonyms": [
+        "meaning of life",
+        "sudo make me a sandwich",
+        "open the pod bay doors"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "42",
+        "sudo make me a sandwich"
+      ]
+    },
+    {
+      "name": "chat.sorry",
+      "description": "Respond to user apologies",
+      "synonyms": [
+        "sorry",
+        "my bad",
+        "apologies",
+        "oops",
+        "my mistake"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "sorry",
+        "my bad"
+      ]
+    },
+    {
+      "name": "chat.acknowledge",
+      "description": "Respond to casual acknowledgments",
+      "synonyms": [
+        "cool",
+        "nice",
+        "sweet",
+        "neat",
+        "dope"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "cool",
+        "nice"
+      ]
+    },
+    {
+      "name": "chat.age",
+      "description": "Questions about notoken age/version",
+      "synonyms": [
+        "how old are you",
+        "when were you created",
+        "your age",
+        "your version"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "how old are you",
+        "when were you made"
+      ]
+    },
+    {
+      "name": "chat.favorite",
+      "description": "Questions about notoken favorites",
+      "synonyms": [
+        "what is your favorite",
+        "do you have a favorite",
+        "your favorite"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what's your favorite language",
+        "do you have a favorite"
       ]
     }
   ]
