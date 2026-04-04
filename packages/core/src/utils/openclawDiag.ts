@@ -213,6 +213,63 @@ expect eof
   }
 }
 
+/**
+ * Sync Codex (OpenAI) OAuth token to OpenClaw.
+ * Reads from ~/.codex/auth.json
+ */
+function syncCodexToken(): TokenSyncResult {
+  try {
+    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
+    const codexPath = `${userHome}${isWin ? "\\" : "/"}.codex${isWin ? "\\" : "/"}auth.json`;
+    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+
+    if (!ef(codexPath)) {
+      let codexInstalled = "";
+      try { codexInstalled = execSync("which codex 2>/dev/null || where codex 2>nul", { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim(); } catch {}
+      if (!codexInstalled) return { status: "no_claude", message: "Codex CLI not installed. Install: npm install -g @openai/codex" };
+      return { status: "no_claude_token", message: "Codex CLI installed but no auth file. Run: codex" };
+    }
+
+    const codex = JSON.parse(rf(codexPath, "utf-8"));
+    const freshToken = codex?.tokens?.access_token;
+    const refreshToken = codex?.tokens?.refresh_token;
+    const freshExpires = (codex?.tokens?.expires_at ?? 0) * 1000; // Codex uses seconds, we use ms
+    const accountId = codex?.tokens?.account_id;
+    if (!freshToken && !refreshToken) return { status: "no_claude_token", message: "Codex has no tokens. Run: codex (to authenticate)" };
+
+    if (!ef(authPath)) return { status: "no_openclaw_auth", message: "OpenClaw auth file not found" };
+
+    const auth = JSON.parse(rf(authPath, "utf-8"));
+    const ocProfile = auth?.profiles?.["openai-codex:default"];
+    if (!ocProfile) {
+      // Create profile
+      if (!auth.profiles) auth.profiles = {};
+      auth.profiles["openai-codex:default"] = { type: "oauth", provider: "openai-codex", access: freshToken, refresh: refreshToken, expires: freshExpires, accountId };
+      if (!auth.lastGood) auth.lastGood = {};
+      auth.lastGood["openai-codex"] = "openai-codex:default";
+      wf(authPath, JSON.stringify(auth, null, 2));
+      return { status: "synced", message: "Created OpenClaw Codex auth profile from Codex CLI" };
+    }
+
+    // Check if stale
+    const ocExpires = ocProfile.expires ?? 0;
+    const now = Date.now();
+    if (ocExpires - now > 3600000) {
+      return { status: "already_fresh", message: `Codex token fresh (${((ocExpires - now) / 3600000).toFixed(1)}h remaining)` };
+    }
+
+    // Sync — update access token and refresh token
+    if (freshToken) ocProfile.access = freshToken;
+    if (refreshToken) ocProfile.refresh = refreshToken;
+    ocProfile.expires = freshExpires;
+    if (accountId) ocProfile.accountId = accountId;
+    wf(authPath, JSON.stringify(auth, null, 2));
+    return { status: "synced", message: "Codex token synced from ~/.codex/auth.json" };
+  } catch (err) {
+    return { status: "error", message: `Codex sync error: ${(err as Error).message}` };
+  }
+}
+
 function syncClaudeToken(): TokenSyncResult {
   try {
     const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
@@ -317,6 +374,15 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
       const retry = syncClaudeToken();
       if (retry.status === "synced") lines.push(`  ${c.green}✓${c.reset} ${retry.message}`);
     }
+  }
+
+  // Auto-sync Codex (OpenAI) token too
+  const codexSync = syncCodexToken();
+  if (codexSync.status === "synced") {
+    lines.push(`  ${c.green}✓${c.reset} ${codexSync.message}`);
+  } else if (codexSync.status !== "already_fresh" && codexSync.status !== "no_claude") {
+    // Only warn if codex is installed but has issues
+    if (codexSync.status === "no_claude_token") lines.push(`  ${c.yellow}⚠${c.reset} ${codexSync.message}`);
   }
 
   // Auto-discover and register all OpenClaw installations as entities
