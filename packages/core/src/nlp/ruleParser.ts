@@ -269,7 +269,8 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }
   // "status of X" / "can you talk to X" / "diagnose X" / "check X"
-  const statusOfMatch = text.match(/(?:status of|check on|talk to|communicate with|connect to|reach|diagnos\w*)\s+(openclaw|claw|discord|ollama|notoken)/);
+  // Also catches "can you talk to it" / "are you able to talk to it" with "it" passthrough
+  const statusOfMatch = text.match(/(?:status of|check on|talk to|communicate with|connect to|reach|diagnos\w*)\s+(openclaw|claw|discord|ollama|notoken)\b/);
   if (statusOfMatch) {
     const target = statusOfMatch[1] === "claw" ? "openclaw" : statusOfMatch[1];
     const intentName = target === "notoken" ? "notoken.status" : `${target}.status`;
