@@ -780,6 +780,24 @@ async function handleMetaCommand(
   }
 
   switch (command) {
+    case ":update":
+    case ":upgrade": {
+      try {
+        const { checkForUpdate, runUpdate } = await import("notoken-core");
+        console.log("Checking for updates...");
+        const info = await checkForUpdate();
+        if (!info) { console.log("Could not check for updates."); break; }
+        if (!info.updateAvailable) { console.log(`${c.green}✓${c.reset} Already on the latest version (${info.current})`); break; }
+        console.log(`${c.yellow}⬆${c.reset} Update available: ${info.current} → ${c.green}${info.latest}${c.reset}`);
+        console.log("Updating...");
+        runUpdate();
+        console.log(`${c.green}✓${c.reset} Updated to ${info.latest}. Restart notoken to use the new version.`);
+      } catch (err) {
+        console.error(`${c.red}✗${c.reset} Update failed: ${(err as Error).message}`);
+      }
+      break;
+    }
+
     case ":quit":
     case ":q":
     case ":exit":

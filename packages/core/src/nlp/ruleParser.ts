@@ -261,10 +261,17 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: { path: "." } };
   }
 
-  // Pre-check: "how is openclaw doing" / "how is discord doing" → *.status
+  // Pre-check: "how is openclaw doing" / "status of openclaw" / "can you talk to openclaw"
   const howIsMatch = text.match(/^how(?:'s| is| are) (openclaw|claw|discord|ollama|notoken) (?:doing|going|running|working)/);
   if (howIsMatch) {
     const target = howIsMatch[1] === "claw" ? "openclaw" : howIsMatch[1];
+    const intentName = target === "notoken" ? "notoken.status" : `${target}.status`;
+    return { intent: intentName, confidence: 0.9, rawText, fields: {} };
+  }
+  // "status of X" / "can you talk to X" / "diagnose X" / "check X"
+  const statusOfMatch = text.match(/(?:status of|check on|talk to|communicate with|connect to|reach|diagnos\w*)\s+(openclaw|claw|discord|ollama|notoken)/);
+  if (statusOfMatch) {
+    const target = statusOfMatch[1] === "claw" ? "openclaw" : statusOfMatch[1];
     const intentName = target === "notoken" ? "notoken.status" : `${target}.status`;
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }

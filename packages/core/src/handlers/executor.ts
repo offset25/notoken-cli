@@ -1297,6 +1297,21 @@ expect eof
   }
 
   // Notoken status — comprehensive overview
+  // notoken.versions — show current version and check for updates
+  if (intent.intent === "notoken.versions" || intent.intent === "notoken.version") {
+    try {
+      const { checkForUpdate } = await import("../utils/updater.js");
+      const info = await checkForUpdate();
+      if (!info) return `\x1b[36mNoToken\x1b[0m v1.8.0\n\x1b[2mCould not check for updates.\x1b[0m`;
+      if (info.updateAvailable) {
+        return `\x1b[36mNoToken\x1b[0m v${info.current}\n\x1b[33m⬆ Update available: ${info.current} → ${info.latest}\x1b[0m\n\x1b[2m  Run: notoken update  or  /update\x1b[0m`;
+      }
+      return `\x1b[36mNoToken\x1b[0m v${info.current}\n\x1b[32m✓ You're on the latest version.\x1b[0m`;
+    } catch {
+      return `\x1b[36mNoToken\x1b[0m v1.8.0`;
+    }
+  }
+
   // notoken.jobs — in one-shot mode just say "use interactive mode"
   if (intent.intent === "notoken.jobs") {
     return `\x1b[32m✓\x1b[0m No background tasks (one-shot mode).\n\x1b[2m  Run \x1b[1mnotoken\x1b[0m\x1b[2m for interactive mode with background task support.\x1b[0m`;
