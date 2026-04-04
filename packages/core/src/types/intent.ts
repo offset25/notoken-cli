@@ -36,6 +36,7 @@ export const IntentDef = z.object({
   synonyms: z.array(z.string()),
   fields: z.record(FieldDef),
   command: z.string(),
+  commandWindows: z.string().optional(),
   execution: z.enum(["remote", "local"]),
   requiresConfirmation: z.boolean(),
   riskLevel: z.enum(["low", "medium", "high"]),

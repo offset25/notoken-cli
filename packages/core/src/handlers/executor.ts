@@ -3545,7 +3545,8 @@ function interpolateCommand(
   def: IntentDef,
   fields: Record<string, unknown>
 ): string {
-  let cmd = def.command;
+  const isWindows = process.platform === "win32";
+  let cmd = (isWindows && def.commandWindows) ? def.commandWindows : def.command;
 
   for (const [key, value] of Object.entries(fields)) {
     if (value !== undefined && value !== null) {
