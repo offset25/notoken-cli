@@ -11,7 +11,7 @@
  *   7. Any errors in recent logs?
  */
 
-import { exec } from "node:child_process";
+import { exec, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import { discoverInstallations } from "./entityResolver.js";
 
@@ -145,7 +145,8 @@ function syncClaudeToken(): TokenSyncResult {
     const claudePath = getClaudeCredsPath();
     if (!ef(claudePath)) {
       // Check if claude binary exists
-      const claudeInstalled = tryExec("which claude 2>/dev/null || where claude 2>nul");
+      let claudeInstalled = "";
+      try { claudeInstalled = execSync("which claude 2>/dev/null || where claude 2>nul", { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim(); } catch {}
       if (!claudeInstalled) {
         return { status: "no_claude", message: "Claude CLI not installed. Install: npm install -g @anthropic-ai/claude-code" };
       }
@@ -235,7 +236,7 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
     lines.push(`  ${c.yellow}⚠${c.reset} ${tokenSync.message}`);
   } else if (tokenSync.status === "no_claude_token") {
     // Claude exists but token expired — try to refresh by running claude briefly
-    const refreshed = tryExec("claude --version 2>/dev/null");
+    let refreshed = ""; try { refreshed = execSync("claude --version 2>/dev/null", { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim(); } catch {}
     if (refreshed) {
       const retry = syncClaudeToken();
       if (retry.status === "synced") lines.push(`  ${c.green}✓${c.reset} ${retry.message}`);
@@ -889,8 +890,8 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   } else if (diagTokenSync.status === "no_claude") {
     steps.push({ name: "OAuth token", status: "warn", detail: diagTokenSync.message });
   } else if (diagTokenSync.status === "no_claude_token") {
-    // Try to auto-refresh
-    tryExec("claude --version 2>/dev/null");
+    // Try to auto-refresh by running claude briefly
+    try { execSync("claude --version 2>/dev/null", { timeout: 5000, stdio: "pipe" }); } catch {}
     const retry = syncClaudeToken();
     if (retry.status === "synced") {
       steps.push({ name: "OAuth token", status: "pass", detail: retry.message });
