@@ -3153,6 +3153,22 @@ expect eof
       else key = "empathy_frustrated"; // default
     }
 
+    // Special: "today in history" — reads date-organized file for actual today
+    if (key === "history_today") {
+      try {
+        const histData = loadConfigJson("history-today.json");
+        if (histData?.events) {
+          const now = new Date();
+          const dateKey = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const todayEvents = histData.events[dateKey];
+          if (todayEvents && todayEvents.length > 0) {
+            const event = todayEvents[Math.floor(Math.random() * todayEvents.length)] as { year: number; event: string; emoji?: string };
+            return `\n  ${cc.bold}${cc.cyan}On This Day — ${dateKey}${cc.reset}\n\n  ${cc.bold}${event.year}:${cc.reset} ${event.event} ${event.emoji ?? ""}`;
+          }
+        }
+      } catch { /* fall through to flat responses */ }
+    }
+
     const pool = responses[key];
     if (pool && pool.length > 0) {
       const raw = pick(pool);
