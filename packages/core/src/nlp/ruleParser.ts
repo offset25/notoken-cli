@@ -7,6 +7,23 @@ export function parseByRules(rawText: string): DynamicIntent | null {
   const intents = loadIntents();
   const text = rawText.trim().toLowerCase();
 
+  // Pre-check: casual conversation / greetings / social
+  const casualPatterns: Array<{ pattern: RegExp; intent: string }> = [
+    { pattern: /^(hey|hi|hello|howdy|yo|sup|what'?s up|good (morning|afternoon|evening|night)|greetings)\s*[!?.]*$/i, intent: "chat.greeting" },
+    { pattern: /^how (are you|you doing|is it going|do you feel|are things)/i, intent: "chat.howru" },
+    { pattern: /^(how'?s it going|what'?s good|you good|you ok)\s*[!?.]*$/i, intent: "chat.howru" },
+    { pattern: /^(thanks|thank you|thx|cheers|appreciate it|good job|nice work|well done|great job|awesome|perfect|excellent)\s*[!?.]*$/i, intent: "chat.thanks" },
+    { pattern: /^(bye|goodbye|see you|later|gotta go|peace|cya|goodnight|good night|take care)\s*[!?.]*$/i, intent: "chat.bye" },
+    { pattern: /^(who are you|what are you|tell me about yourself|what is notoken)/i, intent: "chat.about" },
+    { pattern: /^(tell me a joke|say something funny|make me laugh|joke)\s*[!?.]*$/i, intent: "chat.joke" },
+    { pattern: /^(i'?m (bored|tired|frustrated|confused|stuck|lost))/i, intent: "chat.empathy" },
+    { pattern: /^(this (sucks|is broken|doesn'?t work|is frustrating))/i, intent: "chat.empathy" },
+    { pattern: /^(what do you think|your opinion|do you like|which is better)/i, intent: "chat.opinion" },
+  ];
+  for (const { pattern, intent } of casualPatterns) {
+    if (pattern.test(text)) return { intent, confidence: 0.95, rawText, fields: {} };
+  }
+
   // Pre-check: negation detection — "don't restart nginx", "do not check disk", "never mind"
   // Note: "stop <service>" is a legitimate stop command, so we only match "stop" when
   // followed by a verb (e.g. "stop checking") or on its own, not "stop <noun>"

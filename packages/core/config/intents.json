@@ -8373,6 +8373,161 @@
         "never mind",
         "abort"
       ]
+    },
+    {
+      "name": "chat.greeting",
+      "description": "User says hello or greets the assistant",
+      "synonyms": [
+        "hello",
+        "hi",
+        "hey",
+        "howdy",
+        "good morning",
+        "good afternoon",
+        "good evening"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "hello",
+        "hey there",
+        "good morning"
+      ]
+    },
+    {
+      "name": "chat.howru",
+      "description": "User asks how the assistant is doing",
+      "synonyms": [
+        "how are you",
+        "how you doing",
+        "how is it going",
+        "you ok"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "how are you doing",
+        "how is it going"
+      ]
+    },
+    {
+      "name": "chat.thanks",
+      "description": "User expresses gratitude or appreciation",
+      "synonyms": [
+        "thanks",
+        "thank you",
+        "good job",
+        "nice work",
+        "appreciate it"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "thanks",
+        "good job"
+      ]
+    },
+    {
+      "name": "chat.bye",
+      "description": "User says goodbye",
+      "synonyms": [
+        "bye",
+        "goodbye",
+        "see you",
+        "later",
+        "take care"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "bye",
+        "see you later"
+      ]
+    },
+    {
+      "name": "chat.about",
+      "description": "User asks about the assistant or NoToken",
+      "synonyms": [
+        "who are you",
+        "what are you",
+        "what is notoken",
+        "about notoken"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "who are you",
+        "what is notoken"
+      ]
+    },
+    {
+      "name": "chat.joke",
+      "description": "User asks the assistant to tell a joke",
+      "synonyms": [
+        "tell me a joke",
+        "joke",
+        "make me laugh",
+        "say something funny"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "tell me a joke"
+      ]
+    },
+    {
+      "name": "chat.empathy",
+      "description": "User expresses frustration or confusion",
+      "synonyms": [
+        "this is frustrating",
+        "i am stuck",
+        "i am confused",
+        "this is broken"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "i am frustrated",
+        "this is broken"
+      ]
+    },
+    {
+      "name": "chat.opinion",
+      "description": "User asks for the assistant's opinion",
+      "synonyms": [
+        "what do you think",
+        "your opinion",
+        "which is better"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what do you think"
+      ]
     }
   ]
 }
