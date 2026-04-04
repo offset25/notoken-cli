@@ -58,6 +58,15 @@ const c = {
 };
 
 export async function runInteractive(options: { adaptRules?: boolean } = {}): Promise<void> {
+  // Initialize split-screen terminal
+  const { splitScreen } = await import("./splitScreen.js");
+  splitScreen.enable();
+  const consolePatch = splitScreen.patchConsole();
+
+  // Clean up on exit
+  const cleanup = () => { consolePatch.restore(); splitScreen.disable(); };
+  process.on("exit", cleanup);
+
   // Load command history for up-arrow navigation
   let historyEntries: string[] = [];
   try {
@@ -166,6 +175,15 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     if (parts.length > 3) dir = "…/" + parts.slice(-2).join("/");
     const queueCount = inputQueue.length;
     const queueLabel = queueCount > 0 ? `${c.yellow}[${queueCount} queued]${c.reset}` : "";
+    // Update status bar with running tasks info
+    const statusParts: string[] = [`NoToken v1.8.0`];
+    if (bgCount > 0 || activeTasks.length > 0) {
+      const taskNames = activeTasks.map(t => t.intent).join(", ");
+      statusParts.push(`⏳ ${activeTasks.length + bgCount} task(s)${taskNames ? `: ${taskNames}` : ""}`);
+    }
+    if (queueCount > 0) statusParts.push(`📋 ${queueCount} queued`);
+    try { splitScreen.setStatus(statusParts.join(" │ ")); } catch {}
+
     return `${c.cyan}${dir}${c.reset}${dryRun ? `${c.dim}(dry)` : ""}${bgLabel}${queueLabel}${c.reset}> `;
   };
 
@@ -673,6 +691,7 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   }
 
   rl.close();
+  cleanup(); // Restore terminal from split-screen
   saveConversation(conv);
   console.log(`${c.green}✓${c.reset} Conversation saved (${conv.turns.length} turns).`);
   console.log("Bye.");
