@@ -509,6 +509,18 @@ async function handleMetaCommand(
   const parts = cmd.split(/\s+/);
   const command = parts[0];
 
+  // Handle "clear" directly — clear terminal
+  if (command === "clear" || command === "cls") {
+    console.clear();
+    return;
+  }
+
+  // Handle "help" directly — same as :help
+  if (command === "help" || cmd === "help me" || cmd === "what can you do") {
+    console.log(`\nType natural language commands. Examples:\n  check disk space\n  restart nginx\n  what is load right now\n  are we under attack\n  generate an image\n  monitor discord\n  install codex\n\nMeta commands: /help, /jobs, /quit, /output <id>\nCtrl+B to background a running task.\n`);
+    return;
+  }
+
   // Handle "cd /path" directly — change working directory
   if (command === "cd" && parts[1]) {
     try {

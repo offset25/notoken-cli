@@ -97,6 +97,27 @@
       "commandWindows": "powershell -Command \"$svc = Get-Service {{service}} -ErrorAction SilentlyContinue; if($svc) { $svc | Format-List Name,Status,StartType } else { $proc = Get-Process -Name '*{{service}}*' -ErrorAction SilentlyContinue; if($proc) { $proc | Format-Table Id,ProcessName,CPU,WorkingSet -AutoSize; Write-Host 'Process is running (not a Windows service)' } else { Write-Host '{{service}} is NOT running' } }\""
     },
     {
+      "name": "service.list",
+      "description": "List running services",
+      "synonyms": [
+        "show running services",
+        "list services",
+        "active services",
+        "what services are running",
+        "systemctl list"
+      ],
+      "fields": {},
+      "command": "systemctl list-units --type=service --state=running --no-pager | head -30",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "show running services",
+        "list services",
+        "what services are running"
+      ]
+    },
+    {
       "name": "server.check_disk",
       "description": "Check disk usage on a target server or specific path",
       "synonyms": [
@@ -1643,6 +1664,48 @@
         "list users on prod",
         "show users on staging",
         "who is on prod"
+      ]
+    },
+    {
+      "name": "user.whoami",
+      "description": "Show current user identity",
+      "synonyms": [
+        "who am i",
+        "whoami",
+        "my username",
+        "current user",
+        "what user am i"
+      ],
+      "fields": {},
+      "command": "whoami && id && echo '' && hostname",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "who am i",
+        "whoami",
+        "what user am i"
+      ]
+    },
+    {
+      "name": "user.who",
+      "description": "Show logged in users",
+      "synonyms": [
+        "who is logged in",
+        "who else is logged in",
+        "active users",
+        "connected users",
+        "show users online"
+      ],
+      "fields": {},
+      "command": "who -u",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "who is logged in",
+        "active users",
+        "show users online"
       ]
     },
     {
@@ -3282,30 +3345,52 @@
     },
     {
       "name": "system.datetime",
-      "description": "Show date, time, and timezone",
+      "description": "Show current date and time",
       "synonyms": [
         "date",
         "time",
         "datetime",
         "timedatectl",
         "what time",
-        "timezone"
+        "timezone",
+        "what time is it",
+        "what is the time",
+        "what is the date",
+        "what day is it",
+        "show time",
+        "current time",
+        "date and time"
       ],
-      "fields": {
-        "environment": {
-          "type": "environment",
-          "required": false,
-          "default": "dev"
-        }
-      },
-      "command": "date && echo '' && timedatectl 2>/dev/null || echo ''",
-      "execution": "remote",
+      "fields": {},
+      "command": "date",
+      "execution": "local",
       "requiresConfirmation": false,
       "riskLevel": "low",
       "examples": [
-        "date on prod",
-        "what time is it on staging",
-        "show timezone"
+        "what time is it",
+        "what is the date",
+        "show time",
+        "current time"
+      ]
+    },
+    {
+      "name": "shell.clear",
+      "description": "Clear terminal screen",
+      "synonyms": [
+        "clear",
+        "clear screen",
+        "cls",
+        "clear terminal"
+      ],
+      "fields": {},
+      "command": "clear",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "clear",
+        "clear screen",
+        "cls"
       ]
     },
     {
@@ -5176,12 +5261,13 @@
         "ban ip",
         "blacklist ip",
         "deny ip",
-        "firewall block"
+        "firewall block",
+        "block this ip"
       ],
       "fields": {
         "ip": {
           "type": "string",
-          "required": true
+          "required": false
         },
         "environment": {
           "type": "environment",
@@ -5189,7 +5275,7 @@
           "default": "local"
         }
       },
-      "command": "ufw deny from {{ip}} 2>/dev/null && ufw status || iptables -A INPUT -s {{ip}} -j DROP",
+      "command": "echo 'Use firewall.block handler'",
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "high",
@@ -5669,7 +5755,9 @@
         "internet speed",
         "how fast is my connection",
         "speed test",
-        "check speed"
+        "check speed",
+        "test connection speed",
+        "is the network slow"
       ],
       "fields": {
         "environment": {
@@ -7178,6 +7266,72 @@
         "install notoken app",
         "download notoken app",
         "get the desktop app"
+      ]
+    },
+    {
+      "name": "notoken.help",
+      "description": "Show what notoken can do",
+      "synonyms": [
+        "help",
+        "help me",
+        "notoken help",
+        "commands",
+        "show help",
+        "show commands",
+        "notoken commands"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.help handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "help",
+        "what can you do",
+        "show help"
+      ]
+    },
+    {
+      "name": "notoken.history",
+      "description": "Show command history",
+      "synonyms": [
+        "history",
+        "show history",
+        "command history",
+        "what did i do",
+        "previous commands",
+        "show me my history"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.history handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "history",
+        "show history",
+        "what did i do"
+      ]
+    },
+    {
+      "name": "notoken.undo",
+      "description": "Undo the last action",
+      "synonyms": [
+        "undo",
+        "undo that",
+        "undo last",
+        "revert",
+        "rollback last"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.undo handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "undo",
+        "undo that",
+        "revert"
       ]
     },
     {

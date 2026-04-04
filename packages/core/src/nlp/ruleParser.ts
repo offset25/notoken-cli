@@ -32,6 +32,84 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: common conversational queries that get misrouted
+
+  // Time/date
+  if (/^(what is |what's )?(the )?(time|date|day|today)( right now| today)?\??$/.test(text)) {
+    return { intent: "system.datetime", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Help / capabilities
+  // Only match bare help — not "ask openclaw what can you do"
+  if (/^(help|help me|what can you do|what do you do|show me help|commands)\??$/.test(text) && !text.includes("openclaw") && !text.includes("claw")) {
+    return { intent: "notoken.help", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // History / undo
+  if (/^(show me |what is )?(my )?history$/.test(text) || /^what did i (do|run|ask) (last|before|previously)/.test(text)) {
+    return { intent: "notoken.history", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^undo( that| last| it)?$/.test(text)) {
+    return { intent: "notoken.undo", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Who am I / logged in users
+  if (/^who am i\??$/.test(text) || /^(what is |what's )?my (user|username|login)\??$/.test(text)) {
+    return { intent: "user.whoami", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/^who (else )?(is |are )?(logged in|online|connected)\??$/.test(text)) {
+    return { intent: "user.who", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Running services
+  if (/^(show me |list |what are )?(the )?(running |active )?services$/.test(text)) {
+    return { intent: "service.list", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Network: ip address, bandwidth, speed, slow
+  if (/^(what is |what's |show )?(my )?(ip|ip address|public ip)\??$/.test(text)) {
+    return { intent: "network.ip", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/\b(bandwidth|network speed|connection speed|speed test|speedtest)\b/i.test(text) || /^(is the )?network slow\??$/.test(text)) {
+    return { intent: "network.speedtest", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Block/unblock IP → firewall
+  if (/^(block|unblock|ban|unban)\s+(this\s+)?ip/i.test(text) || /^(block|unblock|ban|unban)\s+\d+\.\d+/i.test(text)) {
+    return { intent: "firewall.block_ip", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Docker queries with "show me"
+  if (/^(show me |list )?(docker )?(images|containers)$/.test(text) || /^what (containers|images) are (running|there)\??$/.test(text)) {
+    const isImages = /images/.test(text);
+    return { intent: isImages ? "docker.images" : "docker.list", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Large files
+  if (/^find (large|big|huge) files$/.test(text) || /\b(large|big|huge) files\b/.test(text)) {
+    return { intent: "disk.scan", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Error logs
+  if (/^(show me |check |any )?(the )?(error|recent) logs$/.test(text) || /^any errors in (the )?logs\??$/.test(text)) {
+    return { intent: "logs.errors", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Clear screen
+  if (/^clear( the)?( screen| terminal)?$/.test(text)) {
+    return { intent: "shell.clear", confidence: 0.95, rawText, fields: {} };
+  }
+
+  // Disk IO
+  if (/^(show me |check )?(disk|io|disk io|iops)( stats| usage)?\??$/.test(text)) {
+    return { intent: "server.check_disk", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Website up check
+  if (/^(check if |is )?(the |my )?(website|site|server|page) (is )?(up|down|running|alive|responding)\??$/.test(text)) {
+    return { intent: "network.curl", confidence: 0.9, rawText, fields: {} };
+  }
+
   // Pre-check: attack/security/ddos queries → security.scan
   if (/\b(attack|ddos|brute.?force|intrusion|hacked|breach|compromised|unauthorized|virus|malware|rootkit)\b/i.test(text)
       || /\b(are we|am i|is .* being)\s+(under\s+)?attack/i.test(text)
