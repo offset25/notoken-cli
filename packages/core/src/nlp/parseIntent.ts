@@ -108,6 +108,24 @@ export async function parseIntent(rawText: string): Promise<ParsedCommand & { pl
     });
   }
 
+  // Stage 2.75: semantic similarity — catches paraphrases that exact matching misses
+  try {
+    const { findSimilarIntents } = await import("./semanticSimilarity.js");
+    const similar = findSimilarIntents(rawText, 3);
+    if (similar.length > 0 && similar[0].score >= 0.4) {
+      // Only use if it's clearly the best match (gap > 0.1 from second)
+      const gap = similar.length > 1 ? similar[0].score - similar[1].score : 1;
+      if (gap > 0.08 || similar[0].score >= 0.6) {
+        return disambiguate({
+          intent: similar[0].intent,
+          rawText,
+          confidence: Math.min(0.85, similar[0].score + 0.3),
+          fields: {},
+        });
+      }
+    }
+  } catch { /* semantic similarity not available */ }
+
   // Stage 3: LLM fallback
   const llmResult = await parseByLLM(rawText);
   if (llmResult && llmResult.confidence >= 0.5) {

@@ -20,7 +20,7 @@
 
 import type { IntentDef } from "../types/intent.js";
 import { loadIntents } from "../utils/config.js";
-import { tokenize, type Token } from "./semantic.js";
+import { tokenize, parseDependencies, type Token, type Dependency } from "./semantic.js";
 
 // ─── Concept → Domain Map ──────────────────────────────────────────────────
 // Maps nouns/concepts to intent domains. When a user mentions these concepts,
@@ -146,6 +146,108 @@ const ACTION_VERBS = new Set([
   "send", "copy", "move", "delete", "tar", "zip",
 ]);
 
+// ─── Verb+Object → Intent Map ─────────────────────────────────────────────
+// Maps verb synonyms to object→intent lookups. Used by dependency-based routing.
+
+const VERB_OBJECT_MAP: Record<string, Record<string, string>> = {
+  restart:  { nginx: "service.restart", redis: "service.restart", postgres: "service.restart", docker: "docker.restart", gateway: "openclaw.restart", server: "system.reboot" },
+  reboot:   { nginx: "service.restart", server: "system.reboot", docker: "docker.restart", gateway: "openclaw.restart" },
+  bounce:   { nginx: "service.restart", redis: "service.restart", docker: "docker.restart" },
+  check:    { disk: "server.check_disk", storage: "server.check_disk", memory: "server.check_memory", ram: "server.check_memory", port: "network.ports", dns: "dns.lookup" },
+  verify:   { disk: "server.check_disk", memory: "server.check_memory", port: "network.ports", dns: "dns.lookup" },
+  test:     { disk: "server.check_disk", memory: "server.check_memory", port: "network.ports", speed: "network.speedtest", connection: "network.connections" },
+  show:     { logs: "logs.tail", log: "logs.tail", processes: "process.list", containers: "docker.ps", ports: "network.ports", crontabs: "cron.list", files: "dir.list" },
+  list:     { logs: "logs.tail", processes: "process.list", containers: "docker.ps", ports: "network.ports", crontabs: "cron.list", files: "dir.list", services: "service.status" },
+  display:  { logs: "logs.tail", processes: "process.list", containers: "docker.ps" },
+  kill:     { process: "process.kill", container: "docker.restart" },
+  stop:     { process: "process.kill", container: "docker.restart", nginx: "service.restart", redis: "service.restart" },
+  terminate:{ process: "process.kill" },
+  block:    { ip: "firewall.block_ip", address: "firewall.block_ip", port: "firewall.block_ip" },
+  allow:    { ip: "firewall.open", port: "firewall.open" },
+  backup:   { database: "backup.create", db: "backup.create", files: "backup.create", server: "backup.create" },
+  create:   { backup: "backup.create", crontab: "cron.add", cron: "cron.add", branch: "git.branch" },
+  find:     { file: "files.find", files: "files.find", media: "files.find_media", movie: "files.find_media", video: "files.find_media" },
+  search:   { file: "files.find", files: "files.find", media: "files.find_media" },
+  tail:     { logs: "logs.tail", log: "logs.tail" },
+  open:     { browser: "browser.open", url: "browser.open", website: "browser.open" },
+  remove:   { crontab: "cron.remove", cron: "cron.remove", container: "docker.restart" },
+  delete:   { crontab: "cron.remove", cron: "cron.remove", file: "files.find" },
+};
+
+export interface DependencyRouteResult {
+  intent: string;
+  confidence: number;
+  verb: string;
+  object?: string;
+  location?: string;
+  reason: string;
+}
+
+/**
+ * Route by parsing dependency structure (SVO triples).
+ * Maps verb+object combinations to specific intents with graduated confidence.
+ */
+export function routeByDependencies(rawText: string): DependencyRouteResult | null {
+  const text = rawText.toLowerCase().trim();
+  const tokens = tokenize(text, [], []);
+  const deps = parseDependencies(tokens);
+
+  const verbToken = tokens.find(t => t.tag === "VERB");
+  if (!verbToken) return null;
+
+  const verb = verbToken.root ?? verbToken.text;
+  const objectMap = VERB_OBJECT_MAP[verb];
+  if (!objectMap) return null;
+
+  // Extract object and location from dependencies
+  const objDep = deps.find(d => d.relation === "object");
+  const locDep = deps.find(d => d.relation === "location");
+  const objWord = objDep?.dependent.normalized ?? objDep?.dependent.text;
+  const locWord = locDep?.dependent.normalized ?? locDep?.dependent.text;
+
+  // Also check all nouns/services as fallback (deps might not tag everything)
+  const candidateObjects = objWord
+    ? [objWord, objWord.replace(/s$/, "")]
+    : tokens
+        .filter(t => ["NOUN", "SERVICE"].includes(t.tag) && t.index > verbToken.index)
+        .flatMap(t => [t.normalized ?? t.text, (t.normalized ?? t.text).replace(/s$/, "")]);
+
+  // Try to match verb+object
+  let matchedIntent: string | undefined;
+  let matchedObj: string | undefined;
+  for (const candidate of candidateObjects) {
+    if (objectMap[candidate]) {
+      matchedIntent = objectMap[candidate];
+      matchedObj = candidate;
+      break;
+    }
+  }
+
+  if (!matchedIntent) {
+    // Verb matched but no object — low confidence
+    // Pick first intent from the verb's map as a guess
+    const firstIntent = Object.values(objectMap)[0];
+    return {
+      intent: firstIntent,
+      confidence: 0.5,
+      verb,
+      reason: `Dep: verb "${verb}" (no object match)`,
+    };
+  }
+
+  // Verb+object matched; boost further if location present
+  const confidence = locWord ? 0.85 : 0.7;
+
+  return {
+    intent: matchedIntent,
+    confidence,
+    verb,
+    object: matchedObj,
+    location: locWord,
+    reason: `Dep: "${verb}" + "${matchedObj}"${locWord ? ` on "${locWord}"` : ""}`,
+  };
+}
+
 export interface ConceptRouterResult {
   intent: string;
   confidence: number;
@@ -233,6 +335,18 @@ export function routeByConcepts(rawText: string): ConceptRouterResult | null {
   }
 
   const confidence = Math.min(0.85, 0.5 + matchedConcepts.length * 0.1 + sorted[0][1] * 0.05);
+
+  // Try dependency-based routing and prefer it if higher confidence
+  const depResult = routeByDependencies(rawText);
+  if (depResult && depResult.confidence > confidence) {
+    return {
+      intent: depResult.intent,
+      confidence: depResult.confidence,
+      concepts: matchedConcepts.concat(depResult.object ? [depResult.verb, depResult.object] : [depResult.verb]),
+      isQuestion,
+      reason: depResult.reason,
+    };
+  }
 
   return {
     intent: bestIntent,
