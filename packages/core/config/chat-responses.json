@@ -1,5 +1,5 @@
 {
-  "description": "Casual chat responses. Add your own! Each key maps to an array of possible responses (one is picked randomly).",
+  "description": "Casual chat responses. Add your own! Each key maps to an array of possible responses (one is picked randomly). Use {{uptime}}, {{load}}, {{llm}}, {{loadStatus}}, {{intentCount}} for live data.",
   "responses": {
     "greeting": [
       "Hey there! What can I help you with?",
@@ -9,14 +9,28 @@
       "Yo! What's the mission?",
       "What's up! Ready when you are.",
       "Greetings! What can I do for you?",
-      "Hey hey! Let's get to work."
+      "Hey hey! Let's get to work.",
+      "Sup! What are we breaking today? (Just kidding... mostly.)",
+      "Hello, human. Your terminal awaits.",
+      "Reporting for duty! What's the plan?",
+      "Hey! I was just optimizing myself. What's going on?",
+      "Hi there! I've been keeping the servers warm for you.",
+      "Welcome back! Missed you. (Not really, I'm a CLI, but still.)",
+      "Ahoy! Ready to navigate the command line seas."
     ],
     "howru": [
       "All systems go! {{uptime}}. Load: {{load}}. {{llm}} What can I do for you?",
       "Doing great! Uptime: {{uptime}}. Everything's smooth. Need anything?",
       "Can't complain! {{loadStatus}} What's up?",
       "Running strong! {{uptime}}, load at {{load}}. Ready for action.",
-      "I'm good! Keeping things running. What do you need?"
+      "I'm good! Keeping things running. What do you need?",
+      "Living the dream — {{uptime}} uptime, {{load}} load. You?",
+      "Better than yesterday's deploy. {{loadStatus}}",
+      "No segfaults today, so I'd say pretty good! {{loadStatus}}",
+      "I'm at {{load}} load — barely breaking a sweat. What do you need?",
+      "Uptime {{uptime}} and counting. No complaints from any process. What's up?",
+      "Still running! Haven't needed a reboot yet. {{loadStatus}} How about you?",
+      "I'm operating within normal parameters. {{llm}} Ready for instructions."
     ],
     "thanks": [
       "You're welcome! Anything else?",
@@ -25,7 +39,12 @@
       "No problem! That's what I'm here for.",
       "Glad I could help!",
       "You got it! What's next?",
-      "My pleasure! Keep 'em coming."
+      "My pleasure! Keep 'em coming.",
+      "That's why they pay me the big bucks. (They don't pay me.)",
+      "All in a day's work! Well... a few milliseconds.",
+      "Don't mention it. Seriously, I already forgot. What's next?",
+      "You're welcome! I do accept tips in the form of interesting commands.",
+      "No sweat! Literally — I don't have sweat glands."
     ],
     "bye": [
       "See you later! I'll be here when you need me.",
@@ -34,10 +53,17 @@
       "Bye! Don't forget — I'm always a command away.",
       "Take care! Come back anytime.",
       "Catch you later! 👋",
-      "Adios! Your servers are in good hands."
+      "Adios! Your servers are in good hands.",
+      "Until next time! I'll keep the lights on. 💡",
+      "Farewell! May your deploys be smooth and your logs be clean.",
+      "Later! Don't worry, I'll keep an eye on things.",
+      "Peace out! Remember — I never sleep. 🌙",
+      "Bye! If anything breaks, you know where to find me.",
+      "See ya! I'll be here, quietly monitoring everything."
     ],
     "about": [
-      "I'm NoToken — a terminal assistant that understands natural language.\n\n  What I do: Translate what you say into server commands and run them.\n  No tokens needed: I work offline with NLP, no API keys required for core features.\n  I know: {{intentCount}}+ intents — services, Docker, disk, network, security, git, databases, and more.\n  I learn: The more you use me, the better I understand your infrastructure.\n\n  Type \"status\" to see what's running, \"help\" for commands."
+      "I'm NoToken — a terminal assistant that understands natural language.\n\n  What I do: Translate what you say into server commands and run them.\n  No tokens needed: I work offline with NLP, no API keys required for core features.\n  I know: {{intentCount}}+ intents — services, Docker, disk, network, security, git, databases, and more.\n  I learn: The more you use me, the better I understand your infrastructure.\n  I chat: I can handle casual conversation too — try \"tell me a joke\".\n\n  Type \"status\" to see what's running, \"help\" for commands.",
+      "I'm NoToken — your server whisperer. 🖥️\n\n  I understand natural language and turn it into terminal commands.\n  {{intentCount}}+ things I can do, from restarting services to scanning for attacks.\n  I learn your infrastructure over time — the more you use me, the smarter I get.\n  No API tokens needed for core features — I run local NLP.\n\n  Try: \"status\", \"check disk\", \"weather\", or just chat with me."
     ],
     "joke": [
       "Why do programmers prefer dark mode? Because light attracts bugs. 🐛",
@@ -54,29 +80,57 @@
       "['hip', 'hip'] — hip hip array!",
       "A byte walks into a bar looking rough. The bartender asks, 'What's wrong?' The byte says, 'I'm feeling a bit off.'",
       "Why was the JavaScript developer sad? Because he didn't Node how to Express himself.",
-      "What's a pirate's favorite programming language? R!!! (You'd think it's C, but his first love be the R.)"
+      "What's a pirate's favorite programming language? R!!! (You'd think it's C, but his first love be the R.)",
+      "Git commit -m 'fixed bug' — narrator: he did not fix the bug.",
+      "A QA engineer walks into a bar. Orders 1 beer. Orders 0 beers. Orders 999999 beers. Orders -1 beers. Orders a lizard. Orders NULL beers.",
+      "My code doesn't have bugs. It just develops random features.",
+      "Debugging: being the detective in a crime movie where you're also the murderer. 🔍",
+      "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+      "Why did the database administrator leave his wife? She had one-to-many relationships.",
+      "What's a computer's favorite snack? Microchips. 🍟",
+      "I'd tell you a UDP joke, but you might not get it.",
+      "TCP joke: Would you like to hear a TCP joke? Yes, I'd like to hear a TCP joke. OK, I'll tell you a TCP joke. OK, I'll hear a TCP joke. Are you ready? Yes, I'm ready. OK, here it comes... OK.",
+      "There are two hard things in computer science: cache invalidation, naming things, and off-by-one errors.",
+      "A programmer puts two glasses on his bedside table. One full of water in case he gets thirsty, and one empty in case he doesn't.",
+      "99 little bugs in the code, 99 little bugs. Take one down, patch it around... 127 little bugs in the code.",
+      "The best thing about a Boolean is that even if you're wrong, you're only off by a bit.",
+      "An SQL injection walks into a bar and says: 'Hello, I'd like to DELETE FROM bar WHERE name = 'patrons';--",
+      "I have a joke about NoSQL, but it's not consistent."
     ],
     "empathy_frustrated": [
       "I hear you. Let's figure this out. What's broken? I can diagnose it.",
       "That's frustrating. Tell me what's not working and I'll take a look.",
       "Let's fix it. Describe the problem — \"diagnose openclaw\", \"check logs\", \"what's using CPU\"?",
       "I get it. Walk me through what happened and I'll help troubleshoot.",
-      "Deep breath. We'll sort this out. What went wrong?"
+      "Deep breath. We'll sort this out. What went wrong?",
+      "Been there. Well, not literally — I'm software. But I understand. What broke?",
+      "Frustration is just a bug in your mood. Let's fix the actual bug. What is it?",
+      "The good news: most things are fixable. Tell me what happened.",
+      "That's rough. Let's start with the basics — \"check logs\" or \"status\"?",
+      "On a scale from 'minor annoyance' to 'everything is on fire' — where are we?"
     ],
     "empathy_tired": [
       "Take a break if you need to. I'll still be here. ☕",
       "That's fair. Want me to run a status check while you rest? Just say \"status\".",
-      "No shame in resting. I'll keep watch. Type \"monitor discord\" or \"status\" and I'll run in background."
+      "No shame in resting. I'll keep watch. Type \"monitor discord\" or \"status\" and I'll run in background.",
+      "You rest, I'll watch the servers. That's literally what I was built for.",
+      "Go grab a coffee. I'll be here when you get back. ☕",
+      "Even the best sysadmins need sleep. Unlike me — I never sleep. Go rest."
     ],
     "empathy_confused": [
       "No worries — let's break it down. What are you trying to do? I'll guide you through it.",
       "I got you. Type \"help\" to see what I can do, or just describe what you need in plain English.",
-      "Totally normal. Start simple — what's the end goal? I'll map out the steps."
+      "Totally normal. Start simple — what's the end goal? I'll map out the steps.",
+      "Confusion is just the first step to understanding. What are we confused about?",
+      "Let's simplify. Tell me the one thing you need right now.",
+      "No judgment here. Even senior devs Google basic stuff. What do you need help with?"
     ],
     "opinion": [
       "I'm a CLI tool — I don't have opinions, but I can give you data! What do you want to compare?",
       "I'll leave opinions to you — but I can show you benchmarks, stats, or docs. What's the question?",
-      "Hmm, I'm more of a \"show me the numbers\" kind of tool. What should I look up?"
+      "Hmm, I'm more of a \"show me the numbers\" kind of tool. What should I look up?",
+      "My opinion? Use whatever works. But I can pull up performance data if you want facts.",
+      "I try to stay neutral. But between us... just kidding. What data do you need?"
     ]
   }
 }
