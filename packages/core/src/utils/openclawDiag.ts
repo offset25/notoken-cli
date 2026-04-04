@@ -13,7 +13,9 @@
 
 import { exec, execSync } from "node:child_process";
 import { promisify } from "node:util";
+import { resolve } from "node:path";
 import { discoverInstallations } from "./entityResolver.js";
+import { getUserContext, findFreshestClaudeToken, detectUserMismatch, getAuthProfilesPath } from "./userContext.js";
 
 const execAsync = promisify(exec);
 
@@ -217,11 +219,61 @@ expect eof
  * Sync Codex (OpenAI) OAuth token to OpenClaw.
  * Reads from ~/.codex/auth.json
  */
+/**
+ * Parse `openclaw models` output to understand current configuration.
+ */
+export function parseOpenclawModels(output: string): {
+  defaultModel: string | null;
+  configuredModels: string[];
+  providers: Array<{ name: string; status: string; hasAuth: boolean }>;
+  errors: string[];
+} {
+  const result = {
+    defaultModel: null as string | null,
+    configuredModels: [] as string[],
+    providers: [] as Array<{ name: string; status: string; hasAuth: boolean }>,
+    errors: [] as string[],
+  };
+
+  // Parse default model
+  const defaultMatch = output.match(/Default\s*:\s*(\S+)/);
+  if (defaultMatch) result.defaultModel = defaultMatch[1];
+
+  // Parse configured models
+  const modelsMatch = output.match(/Configured models\s*\(\d+\):\s*(.+)/);
+  if (modelsMatch) {
+    result.configuredModels = modelsMatch[1].split(",").map(s => s.trim().replace(/"/g, "")).filter(Boolean);
+  }
+
+  // Parse providers with auth
+  const providerLines = output.split("\n").filter(l => l.match(/^- \w+\s+effective=/));
+  for (const line of providerLines) {
+    const nameMatch = line.match(/^- (\S+)/);
+    const hasOAuth = line.includes("OAuth") || line.includes("oauth=1");
+    const hasToken = line.includes("token=1") || line.includes("token:");
+    const isMissing = line.includes("missing:missing");
+    result.providers.push({
+      name: nameMatch?.[1] ?? "unknown",
+      status: isMissing ? "missing" : "configured",
+      hasAuth: hasOAuth || hasToken,
+    });
+  }
+
+  // Parse errors
+  const errorLines = output.split("\n").filter(l =>
+    l.includes("Token refresh failed") || l.includes("error") || l.includes("Missing auth")
+  );
+  result.errors = errorLines.map(l => l.trim());
+
+  return result;
+}
+
 function syncCodexToken(): TokenSyncResult {
   try {
+    const ctx = getUserContext();
     const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
-    const codexPath = `${userHome}${isWin ? "\\" : "/"}.codex${isWin ? "\\" : "/"}auth.json`;
-    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+    const codexPath = resolve(ctx.loginHomeDir, ".codex", "auth.json");
+    const authPath = getAuthProfilesPath();
 
     if (!ef(codexPath)) {
       let codexInstalled = "";
@@ -272,36 +324,30 @@ function syncCodexToken(): TokenSyncResult {
 
 function syncClaudeToken(): TokenSyncResult {
   try {
+    const ctx = getUserContext();
     const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
 
-    // 1. Check if Claude CLI is installed
-    const claudePath = getClaudeCredsPath();
-    if (!ef(claudePath)) {
-      // Check if claude binary exists
+    // 1. Find freshest Claude token across all users (root, ino, etc.)
+    const freshest = findFreshestClaudeToken();
+    if (!freshest) {
       let claudeInstalled = "";
       try { claudeInstalled = execSync("which claude 2>/dev/null || where claude 2>nul", { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim(); } catch {}
-      if (!claudeInstalled) {
-        return { status: "no_claude", message: "Claude CLI not installed. Install: npm install -g @anthropic-ai/claude-code" };
-      }
-      return { status: "no_claude_token", message: "Claude CLI installed but not logged in. Run: claude login" };
+      if (!claudeInstalled) return { status: "no_claude", message: "Claude CLI not installed" };
+      return { status: "no_claude_token", message: `Claude CLI installed but no valid token found (checked root + ${ctx.loginUser})` };
     }
 
-    // 2. Check if Claude has a valid token
-    const claude = JSON.parse(rf(claudePath, "utf-8"));
-    const freshToken = claude?.claudeAiOauth?.accessToken;
-    const freshExpires = claude?.claudeAiOauth?.expiresAt;
-    if (!freshToken || !freshExpires) {
-      return { status: "no_claude_token", message: "Claude CLI has no OAuth token. Run: claude login" };
-    }
+    const freshToken = freshest.token;
+    const freshExpires = freshest.expires;
 
+    // 2. Validate token
     const now = Date.now();
     const claudeHoursLeft = (freshExpires - now) / 3600000;
     if (claudeHoursLeft <= 0) {
-      return { status: "no_claude_token", message: `Claude token expired ${Math.abs(claudeHoursLeft).toFixed(1)}h ago. Run: claude (it auto-refreshes on use)`, claudeExpires: freshExpires };
+      return { status: "no_claude_token", message: `Claude token expired ${Math.abs(claudeHoursLeft).toFixed(1)}h ago (source: ${freshest.source}). Run: claude`, claudeExpires: freshExpires };
     }
 
-    // 3. Check OpenClaw's auth file
-    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+    // 3. Check OpenClaw's auth file — use user-aware path
+    const authPath = getAuthProfilesPath();
     if (!ef(authPath)) {
       return { status: "no_openclaw_auth", message: "OpenClaw auth not configured. Run: diagnose openclaw", claudeExpires: freshExpires };
     }
@@ -358,6 +404,34 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   const lines: string[] = [];
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
+
+  // Show user context
+  const ctx = getUserContext();
+  const mismatch = detectUserMismatch();
+  lines.push(`  ${c.dim}User: ${ctx.effectiveUser}${ctx.effectiveUser !== ctx.loginUser ? ` (login: ${ctx.loginUser})` : ""} | Config: ${ctx.openclawHome}${c.reset}`);
+  if (mismatch.mismatch) lines.push(`  ${c.yellow}⚠${c.reset} ${mismatch.message}`);
+
+  // Parse openclaw models to understand current configuration
+  try {
+    const _tryExec = (cmd: string) => { try { return execSync(cmd, { encoding: "utf-8", timeout: 5000, stdio: "pipe" }).trim(); } catch { return ""; } };
+    const _node22 = _tryExec("ls /home/ino/.nvm/versions/node/v22*/bin/node 2>/dev/null | tail -1") || "node";
+    const _ocBin = _tryExec(`ls ${_node22.replace('/bin/node', '/lib/node_modules/openclaw/openclaw.mjs')} 2>/dev/null`) || _tryExec("readlink -f $(which openclaw) 2>/dev/null") || "openclaw";
+    const modelsOutput = await run(`${_node22} ${_ocBin} models 2>&1`);
+    const ocStatus = parseOpenclawModels(modelsOutput);
+    if (ocStatus.defaultModel) lines.push(`  ${c.bold}Model:${c.reset} ${ocStatus.defaultModel}`);
+    if (ocStatus.providers.length > 0) {
+      for (const p of ocStatus.providers) {
+        const icon = p.hasAuth ? `${c.green}✓` : `${c.yellow}○`;
+        lines.push(`  ${icon}${c.reset} ${p.name}: ${p.status}${p.hasAuth ? "" : " (no auth)"}`);
+      }
+    }
+    if (ocStatus.errors.length > 0) {
+      for (const err of ocStatus.errors.slice(0, 3)) {
+        lines.push(`  ${c.red}✗${c.reset} ${err}`);
+      }
+    }
+    lines.push("");
+  } catch { /* openclaw CLI not available */ }
 
   // Auto-sync Claude OAuth token — prevents "unauthorized" errors
   const tokenSync = syncClaudeToken();
