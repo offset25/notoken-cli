@@ -1,0 +1,94 @@
+{
+  "sheets": {
+    "docker": {
+      "title": "Docker Cheat Sheet",
+      "commands": [
+        {"cmd": "docker run -d --name <name> <image>", "desc": "Run a container in detached mode"},
+        {"cmd": "docker build -t <tag> .", "desc": "Build image from Dockerfile in current directory"},
+        {"cmd": "docker ps", "desc": "List running containers"},
+        {"cmd": "docker ps -a", "desc": "List all containers (including stopped)"},
+        {"cmd": "docker stop <container>", "desc": "Stop a running container"},
+        {"cmd": "docker rm <container>", "desc": "Remove a stopped container"},
+        {"cmd": "docker logs -f <container>", "desc": "Follow container logs"},
+        {"cmd": "docker exec -it <container> /bin/sh", "desc": "Open a shell inside a running container"},
+        {"cmd": "docker images", "desc": "List all local images"},
+        {"cmd": "docker volume ls", "desc": "List all volumes"},
+        {"cmd": "docker network ls", "desc": "List all networks"},
+        {"cmd": "docker compose up -d", "desc": "Start services defined in docker-compose.yml"},
+        {"cmd": "docker compose down", "desc": "Stop and remove compose services"},
+        {"cmd": "docker system prune -a", "desc": "Remove all unused images, containers, and networks"},
+        {"cmd": "docker inspect <container>", "desc": "Show detailed container/image info as JSON"}
+      ]
+    },
+    "git": {
+      "title": "Git Cheat Sheet",
+      "commands": [
+        {"cmd": "git status", "desc": "Show working tree status"},
+        {"cmd": "git add <file>", "desc": "Stage file(s) for commit"},
+        {"cmd": "git commit -m \"<msg>\"", "desc": "Commit staged changes with a message"},
+        {"cmd": "git push origin <branch>", "desc": "Push branch to remote"},
+        {"cmd": "git pull", "desc": "Fetch and merge remote changes"},
+        {"cmd": "git branch", "desc": "List local branches"},
+        {"cmd": "git checkout <branch>", "desc": "Switch to a branch"},
+        {"cmd": "git merge <branch>", "desc": "Merge a branch into current branch"},
+        {"cmd": "git rebase <branch>", "desc": "Rebase current branch onto another"},
+        {"cmd": "git stash", "desc": "Stash uncommitted changes"},
+        {"cmd": "git log --oneline -20", "desc": "Show last 20 commits (compact)"},
+        {"cmd": "git diff", "desc": "Show unstaged changes"},
+        {"cmd": "git reset --soft HEAD~1", "desc": "Undo last commit, keep changes staged"},
+        {"cmd": "git cherry-pick <hash>", "desc": "Apply a specific commit to current branch"},
+        {"cmd": "git tag -a v1.0 -m \"<msg>\"", "desc": "Create an annotated tag"}
+      ]
+    },
+    "nginx": {
+      "title": "Nginx Cheat Sheet",
+      "commands": [
+        {"cmd": "sudo systemctl start nginx", "desc": "Start nginx service"},
+        {"cmd": "sudo systemctl stop nginx", "desc": "Stop nginx service"},
+        {"cmd": "sudo systemctl reload nginx", "desc": "Reload config without downtime"},
+        {"cmd": "sudo nginx -t", "desc": "Test configuration for syntax errors"},
+        {"cmd": "tail -f /var/log/nginx/access.log", "desc": "Follow the access log"},
+        {"cmd": "tail -f /var/log/nginx/error.log", "desc": "Follow the error log"},
+        {"cmd": "ls /etc/nginx/sites-available/", "desc": "List available virtual host configs"},
+        {"cmd": "sudo certbot --nginx -d <domain>", "desc": "Set up SSL with Let's Encrypt"},
+        {"cmd": "proxy_pass http://localhost:3000;", "desc": "Reverse proxy to a backend (in location block)"},
+        {"cmd": "return 301 https://$host$request_uri;", "desc": "Redirect HTTP to HTTPS (in server block)"}
+      ]
+    },
+    "linux": {
+      "title": "Linux Cheat Sheet",
+      "commands": [
+        {"cmd": "ls -la", "desc": "List all files with details and hidden files"},
+        {"cmd": "cd <dir>", "desc": "Change directory"},
+        {"cmd": "cp -r <src> <dest>", "desc": "Copy files/directories recursively"},
+        {"cmd": "mv <src> <dest>", "desc": "Move or rename files/directories"},
+        {"cmd": "rm -rf <path>", "desc": "Remove files/directories recursively (use with caution)"},
+        {"cmd": "chmod 755 <file>", "desc": "Set file permissions (rwxr-xr-x)"},
+        {"cmd": "chown user:group <file>", "desc": "Change file owner and group"},
+        {"cmd": "find . -name \"*.log\" -mtime +7", "desc": "Find .log files older than 7 days"},
+        {"cmd": "grep -rn \"pattern\" <dir>", "desc": "Search for pattern recursively with line numbers"},
+        {"cmd": "awk '{print $1}' <file>", "desc": "Print first column of each line"},
+        {"cmd": "sed -i 's/old/new/g' <file>", "desc": "Replace all occurrences in-place"},
+        {"cmd": "tar -czf archive.tar.gz <dir>", "desc": "Create gzipped tar archive"},
+        {"cmd": "curl -s https://example.com", "desc": "Fetch URL silently"},
+        {"cmd": "wget -O file.zip <url>", "desc": "Download file from URL"},
+        {"cmd": "ssh user@host", "desc": "Connect to remote server via SSH"}
+      ]
+    },
+    "npm": {
+      "title": "npm Cheat Sheet",
+      "commands": [
+        {"cmd": "npm install", "desc": "Install all dependencies from package.json"},
+        {"cmd": "npm update", "desc": "Update packages to latest compatible versions"},
+        {"cmd": "npm run <script>", "desc": "Run a script defined in package.json"},
+        {"cmd": "npm test", "desc": "Run the test script"},
+        {"cmd": "npm init -y", "desc": "Create a new package.json with defaults"},
+        {"cmd": "npm publish", "desc": "Publish package to npm registry"},
+        {"cmd": "npm link", "desc": "Symlink package globally for local development"},
+        {"cmd": "npm audit fix", "desc": "Fix known security vulnerabilities"},
+        {"cmd": "npm outdated", "desc": "Show packages with newer versions available"},
+        {"cmd": "npm cache clean --force", "desc": "Clear the npm cache"}
+      ]
+    }
+  }
+}

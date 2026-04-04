@@ -124,6 +124,12 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   if (cachedUpdate?.updateAvailable) {
     console.log(formatUpdateBanner(cachedUpdate));
   }
+
+  // Show a random daily tip at startup
+  try {
+    const { getRandomTip } = await import("notoken-core");
+    console.log(`  ${getRandomTip()}`);
+  } catch {}
   console.log();
 
   // Refresh update cache in background (non-blocking)

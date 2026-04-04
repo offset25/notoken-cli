@@ -8894,6 +8894,289 @@
         "on this day",
         "this day in history"
       ]
+    },
+    {
+      "name": "dev.json_format",
+      "description": "Pretty-print and format JSON",
+      "synonyms": ["format json", "pretty print json", "beautify json", "indent json", "format this json", "prettify json"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["format this json", "pretty print json", "beautify json"]
+    },
+    {
+      "name": "dev.json_validate",
+      "description": "Validate JSON syntax",
+      "synonyms": ["validate json", "check json", "is this valid json", "json lint", "verify json"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["validate this json", "is this valid json", "check json syntax"]
+    },
+    {
+      "name": "dev.regex",
+      "description": "Test a regex pattern against a string",
+      "synonyms": ["test regex", "match pattern", "regex test", "regex match", "try regex", "run regex"],
+      "fields": { "pattern": { "type": "string", "required": true }, "testString": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["test regex", "match pattern against string", "try this regex"]
+    },
+    {
+      "name": "dev.base64_encode",
+      "description": "Encode a string to Base64",
+      "synonyms": ["encode base64", "base64 encode", "to base64", "base64 this"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["encode base64", "base64 encode this", "convert to base64"]
+    },
+    {
+      "name": "dev.base64_decode",
+      "description": "Decode a Base64 string",
+      "synonyms": ["decode base64", "base64 decode", "from base64", "unbase64"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["decode base64", "base64 decode this", "convert from base64"]
+    },
+    {
+      "name": "dev.url_encode",
+      "description": "URL-encode a string",
+      "synonyms": ["url encode", "urlencode", "percent encode", "encode url"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["url encode this", "percent encode string", "urlencode"]
+    },
+    {
+      "name": "dev.url_decode",
+      "description": "URL-decode a string",
+      "synonyms": ["url decode", "urldecode", "percent decode", "decode url"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["url decode this", "percent decode string", "urldecode"]
+    },
+    {
+      "name": "dev.hash",
+      "description": "Hash a string or file with md5, sha1, or sha256",
+      "synonyms": ["hash", "md5", "sha1", "sha256", "md5 hash", "sha256 of", "hash this", "checksum", "hash file"],
+      "fields": { "input": { "type": "string", "required": true }, "algo": { "type": "string", "required": false, "default": "sha256" } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["md5 hash of hello", "sha256 this string", "hash this file"]
+    },
+    {
+      "name": "dev.uuid",
+      "description": "Generate a random UUID v4",
+      "synonyms": ["generate uuid", "random uuid", "uuid", "new uuid", "create uuid", "guid"],
+      "fields": {},
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["generate uuid", "random uuid", "give me a uuid"]
+    },
+    {
+      "name": "dev.timestamp",
+      "description": "Convert between Unix timestamps and human-readable dates",
+      "synonyms": ["convert timestamp", "unix time", "epoch time", "timestamp to date", "date to timestamp", "unix timestamp"],
+      "fields": { "input": { "type": "string", "required": true } },
+      "command": "echo 'Use dev handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["convert timestamp 1700000000", "unix time to date", "what time is 1700000000"]
+    },
+    {
+      "name": "dev.cheatsheet",
+      "description": "Show a cheat sheet for a tool or technology",
+      "synonyms": [
+        "cheat sheet",
+        "cheatsheet",
+        "quick reference",
+        "command reference",
+        "commands for",
+        "show me commands",
+        "common commands"
+      ],
+      "fields": {
+        "topic": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command": "echo 'Use dev.cheatsheet handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "docker cheat sheet",
+        "git cheat sheet",
+        "cheat sheet for nginx",
+        "npm commands",
+        "linux cheatsheet",
+        "show me docker commands"
+      ]
+    },
+    {
+      "name": "notoken.tip",
+      "description": "Show a random CLI tip",
+      "synonyms": [
+        "give me a tip",
+        "daily tip",
+        "cli tip",
+        "tip of the day",
+        "show a tip",
+        "random tip",
+        "pro tip",
+        "terminal tip",
+        "shell tip",
+        "command line tip"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.tip handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "give me a tip",
+        "daily tip",
+        "cli tip",
+        "show me a tip"
+      ]
+    },
+    {
+      "name": "timer.start",
+      "description": "Start a countdown timer or reminder",
+      "synonyms": ["remind me", "set timer", "timer", "pomodoro", "countdown", "alarm", "start timer", "remind"],
+      "fields": {
+        "minutes": { "type": "number", "required": true },
+        "label": { "type": "string", "required": false }
+      },
+      "command": "echo 'Use timer handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["remind me in 10 minutes", "set timer for 25 min", "pomodoro", "start 5 min timer"]
+    },
+    {
+      "name": "timer.list",
+      "description": "Show active timers",
+      "synonyms": ["show timers", "active timers", "list timers", "my timers"],
+      "fields": {},
+      "command": "echo 'Use timer handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["show timers", "active timers", "list timers"]
+    },
+    {
+      "name": "timer.cancel",
+      "description": "Cancel an active timer",
+      "synonyms": ["cancel timer", "stop timer", "remove timer", "delete timer", "clear timer"],
+      "fields": {
+        "id": { "type": "number", "required": false }
+      },
+      "command": "echo 'Use timer handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["cancel timer", "cancel timer 1", "stop timer"]
+    },
+    {
+      "name": "bookmark.save",
+      "description": "Save a command as a bookmark",
+      "synonyms": ["bookmark this", "save bookmark", "add bookmark", "save this command"],
+      "fields": {
+        "name": { "type": "string", "required": true },
+        "command": { "type": "string", "required": false }
+      },
+      "command": "echo 'Use bookmark handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["bookmark this as deploy", "save this command as deploy", "add bookmark restart-prod"]
+    },
+    {
+      "name": "bookmark.list",
+      "description": "Show all saved bookmarks",
+      "synonyms": ["show bookmarks", "my bookmarks", "list bookmarks"],
+      "fields": {},
+      "command": "echo 'Use bookmark handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["show bookmarks", "my bookmarks", "list bookmarks"]
+    },
+    {
+      "name": "bookmark.run",
+      "description": "Run a saved bookmark by name",
+      "synonyms": ["run bookmark", "execute bookmark", "use bookmark"],
+      "fields": {
+        "name": { "type": "string", "required": true }
+      },
+      "command": "echo 'Use bookmark handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["run bookmark deploy", "use bookmark restart-prod"]
+    },
+    {
+      "name": "snippet.save",
+      "description": "Save a code snippet",
+      "synonyms": ["save snippet", "save this as snippet", "add snippet", "store snippet"],
+      "fields": {
+        "name": { "type": "string", "required": true },
+        "code": { "type": "string", "required": false },
+        "language": { "type": "string", "required": false }
+      },
+      "command": "echo 'Use snippet handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["save this as snippet backup", "save snippet deploy-check"]
+    },
+    {
+      "name": "snippet.list",
+      "description": "List saved code snippets",
+      "synonyms": ["show snippets", "my snippets", "list snippets"],
+      "fields": {},
+      "command": "echo 'Use snippet handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["show snippets", "my snippets", "list snippets"]
+    },
+    {
+      "name": "snippet.run",
+      "description": "Run a saved code snippet",
+      "synonyms": ["run snippet", "execute snippet", "use snippet"],
+      "fields": {
+        "name": { "type": "string", "required": true }
+      },
+      "command": "echo 'Use snippet handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": ["run snippet backup", "execute snippet deploy-check"]
     }
   ]
 }

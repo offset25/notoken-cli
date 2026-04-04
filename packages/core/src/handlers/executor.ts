@@ -26,6 +26,11 @@ import { detectMultiTarget, executeMulti } from "../utils/multiExec.js";
 import { diagnoseOpenclaw, autoFixOpenclaw, quickConnectivityCheck } from "../utils/openclawDiag.js";
 const execAsync = promisify(exec);
 import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary } from "../utils/projectScanner.js";
+import {
+  formatJson, validateJson, testRegex, encodeBase64, decodeBase64,
+  encodeUrl, decodeUrl, hashString, hashFile, generateUuid,
+  convertUnixTimestamp, diffStrings,
+} from "../utils/devTools.js";
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
 import { suggestAction } from "../conversation/pendingActions.js";
@@ -53,6 +58,15 @@ function loadConfigJson(filename: string): any {
   const p = resolveConfig(filename);
   if (!p) return null;
   try { return JSON.parse(_readFileSync(p, "utf-8")); } catch { return null; }
+}
+
+/** Return a random formatted CLI tip. */
+export function getRandomTip(): string {
+  const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+  const tipsData = loadConfigJson("daily-tips.json");
+  if (!tipsData?.tips?.length) return `${cc.dim}No tips available.${cc.reset}`;
+  const tip = tipsData.tips[Math.floor(Math.random() * tipsData.tips.length)];
+  return `${cc.cyan}${cc.bold}Tip:${cc.reset} ${tip}`;
 }
 
 /**
@@ -1236,6 +1250,50 @@ expect eof
     const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1").catch(() => "");
     const codexOk = await runLocalCommand("codex --version 2>/dev/null").catch(() => "");
     return `\n\x1b[1m\x1b[36m── Notoken LLM ──\x1b[0m\n\n  Current: ${backend ? `\x1b[32m${backend}\x1b[0m` : "\x1b[33mnone\x1b[0m"}\n\n  Available:\n    ${await runLocalCommand("which claude 2>/dev/null").catch(() => "") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m claude\n    ${ollamaUp.includes("models") ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m ollama\n    ${process.env.OPENAI_API_KEY ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m chatgpt\n    ${codexOk ? "\x1b[32m✓" : "\x1b[2m○"}\x1b[0m codex\n\n  \x1b[2mSwitch: "use claude", "use ollama", "use codex"\x1b[0m`;
+  }
+
+  // ── Cheat sheet handler ──
+  if (intent.intent === "dev.cheatsheet") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
+    const sheetsData = loadConfigJson("cheat-sheets.json");
+    if (!sheetsData?.sheets) return `${cc.red}Could not load cheat sheets.${cc.reset}`;
+
+    // Extract topic from fields or raw text
+    let topic = (intent.fields as any)?.topic?.toLowerCase?.() ?? "";
+    if (!topic) {
+      const raw = intent.rawText.toLowerCase();
+      const available = Object.keys(sheetsData.sheets);
+      for (const key of available) {
+        if (raw.includes(key)) { topic = key; break; }
+      }
+    }
+
+    if (!topic || !sheetsData.sheets[topic]) {
+      const available = Object.keys(sheetsData.sheets).join(", ");
+      return `${cc.yellow}Unknown topic.${cc.reset} Available cheat sheets: ${cc.bold}${available}${cc.reset}`;
+    }
+
+    const sheet = sheetsData.sheets[topic];
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}${sheet.title}${cc.reset}\n`);
+
+    // Calculate column widths for table alignment
+    const maxCmd = Math.max(...sheet.commands.map((c: any) => c.cmd.length));
+    const pad = Math.min(maxCmd + 2, 50);
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}`);
+    lines.push(`  ${cc.bold}${"Command".padEnd(pad)}Description${cc.reset}`);
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}`);
+
+    for (const entry of sheet.commands) {
+      lines.push(`  ${cc.green}${entry.cmd.padEnd(pad)}${cc.reset}${cc.dim}${entry.desc}${cc.reset}`);
+    }
+    lines.push(`${cc.dim}${"─".repeat(pad + 40)}${cc.reset}\n`);
+    return lines.join("\n");
+  }
+
+  // ── Daily tip handler ──
+  if (intent.intent === "notoken.tip") {
+    return getRandomTip();
   }
 
   // Notoken status — comprehensive overview
@@ -3102,6 +3160,82 @@ expect eof
     return "";
   }
 
+  // ── Developer utility tools ──
+  if (intent.intent.startsWith("dev.")) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m", red: "\x1b[31m" };
+    const input = (intent.fields?.input as string) ?? (intent.rawText.replace(/^.*?(format|validate|encode|decode|hash|convert|test)\s*/i, "") || "").trim();
+
+    if (intent.intent === "dev.json_format") {
+      const r = formatJson(input);
+      if (r.valid) {
+        console.log(`${cc.green}${cc.bold}Valid JSON — formatted:${cc.reset}\n${r.formatted}`);
+      } else {
+        console.log(`${cc.red}${cc.bold}Invalid JSON:${cc.reset} ${r.error}\n${cc.dim}${input}${cc.reset}`);
+      }
+      return r.formatted;
+    }
+    if (intent.intent === "dev.json_validate") {
+      const r = validateJson(input);
+      if (r.valid) {
+        console.log(`${cc.green}${cc.bold}✓ Valid JSON${cc.reset}`);
+      } else {
+        console.log(`${cc.red}${cc.bold}✗ Invalid JSON:${cc.reset} ${r.error}`);
+      }
+      return r.valid ? "valid" : `invalid: ${r.error}`;
+    }
+    if (intent.intent === "dev.regex") {
+      const pattern = (intent.fields?.pattern as string) ?? input;
+      const testStr = (intent.fields?.testString as string) ?? "";
+      const r = testRegex(pattern, testStr);
+      console.log(`${cc.cyan}${cc.bold}Regex results:${cc.reset} ${r.count} match(es)`);
+      for (const m of r.matches) console.log(`  ${cc.green}${m[0]}${cc.reset}`);
+      if (r.groups.length) console.log(`${cc.dim}Groups:${cc.reset}`, JSON.stringify(r.groups, null, 2));
+      return JSON.stringify(r);
+    }
+    if (intent.intent === "dev.base64_encode") {
+      const result = encodeBase64(input);
+      console.log(`${cc.cyan}${cc.bold}Base64:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.base64_decode") {
+      const result = decodeBase64(input);
+      console.log(`${cc.cyan}${cc.bold}Decoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.url_encode") {
+      const result = encodeUrl(input);
+      console.log(`${cc.cyan}${cc.bold}URL-encoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.url_decode") {
+      const result = decodeUrl(input);
+      console.log(`${cc.cyan}${cc.bold}URL-decoded:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.hash") {
+      const algo = ((intent.fields?.algo as string) ?? "sha256").toLowerCase() as "md5" | "sha1" | "sha256";
+      const result = hashString(input, algo);
+      console.log(`${cc.cyan}${cc.bold}${algo.toUpperCase()}:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.uuid") {
+      const result = generateUuid();
+      console.log(`${cc.cyan}${cc.bold}UUID:${cc.reset} ${result}`);
+      return result;
+    }
+    if (intent.intent === "dev.timestamp") {
+      const r = convertUnixTimestamp(input);
+      console.log(`${cc.cyan}${cc.bold}Timestamp conversion:${cc.reset}`);
+      console.log(`  Unix:  ${r.unix}`);
+      console.log(`  ISO:   ${r.iso}`);
+      console.log(`  UTC:   ${r.utc}`);
+      console.log(`  Local: ${r.local}`);
+      return r.iso;
+    }
+
+    return "";
+  }
+
   // Casual chat responses — loaded from config/chat-responses.json
   if (intent.intent.startsWith("chat.")) {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m" };
@@ -4095,6 +4229,81 @@ expect eof
 
     result = formatImageEngineStatus(engines);
     recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command, environment, success: true });
+    return result;
+  }
+
+  // ── Timer handlers ──
+  if (intent.intent === "timer.start") {
+    const { startTimer } = await import("../utils/timer.js");
+    const mins = Number(fields.minutes) || (intent.rawText.match(/pomodoro/i) ? 25 : 5);
+    const label = (fields.label as string) || undefined;
+    const id = startTimer(mins, label);
+    result = `Timer #${id} started — ${mins} minute${mins !== 1 ? "s" : ""}${label ? ` (${label})` : ""}`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-start]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "timer.list") {
+    const { listTimers } = await import("../utils/timer.js");
+    result = listTimers();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "timer.cancel") {
+    const { cancelTimer } = await import("../utils/timer.js");
+    const id = Number(fields.id) || 1;
+    result = cancelTimer(id) ? `Timer #${id} cancelled.` : `No active timer with ID #${id}.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[timer-cancel]", environment, success: true });
+    return result;
+  }
+
+  // ── Bookmark handlers ──
+  if (intent.intent === "bookmark.save") {
+    const { saveBookmark } = await import("../utils/bookmarks.js");
+    const name = (fields.name as string) || "untitled";
+    const cmd = (fields.command as string) || intent.rawText;
+    saveBookmark(name, cmd);
+    result = `Bookmark "${name}" saved.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[bookmark-save]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "bookmark.list") {
+    const { listBookmarks } = await import("../utils/bookmarks.js");
+    result = listBookmarks();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[bookmark-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "bookmark.run") {
+    const { getBookmark } = await import("../utils/bookmarks.js");
+    const name = (fields.name as string) || "";
+    const cmd = getBookmark(name);
+    if (!cmd) { result = `Bookmark "${name}" not found.`; }
+    else { result = await runLocalCommand(cmd); }
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: `[bookmark-run] ${name}`, environment, success: true });
+    return result;
+  }
+
+  // ── Snippet handlers ──
+  if (intent.intent === "snippet.save") {
+    const { saveSnippet } = await import("../utils/snippets.js");
+    const name = (fields.name as string) || "untitled";
+    const code = (fields.code as string) || "";
+    const lang = (fields.language as string) || undefined;
+    saveSnippet(name, code, lang);
+    result = `Snippet "${name}" saved.`;
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[snippet-save]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "snippet.list") {
+    const { listSnippets } = await import("../utils/snippets.js");
+    result = listSnippets();
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: "[snippet-list]", environment, success: true });
+    return result;
+  }
+  if (intent.intent === "snippet.run") {
+    const { runSnippet } = await import("../utils/snippets.js");
+    const name = (fields.name as string) || "";
+    result = runSnippet(name);
+    recordHistory({ timestamp: new Date().toISOString(), rawText: intent.rawText, intent: intent.intent, fields, command: `[snippet-run] ${name}`, environment, success: true });
     return result;
   }
 

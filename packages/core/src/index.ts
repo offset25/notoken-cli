@@ -28,8 +28,12 @@ export { getCurrentTopic, suggestFollowups, getTopicDefault } from "./conversati
 export { progressReporter, reportProgress, reportStep } from "./utils/progressReporter.js";
 export { loadHistory as loadCommandHistory, addToHistory, searchHistory as searchCommandHistory, getRecentCommands, getReadlineHistory } from "./utils/commandHistory.js";
 
+// ── Achievements & Teach ──
+export { recordCommand, getAchievements, getUsageStats, flushStats } from "./utils/achievements.js";
+export { teachCommand, getLearnedCommand, listLearnedCommands, forgetCommand, parseTeachStatement } from "./utils/teachMode.js";
+
 // ── Execution ──
-export { executeIntent } from "./handlers/executor.js";
+export { executeIntent, getRandomTip } from "./handlers/executor.js";
 export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";
 
 // ── Config ──
@@ -187,6 +191,23 @@ export { recordHistory, loadHistory, getRecentHistory, searchHistory } from "./c
 // ── Plugins ──
 export { pluginRegistry } from "./plugins/index.js";
 export type { NotokenPlugin, PluginIntent, PluginPlaybook, PluginHooks, LoadedPlugin } from "./plugins/index.js";
+
+// ── Developer Tools ──
+export {
+  formatJson, validateJson, testRegex, encodeBase64, decodeBase64,
+  encodeUrl, decodeUrl, hashString, hashFile, generateUuid,
+  convertUnixTimestamp, diffStrings,
+} from "./utils/devTools.js";
+
+// ── Timer / Reminders ──
+export { startTimer, listTimers, cancelTimer, drainNotifications, pendingNotifications } from "./utils/timer.js";
+export type { Timer } from "./utils/timer.js";
+
+// ── Bookmarks ──
+export { saveBookmark, listBookmarks, getBookmark, removeBookmark } from "./utils/bookmarks.js";
+
+// ── Snippets ──
+export { saveSnippet, listSnippets, getSnippet, runSnippet } from "./utils/snippets.js";
 
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";
