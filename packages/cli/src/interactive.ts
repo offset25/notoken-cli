@@ -133,8 +133,13 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     // Truncate long paths — show last 2 segments
     const parts = dir.split("/");
     if (parts.length > 3) dir = "…/" + parts.slice(-2).join("/");
-    return `${c.cyan}${dir}${c.reset}${dryRun ? `${c.dim}(dry)` : ""}${bgLabel}${c.reset}> `;
+    const queueCount = inputQueue.length;
+    const queueLabel = queueCount > 0 ? `${c.yellow}[${queueCount} queued]${c.reset}` : "";
+    return `${c.cyan}${dir}${c.reset}${dryRun ? `${c.dim}(dry)` : ""}${bgLabel}${queueLabel}${c.reset}> `;
   };
+
+  // ── Input queue: user can type while commands execute ──
+  const inputQueue: string[] = [];
 
   while (true) {
     if (pendingNotifications.length > 0) {
@@ -142,14 +147,20 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       pendingNotifications.length = 0;
     }
 
-    // Reset Ctrl+C counter on each new prompt
-    ctrlCCount = 0;
-
+    // Process queued commands or read new input
     let line: string;
-    try {
-      line = await rl.question(prompt());
-    } catch {
-      break;
+    if (inputQueue.length > 0) {
+      line = inputQueue.shift()!;
+      console.log(`${c.dim}[queued → executing]${c.reset} ${line}`);
+    } else {
+      // Reset Ctrl+C counter on each new prompt
+      ctrlCCount = 0;
+
+      try {
+        line = await rl.question(prompt());
+      } catch {
+        break;
+      }
     }
 
     const trimmed = line.trim();
@@ -474,69 +485,39 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       }
     }
 
-    // ── Foreground execution with Ctrl+B to background ──
-    let sentToBackground = false;
+    // ── Non-blocking execution: all commands run async, input stays available ──
+    // Fast commands (<2s) run inline. Slow commands auto-promote to background.
+    // User can always keep typing — queued commands run after current finishes.
 
-    // Set up Ctrl+B listener (raw mode) to move task to background
-    const setupCtrlB = () => {
-      if (!process.stdin.isTTY) return () => {};
-      const onData = (key: Buffer) => {
-        if (key[0] === 0x02) { // Ctrl+B
-          sentToBackground = true;
-          process.stdin.removeListener("data", onData);
-          if (process.stdin.isRaw) process.stdin.setRawMode(false);
-          console.log(`\n${c.yellow}↗ Moved to background.${c.reset} ${c.dim}Type "/jobs" to check status.${c.reset}`);
-        }
-      };
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on("data", onData);
-      return () => {
-        process.stdin.removeListener("data", onData);
-        try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
-      };
-    };
-
-    const cleanupCtrlB = setupCtrlB();
+    const intentLabel = parsed.intent.intent;
     const executionPromise = executeIntent(parsed.intent);
+    let completed = false;
 
-    // Race: either the task finishes or user hits Ctrl+B
-    const raceResult = await Promise.race([
-      executionPromise.then(r => ({ type: "done" as const, result: r })),
-      new Promise<{ type: "bg" }>(resolve => {
-        const check = setInterval(() => {
-          if (sentToBackground) { clearInterval(check); resolve({ type: "bg" }); }
-        }, 100);
-        // Also resolve when execution finishes (to clean up interval)
-        executionPromise.finally(() => clearInterval(check));
-      }),
+    // Give the command 2 seconds to finish inline
+    const timeoutPromise = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
+    const quickResult = await Promise.race([
+      executionPromise.then(r => { completed = true; return r; }),
+      timeoutPromise,
     ]);
 
-    cleanupCtrlB();
-
-    if (raceResult.type === "bg") {
-      // Task is still running — register it as a background notification
-      const bgTaskId = taskRunner.active + 1;
+    if (completed && quickResult !== null) {
+      // Fast command — show result inline
+      console.log(quickResult);
+      addSystemTurn(conv, intentLabel, quickResult as string);
+    } else if (!completed) {
+      // Slow command — auto-promote to background, return prompt to user
+      console.log(`${c.dim}⏳ ${intentLabel} running in background...${c.reset}`);
       executionPromise
         .then(result => {
-          pendingNotifications.push(`\n${c.green}✓${c.reset} ${c.bold}Background task completed:${c.reset} ${parsed.intent.intent}\n${result.substring(0, 500)}`);
-          addSystemTurn(conv, parsed.intent.intent, result);
+          pendingNotifications.push(`\n${c.green}✓${c.reset} ${c.bold}Done:${c.reset} ${intentLabel}\n${typeof result === "string" ? result.substring(0, 500) : ""}`);
+          addSystemTurn(conv, intentLabel, typeof result === "string" ? result : "");
         })
         .catch(err => {
           const msg = err instanceof Error ? err.message : String(err);
-          pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Background task failed:${c.reset} ${parsed.intent.intent}\n  ${msg}`);
-          addSystemTurn(conv, parsed.intent.intent, undefined, msg);
+          pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Failed:${c.reset} ${intentLabel}\n  ${msg}`);
+          addSystemTurn(conv, intentLabel, undefined, msg);
         });
-    } else {
-      // Task finished normally in foreground
-      try {
-        console.log(raceResult.result);
-        addSystemTurn(conv, parsed.intent.intent, raceResult.result);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`${c.red}Error:${c.reset} ${msg}`);
-        addSystemTurn(conv, parsed.intent.intent, undefined, msg);
-      }
+      // Prompt returns immediately — user can keep typing
     }
   }
 
