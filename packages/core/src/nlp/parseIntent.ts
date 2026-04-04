@@ -13,6 +13,35 @@ import { isAffirmation, consumePendingAction, isRedirectingPendingAction } from 
 export type { MultiIntentPlan };
 
 export async function parseIntent(rawText: string): Promise<ParsedCommand & { plan?: MultiIntentPlan }> {
+  // Stage -2: Knowledge graph reference resolution
+  // Resolve "it", "the server", "that service" using graph + recent conversation
+  try {
+    const { resolveReference, inferIntent: graphInfer, loadKnowledgeGraph } = await import("./knowledgeGraph.js");
+    const { getOrCreateConversation, getRecentEntities } = await import("../conversation/store.js");
+    const conv = getOrCreateConversation(process.cwd());
+    const recentEnts = getRecentEntities(conv, 5).map((e: { entity: string }) => e.entity);
+
+    // Check for anaphoric references and resolve them
+    const words = rawText.split(/\s+/);
+    let resolved = rawText;
+    for (const word of words) {
+      if (/^(it|that|this)$/i.test(word)) {
+        const entity = resolveReference(word, recentEnts);
+        if (entity) {
+          resolved = resolved.replace(new RegExp(`\\b${word}\\b`, "i"), entity.name);
+        }
+      }
+    }
+    if (resolved !== rawText) {
+      // Re-parse with resolved references, keep original for display
+      const resolvedResult = parseByRules(resolved);
+      if (resolvedResult && resolvedResult.confidence >= 0.7) {
+        resolvedResult.rawText = rawText; // Keep original for display
+        return disambiguate(resolvedResult);
+      }
+    }
+  } catch { /* knowledge graph not available — continue */ }
+
   // Stage -1a: check if user is redirecting a pending action ("put it on F drive")
   const redirect = isRedirectingPendingAction(rawText);
   if (redirect) {

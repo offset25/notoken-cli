@@ -15,6 +15,8 @@ export { disambiguate } from "./nlp/disambiguate.js";
 export { classifyMulti } from "./nlp/multiClassifier.js";
 export { semanticParse, tokenize, keyboardDistance, fuzzyMatch } from "./nlp/semantic.js";
 export { findSimilarIntents, phraseSimilarity, expandWithCooccurrences } from "./nlp/semanticSimilarity.js";
+export { loadKnowledgeGraph, saveKnowledgeGraph, addEntity, addRelation, getEntity, getRelated, resolveReference, inferIntent, queryGraph, rebuildGraph, learnFromExecution, flushGraph } from "./nlp/knowledgeGraph.js";
+export { expandQuery, findCluster, suggestIntents, clusterWords } from "./nlp/conceptExpansion.js";
 export { analyzeUncertainty, getUncoveredSpans } from "./nlp/uncertainty.js";
 export { llmFallback, isLLMConfigured, getLLMBackend, formatLLMFallback } from "./nlp/llmFallback.js";
 

@@ -54,8 +54,25 @@ export function classifyMulti(
 ): MultiClassifierResult {
   const votes: ClassifierVote[] = [];
 
-  // 1. Synonym classifier (existing rule parser)
+  // 0. Expand query with synonym clusters for better matching
+  // "reboot the server" → "reboot the server restart cycle reload bounce"
+  let expandedText = rawText;
+  try {
+    const { expandQuery } = require("./conceptExpansion.js") as { expandQuery: (t: string) => string };
+    expandedText = expandQuery(rawText);
+  } catch { /* concept expansion not available */ }
+
+  // 1. Synonym classifier — run on both original AND expanded text
   votes.push(...classifySynonym(rawText));
+  if (expandedText !== rawText) {
+    // Run again on expanded text but with lower weight
+    const expandedVotes = classifySynonym(expandedText);
+    for (const v of expandedVotes) {
+      v.confidence *= 0.7; // Expansion matches are less certain
+      v.reason += " (expanded)";
+    }
+    votes.push(...expandedVotes);
+  }
 
   // 2. Semantic classifier (compromise-powered)
   votes.push(...classifySemantic(rawText));

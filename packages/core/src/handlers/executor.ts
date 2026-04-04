@@ -42,6 +42,12 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     throw new Error(`No intent definition found for: ${intent.intent}`);
   }
 
+  // Learn from this execution — grows the knowledge graph over time
+  try {
+    const { learnFromExecution } = await import("../nlp/knowledgeGraph.js");
+    learnFromExecution(intent.intent, intent.fields as Record<string, unknown>, intent.rawText);
+  } catch { /* knowledge graph not available */ }
+
   // Plugin beforeExecute hooks — can cancel execution
   const proceed = await pluginRegistry.runBeforeExecute({
     intent: intent.intent,

@@ -256,3 +256,73 @@ export function rebuildGraph(): KnowledgeGraph {
   saveKnowledgeGraph(_graph);
   return _graph;
 }
+
+// ─── Learning from execution ──────────────────────────────────────────────
+
+/**
+ * Learn from a successfully executed intent.
+ * Grows the graph over time by recording:
+ *   - Services that were restarted/checked (type: service)
+ *   - Servers that were targeted (type: server)
+ *   - Relationships discovered (service → runs_on → server)
+ *   - New entities mentioned by the user
+ *
+ * Called after every successful execution. Persists periodically.
+ */
+let _learnCount = 0;
+
+export function learnFromExecution(intent: string, fields: Record<string, unknown>, rawText: string): void {
+  const g = loadKnowledgeGraph();
+  const service = fields.service as string | undefined;
+  const environment = fields.environment as string | undefined;
+  const path = fields.path as string | undefined;
+  const target = fields.target as string | undefined;
+
+  // Learn services
+  if (service && !g.entities[service]) {
+    const type: EntityType = intent.startsWith("docker.") ? "container" : "service";
+    g.entities[service] = { name: service, type, aliases: [], properties: {} };
+  }
+
+  // Learn servers/environments
+  if (environment && environment !== "local" && environment !== "localhost" && environment !== "dev") {
+    if (!g.entities[environment]) {
+      g.entities[environment] = { name: environment, type: "server", aliases: [], properties: {} };
+    }
+    // Learn relationship: service runs_on environment
+    if (service) {
+      const rel: GraphRelation = { from: service, to: environment, relation: "runs_on" };
+      if (!g.relations.some(r => r.from === rel.from && r.to === rel.to && r.relation === rel.relation)) {
+        g.relations.push(rel);
+      }
+    }
+  }
+
+  // Learn paths
+  if (path && path !== "." && !g.entities[`path:${path}`]) {
+    g.entities[`path:${path}`] = { name: `path:${path}`, type: "path", aliases: [path], properties: { path } };
+  }
+
+  // Learn targets (from disk.scan, file operations, etc.)
+  if (target && !g.entities[target]) {
+    g.entities[target] = { name: target, type: "service", aliases: [], properties: {} };
+  }
+
+  // Learn from specific intents
+  if (intent === "entity.define") {
+    // User taught us a new entity — already handled by entityResolver
+    // but mark the graph as needing a rebuild next time
+    g.lastBuilt = undefined as unknown as string;
+  }
+
+  // Persist every 5 learn calls (not every single one — too much I/O)
+  _learnCount++;
+  if (_learnCount % 5 === 0) {
+    saveKnowledgeGraph(g);
+  }
+}
+
+/** Flush any pending graph changes to disk. */
+export function flushGraph(): void {
+  if (_graph) saveKnowledgeGraph(_graph);
+}
