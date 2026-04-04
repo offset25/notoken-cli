@@ -34,6 +34,26 @@ export function parseByRules(rawText: string): DynamicIntent | null {
 
   // Pre-check: common conversational queries that get misrouted
 
+  // Weather
+  if (/\b(weather|forecast|temperature|rain|snow|sunny|cloudy)\b/i.test(text)
+      && !/\b(log|error|server|disk)\b/i.test(text)) {
+    const locMatch = text.match(/(?:weather|forecast|temperature)\s+(?:in|at|for|of)\s+(.+?)(?:\?|$)/i)
+      ?? text.match(/(?:in|at|for)\s+(.+?)(?:\s+weather|\s+forecast|\?|$)/i);
+    return { intent: "weather.current", confidence: 0.95, rawText, fields: locMatch ? { location: locMatch[1].trim() } : {} };
+  }
+
+  // News
+  if (/^(what is |what's |show me )?(the )?(latest |today's |current )?(news|headlines|top stories)/i.test(text)
+      || /^(any |what's? )?news( today)?\??$/i.test(text)) {
+    return { intent: "news.headlines", confidence: 0.9, rawText, fields: {} };
+  }
+
+  // Database size
+  if (/\b(how big|size of|how much space)\b.*\b(database|db|mysql|postgres|mongo)\b/i.test(text)
+      || /\b(database|db)\s+(size|storage|disk|space)\b/i.test(text)) {
+    return { intent: "db.size", confidence: 0.9, rawText, fields: {} };
+  }
+
   // Time/date
   if (/^(what is |what's )?(the )?(time|date|day|today)( right now| today)?\??$/.test(text)) {
     return { intent: "system.datetime", confidence: 0.9, rawText, fields: {} };

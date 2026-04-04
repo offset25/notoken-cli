@@ -2544,6 +2544,197 @@ expect eof
     return lines.join("\n");
   }
 
+  // Weather — uses wttr.in (free, no API key)
+  if (intent.intent === "weather.current") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    let location = (fields.location as string) ?? "";
+
+    // Auto-detect location if not specified
+    if (!location) {
+      try {
+        const geoResp = await fetch("https://ipinfo.io/json", { signal: AbortSignal.timeout(5000) });
+        if (geoResp.ok) {
+          const geo = await geoResp.json() as { city?: string; region?: string; country?: string };
+          location = geo.city ?? geo.region ?? "";
+          if (location) console.log(`${cc.dim}Detected location: ${location}${cc.reset}`);
+        }
+      } catch { /* use empty — wttr.in will auto-detect */ }
+    }
+
+    const query = encodeURIComponent(location);
+    try {
+      // Get compact weather from wttr.in
+      const resp = await fetch(`https://wttr.in/${query}?format=j1`, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) throw new Error(`wttr.in returned ${resp.status}`);
+      const data = await resp.json() as any;
+
+      const current = data.current_condition?.[0];
+      const area = data.nearest_area?.[0];
+      const forecast = data.weather?.slice(0, 3);
+
+      if (!current) return `${cc.yellow}⚠${cc.reset} Could not get weather data.`;
+
+      const cityName = area?.areaName?.[0]?.value ?? location ?? "your location";
+      const region = area?.region?.[0]?.value ?? "";
+      const country = area?.country?.[0]?.value ?? "";
+
+      const lines: string[] = [];
+      lines.push(`\n${cc.bold}${cc.cyan}── Weather: ${cityName}${region ? `, ${region}` : ""}${country ? ` (${country})` : ""} ──${cc.reset}\n`);
+
+      // Current conditions
+      const tempC = current.temp_C;
+      const tempF = current.temp_F;
+      const desc = current.weatherDesc?.[0]?.value ?? "Unknown";
+      const feelsLikeC = current.FeelsLikeC;
+      const feelsLikeF = current.FeelsLikeF;
+      const humidity = current.humidity;
+      const wind = current.windspeedKmph;
+      const windDir = current.winddir16Point;
+      const precip = current.precipMM;
+      const visibility = current.visibility;
+      const uv = current.uvIndex;
+
+      lines.push(`  ${cc.bold}Now:${cc.reset} ${desc}`);
+      lines.push(`  ${cc.bold}Temp:${cc.reset} ${tempC}°C / ${tempF}°F ${feelsLikeC !== tempC ? `(feels like ${feelsLikeC}°C / ${feelsLikeF}°F)` : ""}`);
+      lines.push(`  ${cc.bold}Humidity:${cc.reset} ${humidity}%  ${cc.bold}Wind:${cc.reset} ${wind} km/h ${windDir}`);
+      if (parseFloat(precip) > 0) lines.push(`  ${cc.bold}Precipitation:${cc.reset} ${precip}mm`);
+      lines.push(`  ${cc.bold}Visibility:${cc.reset} ${visibility}km  ${cc.bold}UV:${cc.reset} ${uv}`);
+
+      // 3-day forecast
+      if (forecast?.length) {
+        lines.push(`\n  ${cc.bold}Forecast:${cc.reset}`);
+        for (const day of forecast) {
+          const date = day.date;
+          const maxC = day.maxtempC;
+          const minC = day.mintempC;
+          const maxF = day.maxtempF;
+          const minF = day.mintempF;
+          const dayDesc = day.hourly?.[4]?.weatherDesc?.[0]?.value ?? "—";
+          const rainChance = day.hourly?.[4]?.chanceofrain ?? "0";
+          lines.push(`    ${cc.dim}${date}${cc.reset} ${dayDesc} — ${minC}–${maxC}°C / ${minF}–${maxF}°F${parseInt(rainChance) > 30 ? ` 🌧 ${rainChance}% rain` : ""}`);
+        }
+      }
+
+      // Also get the ASCII art version for fun
+      const asciiResp = await fetch(`https://wttr.in/${query}?format=3`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+      if (asciiResp?.ok) {
+        const ascii = await asciiResp.text();
+        lines.push(`\n  ${cc.dim}${ascii.trim()}${cc.reset}`);
+      }
+
+      return lines.join("\n");
+    } catch (err: unknown) {
+      // Fallback to simple text format
+      try {
+        const simpleResp = await fetch(`https://wttr.in/${query}?format=%l:+%c+%t+%h+%w`, { signal: AbortSignal.timeout(5000) });
+        if (simpleResp.ok) return await simpleResp.text();
+      } catch {}
+      return `${cc.yellow}⚠${cc.reset} Could not fetch weather: ${(err as Error).message}`;
+    }
+  }
+
+  // News headlines — fetches from RSS feeds
+  if (intent.intent === "news.headlines") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+
+    // Load RSS feeds from config or use defaults
+    let feeds = [
+      { name: "Hacker News", url: "https://hnrss.org/frontpage?count=5" },
+      { name: "Tech", url: "https://feeds.arstechnica.com/arstechnica/technology-lab?count=5" },
+    ];
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const feedFile = resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "news-feeds.json");
+      if (existsSync(feedFile)) {
+        feeds = JSON.parse(readFileSync(feedFile, "utf-8")).feeds ?? feeds;
+      }
+    } catch {}
+
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Headlines ──${cc.reset}\n`);
+
+    for (const feed of feeds) {
+      try {
+        const resp = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
+        if (!resp.ok) continue;
+        const xml = await resp.text();
+
+        // Simple XML parsing for RSS <item><title>
+        const items = xml.match(/<item>[\s\S]*?<\/item>/g)?.slice(0, 5) ?? [];
+        if (items.length === 0) continue;
+
+        lines.push(`  ${cc.bold}${feed.name}:${cc.reset}`);
+        for (const item of items) {
+          const title = item.match(/<title><!\[CDATA\[(.*?)\]\]>|<title>(.*?)<\/title>/)?.[1] ?? item.match(/<title>(.*?)<\/title>/)?.[1] ?? "";
+          const link = item.match(/<link>(.*?)<\/link>/)?.[1] ?? "";
+          if (title) {
+            lines.push(`    ${cc.cyan}•${cc.reset} ${title.trim()}`);
+            if (link) lines.push(`      ${cc.dim}${link.trim()}${cc.reset}`);
+          }
+        }
+        lines.push("");
+      } catch { /* skip failed feed */ }
+    }
+
+    if (lines.length <= 2) {
+      lines.push(`  ${cc.dim}Could not fetch news. Check your internet connection.${cc.reset}`);
+    }
+
+    lines.push(`  ${cc.dim}Customize feeds: ~/.notoken/news-feeds.json${cc.reset}`);
+    return lines.join("\n");
+  }
+
+  // Database size check
+  if (intent.intent === "db.size") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Database Size ──${cc.reset}\n`);
+
+    // Check MySQL
+    const mysql = await runLocalCommand("mysql -e \"SELECT table_schema AS 'Database', ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)' FROM information_schema.tables GROUP BY table_schema ORDER BY SUM(data_length + index_length) DESC;\" 2>/dev/null").catch(() => "");
+    if (mysql.trim()) {
+      lines.push(`  ${cc.bold}MySQL:${cc.reset}`);
+      for (const l of mysql.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check PostgreSQL
+    const pg = await runLocalCommand("sudo -u postgres psql -c \"SELECT pg_database.datname AS database, pg_size_pretty(pg_database_size(pg_database.datname)) AS size FROM pg_database ORDER BY pg_database_size(pg_database.datname) DESC LIMIT 10;\" 2>/dev/null").catch(() => "");
+    if (pg.trim()) {
+      lines.push(`${mysql.trim() ? "\n" : ""}  ${cc.bold}PostgreSQL:${cc.reset}`);
+      for (const l of pg.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check MongoDB
+    const mongo = await runLocalCommand("mongosh --quiet --eval 'db.adminCommand(\"listDatabases\").databases.forEach(d => print(d.name + \": \" + (d.sizeOnDisk/1024/1024).toFixed(2) + \" MB\"))' 2>/dev/null").catch(() => "");
+    if (mongo.trim()) {
+      lines.push(`${(mysql.trim() || pg.trim()) ? "\n" : ""}  ${cc.bold}MongoDB:${cc.reset}`);
+      for (const l of mongo.trim().split("\n").slice(0, 10)) {
+        lines.push(`    ${cc.dim}${l}${cc.reset}`);
+      }
+    }
+
+    // Check SQLite files
+    const sqlite = await runLocalCommand("find /var/lib /home -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' 2>/dev/null | head -5").catch(() => "");
+    if (sqlite.trim()) {
+      lines.push(`\n  ${cc.bold}SQLite files:${cc.reset}`);
+      for (const f of sqlite.trim().split("\n")) {
+        const size = await runLocalCommand(`du -sh "${f}" 2>/dev/null | awk '{print $1}'`).catch(() => "?");
+        lines.push(`    ${cc.dim}${size.trim().padEnd(8)} ${f}${cc.reset}`);
+      }
+    }
+
+    if (!mysql.trim() && !pg.trim() && !mongo.trim() && !sqlite.trim()) {
+      lines.push(`  ${cc.dim}No databases detected (MySQL, PostgreSQL, MongoDB, SQLite).${cc.reset}`);
+    }
+
+    return lines.join("\n");
+  }
+
   // Security scan — check for attacks, brute force, DDoS, suspicious activity
   if (intent.intent === "security.scan") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
