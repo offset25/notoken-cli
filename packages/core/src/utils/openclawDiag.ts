@@ -122,41 +122,89 @@ function getOpenclawHome(): string {
   return `${userHome}${isWin ? "\\" : "/"}.openclaw`;
 }
 
+interface TokenSyncResult {
+  status: "synced" | "already_fresh" | "no_claude" | "no_claude_token" | "no_openclaw_auth" | "error";
+  message: string;
+  claudeExpires?: number;
+  openclawExpires?: number;
+}
+
 /**
- * Auto-sync Claude OAuth token to OpenClaw if stale.
- * Claude CLI keeps its token fresh; OpenClaw caches a copy that can expire.
+ * Check Claude CLI status and sync OAuth token to OpenClaw if needed.
+ * Full diagnostic:
+ *   1. Is Claude CLI installed?
+ *   2. Does Claude have a valid OAuth token?
+ *   3. Is OpenClaw's copy stale?
+ *   4. Sync if needed.
  */
-function syncClaudeToken(): boolean {
+function syncClaudeToken(): TokenSyncResult {
   try {
     const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
+
+    // 1. Check if Claude CLI is installed
     const claudePath = getClaudeCredsPath();
-    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+    if (!ef(claudePath)) {
+      // Check if claude binary exists
+      const claudeInstalled = tryExec("which claude 2>/dev/null || where claude 2>nul");
+      if (!claudeInstalled) {
+        return { status: "no_claude", message: "Claude CLI not installed. Install: npm install -g @anthropic-ai/claude-code" };
+      }
+      return { status: "no_claude_token", message: "Claude CLI installed but not logged in. Run: claude login" };
+    }
 
-    if (!ef(claudePath) || !ef(authPath)) return false;
-
+    // 2. Check if Claude has a valid token
     const claude = JSON.parse(rf(claudePath, "utf-8"));
     const freshToken = claude?.claudeAiOauth?.accessToken;
     const freshExpires = claude?.claudeAiOauth?.expiresAt;
-    if (!freshToken || !freshExpires) return false;
-
-    // Check if OpenClaw's token is stale
-    const auth = JSON.parse(rf(authPath, "utf-8"));
-    const ocProfile = auth?.profiles?.["anthropic:claude-oauth"];
-    if (!ocProfile) return false;
-
-    const ocExpires = ocProfile.expires ?? 0;
-    const now = Date.now();
-
-    // If OpenClaw token expires within 1 hour or already expired, sync fresh one
-    if (ocExpires - now < 3600000) {
-      ocProfile.access = freshToken;
-      ocProfile.expires = freshExpires;
-      wf(authPath, JSON.stringify(auth, null, 2));
-      return true;
+    if (!freshToken || !freshExpires) {
+      return { status: "no_claude_token", message: "Claude CLI has no OAuth token. Run: claude login" };
     }
-    return false;
-  } catch {
-    return false;
+
+    const now = Date.now();
+    const claudeHoursLeft = (freshExpires - now) / 3600000;
+    if (claudeHoursLeft <= 0) {
+      return { status: "no_claude_token", message: `Claude token expired ${Math.abs(claudeHoursLeft).toFixed(1)}h ago. Run: claude (it auto-refreshes on use)`, claudeExpires: freshExpires };
+    }
+
+    // 3. Check OpenClaw's auth file
+    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+    if (!ef(authPath)) {
+      return { status: "no_openclaw_auth", message: "OpenClaw auth not configured. Run: diagnose openclaw", claudeExpires: freshExpires };
+    }
+
+    const auth = JSON.parse(rf(authPath, "utf-8"));
+    // Check both profile names — openclaw uses "anthropic:claude-oauth" or "anthropic:manual"
+    const ocProfile = auth?.profiles?.["anthropic:claude-oauth"] ?? auth?.profiles?.["anthropic:manual"];
+    if (!ocProfile) {
+      // No anthropic profile at all — create one
+      if (!auth.profiles) auth.profiles = {};
+      auth.profiles["anthropic:claude-oauth"] = { type: "oauth", provider: "anthropic", access: freshToken, expires: freshExpires };
+      if (!auth.lastGood) auth.lastGood = {};
+      auth.lastGood.anthropic = "anthropic:claude-oauth";
+      wf(authPath, JSON.stringify(auth, null, 2));
+      return { status: "synced", message: `Created OpenClaw auth profile with Claude token (${claudeHoursLeft.toFixed(1)}h remaining)`, claudeExpires: freshExpires };
+    }
+
+    // 4. Check if OpenClaw's copy is stale
+    const ocExpires = ocProfile.expires ?? 0;
+    const ocHoursLeft = (ocExpires - now) / 3600000;
+
+    if (ocHoursLeft > 1) {
+      return { status: "already_fresh", message: `OpenClaw token is fresh (${ocHoursLeft.toFixed(1)}h remaining)`, claudeExpires: freshExpires, openclawExpires: ocExpires };
+    }
+
+    // 5. Sync fresh token
+    ocProfile.access = freshToken;
+    ocProfile.expires = freshExpires;
+    wf(authPath, JSON.stringify(auth, null, 2));
+    return {
+      status: "synced",
+      message: `Token refreshed — was ${ocHoursLeft > 0 ? `expiring in ${ocHoursLeft.toFixed(1)}h` : `expired ${Math.abs(ocHoursLeft).toFixed(1)}h ago`}, now good for ${claudeHoursLeft.toFixed(1)}h`,
+      claudeExpires: freshExpires,
+      openclawExpires: freshExpires,
+    };
+  } catch (err) {
+    return { status: "error", message: `Token sync error: ${(err as Error).message}` };
   }
 }
 
@@ -177,10 +225,21 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
 
-  // Auto-sync Claude OAuth token if stale — prevents "unauthorized" errors
-  const tokenSynced = syncClaudeToken();
-  if (tokenSynced) {
-    lines.push(`  ${c.green}✓${c.reset} Claude OAuth token refreshed — was stale, synced fresh copy`);
+  // Auto-sync Claude OAuth token — prevents "unauthorized" errors
+  const tokenSync = syncClaudeToken();
+  if (tokenSync.status === "synced") {
+    lines.push(`  ${c.green}✓${c.reset} ${tokenSync.message}`);
+  } else if (tokenSync.status === "already_fresh") {
+    // Silent — all good
+  } else if (tokenSync.status === "no_claude") {
+    lines.push(`  ${c.yellow}⚠${c.reset} ${tokenSync.message}`);
+  } else if (tokenSync.status === "no_claude_token") {
+    // Claude exists but token expired — try to refresh by running claude briefly
+    const refreshed = tryExec("claude --version 2>/dev/null");
+    if (refreshed) {
+      const retry = syncClaudeToken();
+      if (retry.status === "synced") lines.push(`  ${c.green}✓${c.reset} ${retry.message}`);
+    }
   }
 
   // Auto-discover and register all OpenClaw installations as entities
@@ -820,11 +879,25 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Diagnostics ──${c.reset}\n`);
 
-  // Auto-sync Claude OAuth token if stale
-  const diagTokenSynced = syncClaudeToken();
-  if (diagTokenSynced) {
-    steps.push({ name: "OAuth token", status: "pass", detail: "Claude token was stale — synced fresh copy" });
-    lines.push(`  ${c.green}✓${c.reset} Claude OAuth token refreshed automatically`);
+  // Auto-sync Claude OAuth token
+  const diagTokenSync = syncClaudeToken();
+  if (diagTokenSync.status === "synced") {
+    steps.push({ name: "OAuth token", status: "pass", detail: diagTokenSync.message });
+    lines.push(`  ${c.green}✓${c.reset} ${diagTokenSync.message}`);
+  } else if (diagTokenSync.status === "already_fresh") {
+    steps.push({ name: "OAuth token", status: "pass", detail: diagTokenSync.message });
+  } else if (diagTokenSync.status === "no_claude") {
+    steps.push({ name: "OAuth token", status: "warn", detail: diagTokenSync.message });
+  } else if (diagTokenSync.status === "no_claude_token") {
+    // Try to auto-refresh
+    tryExec("claude --version 2>/dev/null");
+    const retry = syncClaudeToken();
+    if (retry.status === "synced") {
+      steps.push({ name: "OAuth token", status: "pass", detail: retry.message });
+      lines.push(`  ${c.green}✓${c.reset} ${retry.message}`);
+    } else {
+      steps.push({ name: "OAuth token", status: "warn", detail: diagTokenSync.message });
+    }
   }
 
   // ── Environment detection ──
