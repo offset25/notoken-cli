@@ -123,6 +123,44 @@ function getOpenclawHome(): string {
 }
 
 /**
+ * Auto-sync Claude OAuth token to OpenClaw if stale.
+ * Claude CLI keeps its token fresh; OpenClaw caches a copy that can expire.
+ */
+function syncClaudeToken(): boolean {
+  try {
+    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
+    const claudePath = getClaudeCredsPath();
+    const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
+
+    if (!ef(claudePath) || !ef(authPath)) return false;
+
+    const claude = JSON.parse(rf(claudePath, "utf-8"));
+    const freshToken = claude?.claudeAiOauth?.accessToken;
+    const freshExpires = claude?.claudeAiOauth?.expiresAt;
+    if (!freshToken || !freshExpires) return false;
+
+    // Check if OpenClaw's token is stale
+    const auth = JSON.parse(rf(authPath, "utf-8"));
+    const ocProfile = auth?.profiles?.["anthropic:claude-oauth"];
+    if (!ocProfile) return false;
+
+    const ocExpires = ocProfile.expires ?? 0;
+    const now = Date.now();
+
+    // If OpenClaw token expires within 1 hour or already expired, sync fresh one
+    if (ocExpires - now < 3600000) {
+      ocProfile.access = freshToken;
+      ocProfile.expires = freshExpires;
+      wf(authPath, JSON.stringify(auth, null, 2));
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Quick connectivity check — escalates from simplest to most thorough.
  * Used for "can you talk to openclaw?" / "is openclaw reachable?"
  *
@@ -138,6 +176,12 @@ export async function quickConnectivityCheck(runRemote?: (cmd: string) => Promis
   const lines: string[] = [];
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Connectivity Check ──${c.reset}\n`);
+
+  // Auto-sync Claude OAuth token if stale — prevents "unauthorized" errors
+  const tokenSynced = syncClaudeToken();
+  if (tokenSynced) {
+    lines.push(`  ${c.green}✓${c.reset} Claude OAuth token refreshed — was stale, synced fresh copy`);
+  }
 
   // Auto-discover and register all OpenClaw installations as entities
   try { await discoverInstallations("openclaw"); } catch { /* non-critical */ }
@@ -775,6 +819,13 @@ export async function diagnoseOpenclaw(isRemote: boolean, runRemote?: (cmd: stri
   const lines: string[] = [];
 
   lines.push(`\n${c.bold}${c.cyan}── OpenClaw Diagnostics ──${c.reset}\n`);
+
+  // Auto-sync Claude OAuth token if stale
+  const diagTokenSynced = syncClaudeToken();
+  if (diagTokenSynced) {
+    steps.push({ name: "OAuth token", status: "pass", detail: "Claude token was stale — synced fresh copy" });
+    lines.push(`  ${c.green}✓${c.reset} Claude OAuth token refreshed automatically`);
+  }
 
   // ── Environment detection ──
   if (isWin) {
