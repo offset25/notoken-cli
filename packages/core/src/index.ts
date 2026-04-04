@@ -24,6 +24,10 @@ export { recordOutcome, getMultiplier, calibrateVotes, recordCorrection, getCali
 export { detectBatch, expandBatch, expandEnvironmentBatch } from "./nlp/batchParser.js";
 export { getCurrentTopic, suggestFollowups, getTopicDefault } from "./conversation/topicTracker.js";
 
+// ── Progress & History ──
+export { progressReporter, reportProgress, reportStep } from "./utils/progressReporter.js";
+export { loadHistory as loadCommandHistory, addToHistory, searchHistory as searchCommandHistory, getRecentCommands, getReadlineHistory } from "./utils/commandHistory.js";
+
 // ── Execution ──
 export { executeIntent } from "./handlers/executor.js";
 export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";
@@ -32,6 +36,7 @@ export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";
 export { loadRules, loadIntents, getIntentDef, loadHosts, getConfigDir } from "./utils/config.js";
 export { CONFIG_DIR, DATA_DIR, LOG_DIR, PACKAGE_ROOT, USER_HOME, isSEA, ensureUserDirs } from "./utils/paths.js";
 export { loadAliases, resolveAlias, saveAlias, removeAlias, listAliases } from "./utils/aliases.js";
+export { buildCompletions, completeInput } from "./utils/completer.js";
 
 // ── Platform & Detection ──
 export { detectLocalPlatform, getInstallCommand, getServiceCommand, getPackageForCommand, formatPlatform } from "./utils/platform.js";
@@ -104,6 +109,12 @@ export {
   createFullBackup, restoreFromBackup, listFullBackups, formatBackupsList,
   type BackupInfo,
 } from "./utils/sessionBackup.js";
+
+// ── Smart Retry ──
+export {
+  analyzeFailure,
+  type FailureAnalysis,
+} from "./utils/smartRetry.js";
 
 // ── Pending Actions ──
 export {

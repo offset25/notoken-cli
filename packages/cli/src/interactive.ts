@@ -42,6 +42,9 @@ import {
   browse, formatBrowserStatus, stopDockerBrowser,
 } from "notoken-core";
 import { resolveAlias, saveAlias, removeAlias, listAliases } from "notoken-core";
+import { completeInput } from "notoken-core";
+import { analyzeFailure } from "notoken-core";
+import { suggestAction } from "notoken-core";
 
 const c = {
   reset: "\x1b[0m",
@@ -55,11 +58,33 @@ const c = {
 };
 
 export async function runInteractive(options: { adaptRules?: boolean } = {}): Promise<void> {
-  const rl = readline.createInterface({ input, output });
+  // Load command history for up-arrow navigation
+  let historyEntries: string[] = [];
+  try {
+    const { getReadlineHistory } = await import("notoken-core");
+    historyEntries = getReadlineHistory();
+  } catch {}
+
+  const rl = readline.createInterface({
+    input, output,
+    completer: completeInput,
+    history: historyEntries,
+    historySize: 500,
+  } as any);
+
   let dryRun = false;
   let verbose = true;
   let adaptRules = options.adaptRules ?? false;
   const pendingNotifications: string[] = [];
+
+  // Set up progress reporter — display live progress from background tasks
+  try {
+    const { progressReporter } = await import("notoken-core");
+    progressReporter.on("progress", (event: { taskId: number; intent: string; message: string; percent?: number }) => {
+      const pct = event.percent !== undefined ? ` (${event.percent}%)` : "";
+      process.stdout.write(`\r\x1b[2K  ${c.dim}⏳ [#${event.taskId}] ${event.message}${pct}${c.reset}`);
+    });
+  } catch {}
 
   // Load or create conversation for current working directory
   const cwd = process.cwd();
@@ -182,6 +207,12 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     const trimmed = line.trim();
     if (!trimmed) continue;
 
+    // Save to persistent command history
+    try {
+      const { addToHistory } = await import("notoken-core");
+      addToHistory(trimmed);
+    } catch {}
+
     // Accept both :command and /command for meta commands
     if (trimmed.startsWith(":") || trimmed.startsWith("/")) {
       const metaCmd = trimmed.startsWith("/") ? ":" + trimmed.slice(1) : trimmed;
@@ -189,7 +220,7 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
         if (k === "dryRun") dryRun = v as boolean;
         if (k === "verbose") verbose = v as boolean;
         if (k === "adaptRules") adaptRules = v as boolean;
-      });
+      }, activeTasks, inputQueue);
       continue;
     }
 
@@ -559,15 +590,33 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     const taskId = ++taskIdCounter;
     const executionPromise = executeIntent(parsed.intent);
     let completed = false;
+    let inlineError: Error | null = null;
 
     // Give the command 2 seconds to finish inline
     const timeoutPromise = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
     const quickResult = await Promise.race([
-      executionPromise.then(r => { completed = true; return r; }),
+      executionPromise.then(r => { completed = true; return r; }).catch(err => { completed = true; inlineError = err instanceof Error ? err : new Error(String(err)); return null; }),
       timeoutPromise,
     ]);
 
-    if (completed && quickResult !== null) {
+    if (completed && inlineError) {
+      // Fast command failed — show error and offer smart retry
+      const failedErr = inlineError as Error;
+      const msg = failedErr.message;
+      console.error(`${c.red}✗${c.reset} ${msg}`);
+      addSystemTurn(conv, intentLabel, undefined, msg);
+
+      const fix = analyzeFailure(intentLabel, failedErr, parsed.intent.fields ?? {});
+      if (fix?.canFix) {
+        console.log(`${c.yellow}→${c.reset} ${fix.suggestion}`);
+        console.log(`${c.dim}  (say "yes" to run: ${fix.fixCommand})${c.reset}`);
+        suggestAction({
+          action: fix.fixCommand,
+          description: fix.explanation,
+          type: "intent",
+        });
+      }
+    } else if (completed && quickResult !== null) {
       // Fast command — show result inline
       console.log(quickResult);
       addSystemTurn(conv, intentLabel, quickResult as string);
@@ -601,6 +650,17 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
             const msg = err instanceof Error ? err.message : String(err);
             pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Failed:${c.reset} ${intentLabel} (task #${taskId})\n  ${msg}`);
             addSystemTurn(conv, intentLabel, undefined, msg);
+
+            // Smart retry — suggest a fix for background task failures
+            const fix = analyzeFailure(intentLabel, err instanceof Error ? err : new Error(String(err)), parsed.intent.fields ?? {});
+            if (fix?.canFix) {
+              pendingNotifications.push(`${c.yellow}→${c.reset} ${fix.suggestion}\n${c.dim}  (say "yes" to run: ${fix.fixCommand})${c.reset}`);
+              suggestAction({
+                action: fix.fixCommand,
+                description: fix.explanation,
+                type: "intent",
+              });
+            }
           }
         });
     }
@@ -682,7 +742,9 @@ async function handleMetaCommand(
   verbose: boolean,
   adaptRules: boolean,
   pendingNotifications: string[],
-  set: (key: string, value: unknown) => void
+  set: (key: string, value: unknown) => void,
+  activeTasks?: Array<{ id: number; intent: string; startedAt: number }>,
+  inputQueue?: string[]
 ): Promise<void> {
   const parts = cmd.split(/\s+/);
   const command = parts[0];
@@ -1019,14 +1081,14 @@ ${c.bold}Other:${c.reset}
       const agents = agentSpawner.list().map((a) => ({ id: a.id + 1000, rawText: `[agent] ${a.name}: ${a.description}`, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt }));
 
       // Also show orchestrator active tasks
-      if (activeTasks.length > 0) {
+      if (activeTasks && activeTasks.length > 0) {
         console.log(`\n${c.bold}Active tasks:${c.reset}`);
         for (const at of activeTasks) {
           const elapsed = Math.round((Date.now() - at.startedAt) / 1000);
           console.log(`  ${c.cyan}#${at.id}${c.reset} ${at.intent} ${c.dim}(${elapsed}s)${c.reset}`);
         }
       }
-      if (inputQueue.length > 0) {
+      if (inputQueue && inputQueue.length > 0) {
         console.log(`\n${c.bold}Queued commands:${c.reset}`);
         for (let i = 0; i < inputQueue.length; i++) {
           console.log(`  ${c.dim}${i + 1}. ${inputQueue[i]}${c.reset}`);
