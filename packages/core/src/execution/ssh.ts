@@ -322,7 +322,13 @@ export async function runRemoteCommand(
 }
 
 export async function runLocalCommand(command: string, timeout = 30_000): Promise<string> {
-  const shell = process.platform === "win32" ? "bash" : undefined;
+  let shell: string | undefined;
+  if (process.platform === "win32") {
+    // On Windows: use cmd.exe for PowerShell/Windows commands, bash for Unix commands
+    shell = command.includes("powershell") || command.includes("Get-") || command.includes("cmd.exe")
+      ? "cmd.exe"
+      : "bash";
+  }
   const { stdout, stderr } = await execAsync(command, { timeout, shell });
   return stderr ? `${stdout}\n${stderr}` : stdout;
 }
