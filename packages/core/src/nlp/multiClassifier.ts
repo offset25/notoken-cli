@@ -5,6 +5,7 @@ import { parseByRules } from "./ruleParser.js";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expandQuery } from "./conceptExpansion.js";
 
 /**
  * Multi-classifier intent scorer.
@@ -58,7 +59,6 @@ export function classifyMulti(
   // "reboot the server" → "reboot the server restart cycle reload bounce"
   let expandedText = rawText;
   try {
-    const { expandQuery } = require("./conceptExpansion.js") as { expandQuery: (t: string) => string };
     expandedText = expandQuery(rawText);
   } catch { /* concept expansion not available */ }
 

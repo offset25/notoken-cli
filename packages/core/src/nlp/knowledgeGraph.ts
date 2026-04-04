@@ -105,27 +105,95 @@ export function getRelated(entityName: string, relation?: RelationType): Array<{
   return results;
 }
 
-/** Resolve "it", "the server", "that service" using graph context + recent entities. */
+/** A scored candidate for reference resolution. */
+export interface ResolutionCandidate {
+  entity: GraphEntity;
+  score: number;
+  reason: string;
+}
+
+/**
+ * Resolve "it", "the server", "that service" using graph context + recent entities.
+ * Returns the best candidate. Use resolveCandidates() for all scored options.
+ */
 export function resolveReference(text: string, recentEntities: string[]): GraphEntity | null {
+  const candidates = resolveCandidates(text, recentEntities);
+  return candidates.length > 0 ? candidates[0].entity : null;
+}
+
+/**
+ * Get all resolution candidates, scored and ranked.
+ * Scores: recent entity = 1.0 - (0.1 * position), type match = +0.2, relation match = +0.15
+ */
+export function resolveCandidates(text: string, recentEntities: string[]): ResolutionCandidate[] {
   const lower = text.toLowerCase().trim();
   const g = loadKnowledgeGraph();
+  const candidates: ResolutionCandidate[] = [];
+
+  // Direct match — highest confidence
   const direct = getEntity(lower);
-  if (direct) return direct;
+  if (direct) return [{ entity: direct, score: 1.0, reason: "direct match" }];
 
-  // Anaphoric: "it", "that", "this" — return most recent entity
-  if (/^(it|that|this)$/.test(lower)) {
-    for (const name of recentEntities) { if (g.entities[name]) return g.entities[name]; }
-    return null;
-  }
-
-  // Typed anaphoric: "the server", "that service", "the database"
+  // Determine what type we're looking for
+  let wantType: EntityType | null = null;
   const typed = lower.match(/^(?:the|that|this)\s+(server|service|database|container|port|package|llm|channel|path|user)$/);
-  if (typed) {
-    const wantType = typed[1] as EntityType;
-    for (const name of recentEntities) { const e = g.entities[name]; if (e?.type === wantType) return e; }
-    for (const ent of Object.values(g.entities)) { if (ent.type === wantType) return ent; }
+  if (typed) wantType = typed[1] as EntityType;
+
+  // For "it"/"that"/"this" — prefer services and containers (actionable things)
+  const isAnaphoric = /^(it|that|this)$/.test(lower);
+  if (isAnaphoric) wantType = null; // consider all types
+
+  // Score recent entities
+  for (let i = 0; i < recentEntities.length; i++) {
+    const ent = g.entities[recentEntities[i]];
+    if (!ent) continue;
+
+    let score = 1.0 - (i * 0.15); // Recency: most recent = 1.0, then 0.85, 0.7, ...
+    let reason = `recent entity (#${i + 1})`;
+
+    // Type match bonus
+    if (wantType && ent.type === wantType) {
+      score += 0.2;
+      reason += `, type match (${wantType})`;
+    }
+
+    // For "it" — prefer services/containers over servers/ports
+    if (isAnaphoric) {
+      if (ent.type === "service" || ent.type === "container") {
+        score += 0.15;
+        reason += ", actionable type";
+      } else if (ent.type === "server") {
+        score += 0.05;
+        reason += ", server";
+      }
+    }
+
+    // Relationship bonus — if this entity is related to other recent entities
+    for (const other of recentEntities.slice(0, 3)) {
+      if (other === recentEntities[i]) continue;
+      const rels = g.relations.filter(r =>
+        (r.from === ent.name && r.to === other) || (r.to === ent.name && r.from === other)
+      );
+      if (rels.length > 0) {
+        score += 0.1;
+        reason += `, related to ${other}`;
+        break;
+      }
+    }
+
+    candidates.push({ entity: ent, score: Math.min(score, 1.0), reason });
   }
-  return null;
+
+  // If no recent entities matched and we want a type, search all entities of that type
+  if (candidates.length === 0 && wantType) {
+    for (const ent of Object.values(g.entities)) {
+      if (ent.type === wantType) {
+        candidates.push({ entity: ent, score: 0.3, reason: `type match (${wantType}), no recency` });
+      }
+    }
+  }
+
+  return candidates.sort((a, b) => b.score - a.score);
 }
 
 /** Use relationships to infer intent context from tokens. Resolves anaphora and finds target/location. */
