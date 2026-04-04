@@ -203,10 +203,39 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     const coref = resolveCoreferences(commandText, conv);
     let textToParse = coref.resolvedText;
 
+    // Cross-validate with knowledge graph — if both agree, boost confidence
+    let agreementBoost = 0;
     if (coref.resolutions.length > 0) {
-      console.log(`${c.dim}Resolved references:${c.reset}`);
-      for (const r of coref.resolutions) {
-        console.log(`  ${c.dim}${r.original} → ${r.resolved} (${r.source})${c.reset}`);
+      try {
+        const { resolveCandidates } = await import("notoken-core");
+        const recentEnts = getRecentEntities(conv, 5).map((e: { entity: string }) => e.entity);
+
+        for (const res of coref.resolutions) {
+          if (res.source === "knowledge_tree" && res.resolved) {
+            // Check if knowledge graph agrees with coreference
+            const kgCandidates = resolveCandidates(res.original, recentEnts);
+            if (kgCandidates.length > 0 && kgCandidates[0].entity.name === res.resolved) {
+              agreementBoost = 0.1; // Both systems agree → high confidence
+              console.log(`  ${c.dim}${res.original} → ${res.resolved} ${c.green}✓ confirmed by knowledge graph${c.reset}`);
+            } else if (kgCandidates.length > 0) {
+              // Disagreement — show both
+              console.log(`  ${c.dim}${res.original} → ${res.resolved} (session) vs ${kgCandidates[0].entity.name} (graph)${c.reset}`);
+            } else {
+              console.log(`  ${c.dim}${res.original} → ${res.resolved} (${res.source})${c.reset}`);
+            }
+          } else {
+            console.log(`  ${c.dim}${res.original} → ${res.resolved} (${res.source})${c.reset}`);
+          }
+        }
+      } catch {
+        // Knowledge graph not available — just show coreference results
+        for (const r of coref.resolutions) {
+          console.log(`  ${c.dim}${r.original} → ${r.resolved} (${r.source})${c.reset}`);
+        }
+      }
+
+      if (coref.resolutions.length > 0) {
+        console.log(`${c.dim}Resolved references:${c.reset}`);
       }
     }
 
@@ -214,6 +243,10 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     let parsed;
     if (coref.resolvedIntent) {
       const { disambiguate } = await import("notoken-core");
+      // Apply agreement boost to confidence
+      if (agreementBoost > 0) {
+        coref.resolvedIntent.confidence = Math.min(0.99, coref.resolvedIntent.confidence + agreementBoost);
+      }
       parsed = disambiguate(coref.resolvedIntent);
     } else {
       // ── Check for multi-step plan ──
