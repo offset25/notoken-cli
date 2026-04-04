@@ -29,6 +29,31 @@ import { scanProjects, summarizeDirectory, formatProjectList, formatDirSummary }
 import { generateImage, detectImageEngines, formatImageEngineStatus } from "../utils/imageGen.js";
 import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/wikidata.js";
 import { suggestAction } from "../conversation/pendingActions.js";
+import { resolve as pathResolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync as _existsSync, readFileSync as _readFileSync } from "node:fs";
+
+/** Resolve a config file path — works from any cwd, any OS, including global npm install. */
+const _configDir = pathResolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "config");
+const _userHome = process.env.NOTOKEN_HOME ?? pathResolve(process.env.HOME ?? process.env.USERPROFILE ?? process.env.HOMEPATH ?? ".", ".notoken");
+function resolveConfig(filename: string): string | null {
+  const candidates = [
+    pathResolve(_userHome, filename),
+    pathResolve(_configDir, filename),
+    pathResolve(process.cwd(), "packages", "core", "config", filename),
+    pathResolve(process.cwd(), "config", filename),
+  ];
+  for (const p of candidates) {
+    if (_existsSync(p)) return p;
+  }
+  return null;
+}
+
+function loadConfigJson(filename: string): any {
+  const p = resolveConfig(filename);
+  if (!p) return null;
+  try { return JSON.parse(_readFileSync(p, "utf-8")); } catch { return null; }
+}
 
 /**
  * Generic command executor.
@@ -898,13 +923,7 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
 
         // Load model database for context window info
         let modelDb: Record<string, any> = {};
-        try {
-          const { readFileSync, existsSync } = await import("node:fs");
-          const { resolve } = await import("node:path");
-          for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
-            if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
-          }
-        } catch { /* */ }
+        try { modelDb = loadConfigJson("ollama-models.json")?.models ?? {}; } catch { /* */ }
 
         const modelInfo = modelDb[ollamaModelName] ?? modelDb[ollamaModelName.split(":")[0]];
         const ctxWindow = modelInfo?.context ?? 0;
@@ -1407,13 +1426,7 @@ expect eof
 
     // Load model database
     let modelDb: any = {};
-    try {
-      const { readFileSync, existsSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      for (const p of [resolve(process.cwd(), "packages/core/config/ollama-models.json"), resolve(process.cwd(), "config/ollama-models.json")]) {
-        if (existsSync(p)) { modelDb = JSON.parse(readFileSync(p, "utf-8")).models ?? {}; break; }
-      }
-    } catch { /* no model db */ }
+    try { modelDb = loadConfigJson("ollama-models.json")?.models ?? {}; } catch { /* no model db */ }
 
     lines.push(`  ${cc.bold}Installed:${cc.reset}`);
     if (installed.includes("NAME")) {
@@ -3097,14 +3110,8 @@ expect eof
     // Load responses from JSON — user can customize
     let responses: Record<string, string[]> = {};
     try {
-      const { readFileSync, existsSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      for (const p of [
-        resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "chat-responses.json"),
-        resolve(process.cwd(), "packages/core/config/chat-responses.json"),
-        resolve(process.cwd(), "config/chat-responses.json"),
-      ]) {
-        if (existsSync(p)) { responses = JSON.parse(readFileSync(p, "utf-8")).responses ?? {}; break; }
+      const data = loadConfigJson("chat-responses.json");
+      if (data) { responses = data.responses ?? {};
       }
     } catch { /* use empty — fallback below */ }
 
@@ -3854,14 +3861,8 @@ expect eof
     // Load random prompts from JSON file — user can add their own
     let RANDOM_PROMPTS = ["a beautiful landscape at sunset"];
     try {
-      const { readFileSync, existsSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      for (const p of [
-        resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "image-prompts.json"),
-        resolve(process.cwd(), "packages/core/config/image-prompts.json"),
-        resolve(process.cwd(), "config/image-prompts.json"),
-      ]) {
-        if (existsSync(p)) { RANDOM_PROMPTS = JSON.parse(readFileSync(p, "utf-8")).prompts ?? RANDOM_PROMPTS; break; }
+      const data = loadConfigJson("image-prompts.json");
+      if (data) { RANDOM_PROMPTS = data.prompts ?? RANDOM_PROMPTS;
       }
     } catch { /* use default */ }
 
