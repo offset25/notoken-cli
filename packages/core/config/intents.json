@@ -8873,6 +8873,27 @@
         "any tasks running",
         "show jobs"
       ]
+    },
+    {
+      "name": "chat.history_today",
+      "description": "Share a historical event that happened on this day",
+      "synonyms": [
+        "what happened today",
+        "today in history",
+        "on this day",
+        "this day in history",
+        "historical fact"
+      ],
+      "fields": {},
+      "command": "echo 'Use chat handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what happened today in history",
+        "on this day",
+        "this day in history"
+      ]
     }
   ]
 }
