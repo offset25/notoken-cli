@@ -7901,6 +7901,94 @@
       ]
     },
     {
+      "name": "ollama.status",
+      "description": "Check if Ollama is installed and running",
+      "synonyms": [
+        "ollama status",
+        "check ollama",
+        "is ollama running",
+        "is ollama installed",
+        "ollama version",
+        "ollama info"
+      ],
+      "fields": {},
+      "command": "ollama --version && (pgrep -x ollama > /dev/null && echo 'Ollama is running' || echo 'Ollama is not running')",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is ollama running",
+        "check ollama status",
+        "ollama version"
+      ]
+    },
+    {
+      "name": "claude.status",
+      "description": "Check if Claude Code is installed and its version",
+      "synonyms": [
+        "claude status",
+        "check claude",
+        "is claude installed",
+        "is claude running",
+        "claude version",
+        "claude info"
+      ],
+      "fields": {},
+      "command": "claude --version",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is claude installed",
+        "check claude",
+        "claude version"
+      ]
+    },
+    {
+      "name": "openclaw.status",
+      "description": "Check if OpenClaw is installed and its version",
+      "synonyms": [
+        "openclaw status",
+        "check openclaw",
+        "is openclaw installed",
+        "is openclaw running",
+        "openclaw version",
+        "openclaw info"
+      ],
+      "fields": {},
+      "command": "openclaw --version",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is openclaw running",
+        "check openclaw",
+        "openclaw version"
+      ]
+    },
+    {
+      "name": "codex.status",
+      "description": "Check if Codex CLI is installed and its version",
+      "synonyms": [
+        "codex status",
+        "check codex",
+        "is codex installed",
+        "is codex running",
+        "codex version",
+        "codex info"
+      ],
+      "fields": {},
+      "command": "codex --version",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "is codex installed",
+        "check codex",
+        "codex version"
+      ]
+    },
+    {
       "name": "ollama.start",
       "description": "Start the Ollama service",
       "synonyms": [
