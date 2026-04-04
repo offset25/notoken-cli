@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { runCli } from "./cli.js";
 
-const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "upgrade", "rollback", "heal", "heal:claude", "browse", "service"]);
+const SUBCOMMANDS = new Set(["install", "uninstall", "doctor", "check", "fix", "setup", "logs", "update", "upgrade", "rollback", "heal", "heal:claude", "browse"]);
+// "service" is available but disabled by default — enable when needed for desktop app or remote access
 
 async function main() {
   const args = process.argv.slice(2);
@@ -119,12 +120,12 @@ async function main() {
         await runBrowse(subArgs, flags);
         return;
       }
-      case "service": {
-        // Pass remaining args to service module
-        process.argv = [process.argv[0], process.argv[1], ...subArgs];
-        await import("./service.js");
-        return;
-      }
+      // case "service": {
+      //   // Optional: HTTP API daemon for desktop app / remote access
+      //   process.argv = [process.argv[0], process.argv[1], ...subArgs];
+      //   await import("./service.js");
+      //   return;
+      // }
     }
   }
 
