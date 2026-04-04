@@ -141,6 +141,11 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
   // ── Input queue: user can type while commands execute ──
   const inputQueue: string[] = [];
 
+  // ── Active task tracker for cancellation ──
+  interface ActiveTask { id: number; intent: string; abortController: AbortController; startedAt: number; }
+  const activeTasks: ActiveTask[] = [];
+  let taskIdCounter = 0;
+
   while (true) {
     if (pendingNotifications.length > 0) {
       for (const n of pendingNotifications) console.log(n);
@@ -387,7 +392,27 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     }
 
     if (parsed.intent.intent === "notoken.cancel") {
-      console.log(`${c.yellow}OK, cancelled.${c.reset} Nothing will be executed.`);
+      // Cancel the most recent active background task, or clear the queue
+      if (activeTasks.length > 0) {
+        const task = activeTasks[activeTasks.length - 1];
+        task.abortController.abort();
+        activeTasks.pop();
+        console.log(`${c.yellow}✗ Cancelled:${c.reset} ${task.intent} (task #${task.id})`);
+      } else if (inputQueue.length > 0) {
+        const cleared = inputQueue.length;
+        inputQueue.length = 0;
+        console.log(`${c.yellow}✗ Cleared ${cleared} queued command(s).${c.reset}`);
+      } else {
+        // Also try taskRunner
+        const tasks = taskRunner.list().filter(t => t.status === "running");
+        if (tasks.length > 0) {
+          const last = tasks[tasks.length - 1];
+          taskRunner.cancel(last.id);
+          console.log(`${c.yellow}✗ Cancelled:${c.reset} task #${last.id}`);
+        } else {
+          console.log(`${c.yellow}Nothing to cancel.${c.reset} No tasks running.`);
+        }
+      }
       addSystemTurn(conv, "cancelled");
       continue;
     }
@@ -490,6 +515,8 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
     // User can always keep typing — queued commands run after current finishes.
 
     const intentLabel = parsed.intent.intent;
+    const abortController = new AbortController();
+    const taskId = ++taskIdCounter;
     const executionPromise = executeIntent(parsed.intent);
     let completed = false;
 
@@ -505,19 +532,37 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       console.log(quickResult);
       addSystemTurn(conv, intentLabel, quickResult as string);
     } else if (!completed) {
-      // Slow command — auto-promote to background, return prompt to user
-      console.log(`${c.dim}⏳ ${intentLabel} running in background...${c.reset}`);
+      // Slow command — auto-promote to background with tracking
+      const task: ActiveTask = { id: taskId, intent: intentLabel, abortController, startedAt: Date.now() };
+      activeTasks.push(task);
+      console.log(`${c.dim}⏳ ${intentLabel} running in background (task #${taskId})...${c.reset}`);
+      console.log(`${c.dim}   Say "cancel" to stop it, or keep typing.${c.reset}`);
+
       executionPromise
         .then(result => {
-          pendingNotifications.push(`\n${c.green}✓${c.reset} ${c.bold}Done:${c.reset} ${intentLabel}\n${typeof result === "string" ? result.substring(0, 500) : ""}`);
-          addSystemTurn(conv, intentLabel, typeof result === "string" ? result : "");
+          // Remove from active tasks
+          const idx = activeTasks.indexOf(task);
+          if (idx >= 0) activeTasks.splice(idx, 1);
+
+          if (abortController.signal.aborted) {
+            pendingNotifications.push(`${c.yellow}✗ Cancelled:${c.reset} ${intentLabel} (task #${taskId})`);
+          } else {
+            pendingNotifications.push(`\n${c.green}✓${c.reset} ${c.bold}Done:${c.reset} ${intentLabel} (task #${taskId})\n${typeof result === "string" ? result.substring(0, 500) : ""}`);
+            addSystemTurn(conv, intentLabel, typeof result === "string" ? result : "");
+          }
         })
         .catch(err => {
-          const msg = err instanceof Error ? err.message : String(err);
-          pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Failed:${c.reset} ${intentLabel}\n  ${msg}`);
-          addSystemTurn(conv, intentLabel, undefined, msg);
+          const idx = activeTasks.indexOf(task);
+          if (idx >= 0) activeTasks.splice(idx, 1);
+
+          if (abortController.signal.aborted) {
+            pendingNotifications.push(`${c.yellow}✗ Cancelled:${c.reset} ${intentLabel} (task #${taskId})`);
+          } else {
+            const msg = err instanceof Error ? err.message : String(err);
+            pendingNotifications.push(`\n${c.red}✗${c.reset} ${c.bold}Failed:${c.reset} ${intentLabel} (task #${taskId})\n  ${msg}`);
+            addSystemTurn(conv, intentLabel, undefined, msg);
+          }
         });
-      // Prompt returns immediately — user can keep typing
     }
   }
 
@@ -932,6 +977,22 @@ ${c.bold}Other:${c.reset}
     case ":jobs": {
       const tasks = taskRunner.list().map((t) => ({ id: t.id, rawText: t.rawText, status: t.status, startedAt: t.startedAt, completedAt: t.completedAt }));
       const agents = agentSpawner.list().map((a) => ({ id: a.id + 1000, rawText: `[agent] ${a.name}: ${a.description}`, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt }));
+
+      // Also show orchestrator active tasks
+      if (activeTasks.length > 0) {
+        console.log(`\n${c.bold}Active tasks:${c.reset}`);
+        for (const at of activeTasks) {
+          const elapsed = Math.round((Date.now() - at.startedAt) / 1000);
+          console.log(`  ${c.cyan}#${at.id}${c.reset} ${at.intent} ${c.dim}(${elapsed}s)${c.reset}`);
+        }
+      }
+      if (inputQueue.length > 0) {
+        console.log(`\n${c.bold}Queued commands:${c.reset}`);
+        for (let i = 0; i < inputQueue.length; i++) {
+          console.log(`  ${c.dim}${i + 1}. ${inputQueue[i]}${c.reset}`);
+        }
+      }
+
       console.log(formatJobsList([...tasks, ...agents]));
       taskRunner.acknowledgeAll();
       agentSpawner.acknowledgeAll();
