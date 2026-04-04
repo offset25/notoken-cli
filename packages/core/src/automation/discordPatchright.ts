@@ -217,14 +217,16 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
     console.log('TOKEN_NOT_FOUND');
   }
 
-  // Enable intents
+  // Enable privileged intents (but NOT Code Grant which is switch index 1)
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(1500);
   await page.locator('text=Privileged Gateway Intents').scrollIntoViewIfNeeded().catch(() => {});
   await page.waitForTimeout(1000);
-  const switches = await page.locator('label[data-react-aria-pressable="true"] input[role="switch"]').all();
+  const allSwitches = await page.locator('input[role="switch"]').all();
   let toggled = 0;
-  for (const sw of switches) {
+  // Skip switches 0 (Public Bot) and 1 (Code Grant) — only toggle intent switches (index 2+)
+  for (let idx = 2; idx < allSwitches.length; idx++) {
+    const sw = allSwitches[idx];
     if (!await sw.isChecked().catch(() => true)) {
       await sw.locator('..').locator('..').first().click({ force: true }).catch(() => {});
       await page.waitForTimeout(500);
@@ -233,6 +235,17 @@ const USER_DATA_DIR = 'C:\\\\temp\\\\notoken-browser-profile';
   }
   await page.click('button:has-text("Save Changes")', { timeout: 3000 }).catch(() => {});
   console.log('INTENTS_ENABLED:' + toggled);
+
+  // Ensure Code Grant is OFF (switch index 1)
+  if (allSwitches.length >= 2) {
+    const codeGrantOn = await allSwitches[1].isChecked().catch(() => false);
+    if (codeGrantOn) {
+      await allSwitches[1].locator('..').click({ force: true }).catch(() => {});
+      await page.waitForTimeout(500);
+      await page.click('button:has-text("Save Changes")', { timeout: 3000 }).catch(() => {});
+      console.log('CODE_GRANT_DISABLED');
+    }
+  }
 
   // Save result
   const result = { token, appId, success: !!token };
