@@ -269,6 +269,50 @@ export function parseOpenclawModels(output: string): {
 }
 
 /**
+ * Parse `openclaw status --deep` for health and channel details.
+ */
+export function parseOpenclawDeepStatus(output: string): {
+  health: Array<{ item: string; status: string; detail: string }>;
+  channels: Array<{ channel: string; enabled: boolean; state: string; detail: string }>;
+  sessions: Array<{ key: string; kind: string; age: string; model: string; tokens: string }>;
+} {
+  const result = {
+    health: [] as Array<{ item: string; status: string; detail: string }>,
+    channels: [] as Array<{ channel: string; enabled: boolean; state: string; detail: string }>,
+    sessions: [] as Array<{ key: string; kind: string; age: string; model: string; tokens: string }>,
+  };
+
+  // Parse Health table
+  const healthRows = output.match(/│\s*(\w+)\s*│\s*(reachable|OK|error|timeout|unreachable)\s*│\s*(.+?)│/g);
+  if (healthRows) {
+    for (const row of healthRows) {
+      const m = row.match(/│\s*(\w+)\s*│\s*(\w+)\s*│\s*(.+?)│/);
+      if (m && m[1] !== "Item") result.health.push({ item: m[1], status: m[2], detail: m[3].trim() });
+    }
+  }
+
+  // Parse Channels table
+  const chanRows = output.match(/│\s*(\w+)\s*│\s*(ON|OFF)\s*│\s*(OK|error|warn|off)\s*│\s*(.+?)│/g);
+  if (chanRows) {
+    for (const row of chanRows) {
+      const m = row.match(/│\s*(\w+)\s*│\s*(ON|OFF)\s*│\s*(\w+)\s*│\s*(.+?)│/);
+      if (m && m[1] !== "Channel") result.channels.push({ channel: m[1], enabled: m[2] === "ON", state: m[3], detail: m[4].trim() });
+    }
+  }
+
+  // Parse Sessions table
+  const sessRows = output.match(/│\s*agent:\S+\s*│\s*\w+\s*│\s*\S+\s+ago\s*│\s*\S+\s*│\s*.+?│/g);
+  if (sessRows) {
+    for (const row of sessRows) {
+      const m = row.match(/│\s*(\S+)\s*│\s*(\w+)\s*│\s*(\S+\s+ago)\s*│\s*(\S+)\s*│\s*(.+?)│/);
+      if (m) result.sessions.push({ key: m[1], kind: m[2], age: m[3], model: m[4], tokens: m[5].trim() });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Parse `openclaw status` output to understand gateway and system state.
  */
 export function parseOpenclawStatus(output: string): {
