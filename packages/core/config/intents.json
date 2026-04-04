@@ -8347,6 +8347,32 @@
       "requiresConfirmation": true,
       "riskLevel": "high",
       "examples": ["delete user john", "remove user testuser"]
+    },
+    {
+      "name": "notoken.cancel",
+      "description": "Cancel or negate the current command — triggered by negation phrases",
+      "synonyms": [
+        "don't",
+        "do not",
+        "cancel that",
+        "stop",
+        "never mind",
+        "cancel",
+        "abort"
+      ],
+      "fields": {},
+      "command": "",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "don't restart nginx",
+        "do not check disk",
+        "stop checking",
+        "cancel",
+        "never mind",
+        "abort"
+      ]
     }
   ]
 }

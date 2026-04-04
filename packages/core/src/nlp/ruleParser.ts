@@ -7,6 +7,16 @@ export function parseByRules(rawText: string): DynamicIntent | null {
   const intents = loadIntents();
   const text = rawText.trim().toLowerCase();
 
+  // Pre-check: negation detection — "don't restart nginx", "do not check disk", "never mind"
+  // Note: "stop <service>" is a legitimate stop command, so we only match "stop" when
+  // followed by a verb (e.g. "stop checking") or on its own, not "stop <noun>"
+  if (/^(don'?t|do not|no don'?t)\s+/i.test(text)
+      || /^(cancel|never mind|abort|nevermind)$/i.test(text)
+      || /^never\s+(do|run|execute|mind)/i.test(text)
+      || /^stop\s+(doing|checking|running|monitoring|that|it)(\s|$)/i.test(text)) {
+    return { intent: "notoken.cancel", confidence: 0.95, rawText, fields: {} };
+  }
+
   // Pre-check: status queries → notoken.status (not knowledge.lookup or service.status)
   if (/^(what is |what's |show |check |give me )?(the )?(system |computer |machine |notoken )?status( of)?( this| the| my)?( machine| computer| system| server)?[?.!]?$/.test(text)
       || /^(how is |how's )?(this |the |my )?(system|machine|computer|server) doing/.test(text)

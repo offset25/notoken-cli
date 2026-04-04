@@ -19,6 +19,10 @@ export { loadKnowledgeGraph, saveKnowledgeGraph, addEntity, addRelation, getEnti
 export { expandQuery, findCluster, suggestIntents, clusterWords } from "./nlp/conceptExpansion.js";
 export { analyzeUncertainty, getUncoveredSpans } from "./nlp/uncertainty.js";
 export { llmFallback, isLLMConfigured, getLLMBackend, formatLLMFallback } from "./nlp/llmFallback.js";
+export { suggestEntityCorrection, correctEntities, resolveDescription, resetEntityVocab } from "./nlp/entitySpellCorrect.js";
+export { recordOutcome, getMultiplier, calibrateVotes, recordCorrection, getCalibrationStats, flushCalibration } from "./nlp/confidenceCalibrator.js";
+export { detectBatch, expandBatch, expandEnvironmentBatch } from "./nlp/batchParser.js";
+export { getCurrentTopic, suggestFollowups, getTopicDefault } from "./conversation/topicTracker.js";
 
 // ── Execution ──
 export { executeIntent } from "./handlers/executor.js";
@@ -27,6 +31,7 @@ export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";
 // ── Config ──
 export { loadRules, loadIntents, getIntentDef, loadHosts, getConfigDir } from "./utils/config.js";
 export { CONFIG_DIR, DATA_DIR, LOG_DIR, PACKAGE_ROOT, USER_HOME, isSEA, ensureUserDirs } from "./utils/paths.js";
+export { loadAliases, resolveAlias, saveAlias, removeAlias, listAliases } from "./utils/aliases.js";
 
 // ── Platform & Detection ──
 export { detectLocalPlatform, getInstallCommand, getServiceCommand, getPackageForCommand, formatPlatform } from "./utils/platform.js";

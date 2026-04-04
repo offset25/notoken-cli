@@ -41,6 +41,7 @@ import {
   detectBrowserEngines, getBestEngine, installBrowserEngine,
   browse, formatBrowserStatus, stopDockerBrowser,
 } from "notoken-core";
+import { resolveAlias, saveAlias, removeAlias, listAliases } from "notoken-core";
 
 const c = {
   reset: "\x1b[0m",
@@ -167,6 +168,13 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
 
     const runInBackground = trimmed.endsWith("&");
     let commandText = runInBackground ? trimmed.slice(0, -1).trim() : trimmed;
+
+    // ── Alias resolution ──
+    const resolved = resolveAlias(commandText);
+    if (resolved !== commandText) {
+      console.log(`${c.dim}alias: ${commandText} → ${resolved}${c.reset}`);
+      commandText = resolved;
+    }
 
     // ── Greetings ──
     if (isGreeting(commandText)) {
@@ -367,10 +375,81 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       continue;
     }
 
-    if (parsed.needsClarification) {
-      console.error(`${c.yellow}Clarification needed — please be more specific.${c.reset}`);
-      addSystemTurn(conv, "needs_clarification");
+    if (parsed.intent.intent === "notoken.cancel") {
+      console.log(`${c.yellow}OK, cancelled.${c.reset} Nothing will be executed.`);
+      addSystemTurn(conv, "cancelled");
       continue;
+    }
+
+    if (parsed.needsClarification) {
+      // Smart prompting: ask for each missing field instead of failing
+      if (parsed.missingFields.length > 0) {
+        console.log(`${c.yellow}I need a bit more info to run "${parsed.intent.intent}":${c.reset}`);
+        let allAnswered = true;
+        for (const field of parsed.missingFields) {
+          const friendlyName = field.replace(/([A-Z])/g, " $1").toLowerCase();
+          let answer: string;
+          try {
+            answer = await rl.question(`${c.cyan}  What ${friendlyName} would you like? ${c.reset}`);
+          } catch {
+            allAnswered = false;
+            break;
+          }
+          answer = answer.trim();
+          if (!answer) {
+            console.log(`${c.dim}  Skipped — aborting command.${c.reset}`);
+            allAnswered = false;
+            break;
+          }
+          parsed.intent.fields[field] = answer;
+        }
+        if (!allAnswered) {
+          addSystemTurn(conv, "needs_clarification", undefined, "User cancelled field prompting");
+          continue;
+        }
+        // Re-check for ambiguous fields (missing fields are now filled)
+        if (parsed.ambiguousFields.length > 0) {
+          for (const a of parsed.ambiguousFields) {
+            console.log(`${c.yellow}  "${a.field}" is ambiguous — did you mean ${a.candidates.join(" or ")}?${c.reset}`);
+            let answer: string;
+            try {
+              answer = await rl.question(`${c.cyan}  Which one? ${c.reset}`);
+            } catch {
+              allAnswered = false;
+              break;
+            }
+            answer = answer.trim();
+            if (!answer) { allAnswered = false; break; }
+            parsed.intent.fields[a.field] = answer;
+          }
+          if (!allAnswered) {
+            addSystemTurn(conv, "needs_clarification", undefined, "User cancelled disambiguation");
+            continue;
+          }
+        }
+        // Fields filled — fall through to execution
+        parsed.needsClarification = false;
+        console.log(`${c.green}✓${c.reset} Got it — proceeding with ${parsed.intent.intent}.`);
+      } else if (parsed.ambiguousFields.length > 0) {
+        for (const a of parsed.ambiguousFields) {
+          console.log(`${c.yellow}  "${a.field}" is ambiguous — did you mean ${a.candidates.join(" or ")}?${c.reset}`);
+          let answer: string;
+          try {
+            answer = await rl.question(`${c.cyan}  Which one? ${c.reset}`);
+          } catch {
+            break;
+          }
+          answer = answer.trim();
+          if (!answer) break;
+          parsed.intent.fields[a.field] = answer;
+        }
+        parsed.needsClarification = false;
+      } else {
+        // Low confidence — no missing/ambiguous fields, just uncertain
+        console.error(`${c.yellow}Clarification needed — please be more specific.${c.reset}`);
+        addSystemTurn(conv, "needs_clarification");
+        continue;
+      }
     }
 
     if (dryRun) {
@@ -639,11 +718,55 @@ ${c.bold}Browser:${c.reset}
 ${c.bold}Updates:${c.reset}
   ${c.cyan}:update${c.reset}              Check for updates and install
 
+${c.bold}Aliases:${c.reset}
+  ${c.cyan}:alias <name> <cmd>${c.reset}   Create a command alias
+  ${c.cyan}:unalias <name>${c.reset}       Remove an alias
+  ${c.cyan}:aliases${c.reset}              List all aliases
+
 ${c.bold}Other:${c.reset}
   ${c.cyan}:clear${c.reset}               Clear completed tasks
   ${c.cyan}:quit${c.reset}                Exit
 `);
       break;
+
+    case ":alias": {
+      const aliasName = parts[1];
+      const aliasCmd = parts.slice(2).join(" ");
+      if (!aliasName || !aliasCmd) {
+        console.log(`${c.yellow}Usage: :alias <name> <command>${c.reset}`);
+      } else {
+        saveAlias(aliasName, aliasCmd);
+        console.log(`${c.green}✓${c.reset} Alias saved: ${c.cyan}${aliasName}${c.reset} → ${aliasCmd}`);
+      }
+      break;
+    }
+
+    case ":unalias": {
+      const uname = parts[1];
+      if (!uname) {
+        console.log(`${c.yellow}Usage: :unalias <name>${c.reset}`);
+      } else if (removeAlias(uname)) {
+        console.log(`${c.green}✓${c.reset} Alias removed: ${uname}`);
+      } else {
+        console.log(`${c.yellow}No alias named "${uname}"${c.reset}`);
+      }
+      break;
+    }
+
+    case ":aliases": {
+      const all = listAliases();
+      const keys = Object.keys(all);
+      if (keys.length === 0) {
+        console.log(`${c.dim}No aliases defined. Use :alias <name> <command> to create one.${c.reset}`);
+      } else {
+        console.log(`\n${c.bold}Aliases:${c.reset}`);
+        for (const [k, v] of Object.entries(all)) {
+          console.log(`  ${c.cyan}${k}${c.reset} → ${v}`);
+        }
+        console.log();
+      }
+      break;
+    }
 
     case ":dry":
       set("dryRun", !dryRun);

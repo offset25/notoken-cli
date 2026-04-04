@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { RulesConfig } from "../types/rules.js";
 import { IntentsConfig, type IntentDef } from "../types/intent.js";
-import { CONFIG_DIR } from "./paths.js";
+import { CONFIG_DIR, USER_HOME } from "./paths.js";
 import { pluginRegistry } from "../plugins/registry.js";
 
 let cachedRules: RulesConfig | null = null;
@@ -41,6 +41,36 @@ export function loadIntents(forceReload = false): IntentDef[] {
     // Don't add duplicates
     if (!cachedIntents.intents.find((i) => i.name === pi.name)) {
       cachedIntents.intents.push(pi as unknown as IntentDef);
+    }
+  }
+
+  // Merge user custom intents from ~/.notoken/custom-intents.json
+  const customFile = resolve(USER_HOME, "custom-intents.json");
+  if (existsSync(customFile)) {
+    try {
+      const customRaw = readFileSync(customFile, "utf-8");
+      const customData = JSON.parse(customRaw);
+      const customIntents: unknown[] = customData.intents ?? [];
+      for (const ci of customIntents) {
+        const entry = ci as Record<string, unknown>;
+        // Build a full IntentDef with sensible defaults for user-defined intents
+        const def: IntentDef = {
+          name: entry.name as string,
+          description: (entry.description as string) ?? "",
+          synonyms: (entry.synonyms as string[]) ?? [],
+          fields: (entry.fields as IntentDef["fields"]) ?? {},
+          command: (entry.command as string) ?? "",
+          execution: (entry.execution as "local" | "remote") ?? "local",
+          requiresConfirmation: (entry.requiresConfirmation as boolean) ?? true,
+          riskLevel: (entry.riskLevel as "low" | "medium" | "high") ?? "medium",
+          examples: (entry.examples as string[]) ?? (entry.synonyms as string[]) ?? [],
+        };
+        if (!cachedIntents!.intents.find((i) => i.name === def.name)) {
+          cachedIntents!.intents.push(def);
+        }
+      }
+    } catch {
+      // Silently ignore malformed custom intents file
     }
   }
 
