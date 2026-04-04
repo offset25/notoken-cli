@@ -3546,7 +3546,13 @@ function interpolateCommand(
   fields: Record<string, unknown>
 ): string {
   const isWindows = process.platform === "win32";
-  let cmd = (isWindows && def.commandWindows) ? def.commandWindows : def.command;
+  const isWSL = !isWindows && require("os").release().toLowerCase().includes("microsoft");
+  // On Windows or WSL, prefer commandWindows if available
+  let cmd = ((isWindows || isWSL) && def.commandWindows) ? def.commandWindows : def.command;
+  // In WSL, powershell needs full path
+  if (isWSL && cmd.startsWith("powershell ")) {
+    cmd = cmd.replace(/^powershell /, "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ");
+  }
 
   for (const [key, value] of Object.entries(fields)) {
     if (value !== undefined && value !== null) {
