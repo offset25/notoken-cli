@@ -3084,101 +3084,76 @@ expect eof
     return "";
   }
 
-  // Casual chat responses
+  // Casual chat responses — loaded from config/chat-responses.json
   if (intent.intent.startsWith("chat.")) {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m" };
     const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
-    switch (intent.intent) {
-      case "chat.greeting":
-        return pick([
-          `${cc.cyan}Hey there!${cc.reset} What can I help you with?`,
-          `${cc.cyan}Hello!${cc.reset} Ready to work. What do you need?`,
-          `${cc.cyan}Hi!${cc.reset} I'm here. Fire away.`,
-          `${cc.cyan}Hey!${cc.reset} What are we working on?`,
-          `${cc.cyan}Yo!${cc.reset} What's the mission?`,
-        ]);
+    // Load responses from JSON — user can customize
+    let responses: Record<string, string[]> = {};
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      for (const p of [
+        resolve(process.env.NOTOKEN_HOME ?? `${process.env.HOME}/.notoken`, "chat-responses.json"),
+        resolve(process.cwd(), "packages/core/config/chat-responses.json"),
+        resolve(process.cwd(), "config/chat-responses.json"),
+      ]) {
+        if (existsSync(p)) { responses = JSON.parse(readFileSync(p, "utf-8")).responses ?? {}; break; }
+      }
+    } catch { /* use empty — fallback below */ }
 
-      case "chat.howru":
+    // Template variables for dynamic responses
+    const fillTemplate = async (text: string): Promise<string> => {
+      let filled = text;
+      if (filled.includes("{{uptime}}")) {
+        const up = await runLocalCommand("uptime -p 2>/dev/null || uptime").catch(() => "unknown");
+        filled = filled.replace(/\{\{uptime\}\}/g, up.trim().replace("up ", ""));
+      }
+      if (filled.includes("{{load}}")) {
+        const ld = await runLocalCommand("cat /proc/loadavg 2>/dev/null | awk '{print $1}'").catch(() => "?");
+        filled = filled.replace(/\{\{load\}\}/g, ld.trim());
+      }
+      if (filled.includes("{{llm}}")) {
         const { getLLMBackend } = await import("../nlp/llmFallback.js");
         const llm = getLLMBackend();
-        const uptime = await runLocalCommand("uptime -p 2>/dev/null || uptime").catch(() => "");
-        const load = await runLocalCommand("cat /proc/loadavg 2>/dev/null | awk '{print $1}'").catch(() => "");
-        return pick([
-          `${cc.green}All systems go!${cc.reset} Running ${uptime.trim().replace("up ", "")}. Load: ${load.trim()}. ${llm ? `LLM: ${llm}.` : ""}\n${cc.dim}What can I do for you?${cc.reset}`,
-          `${cc.green}Doing great!${cc.reset} Uptime: ${uptime.trim().replace("up ", "")}. Everything's smooth.\n${cc.dim}Need anything?${cc.reset}`,
-          `${cc.green}Can't complain!${cc.reset} ${load.trim() && parseFloat(load) < 2 ? "System is chill." : "System's a bit busy."} What's up?`,
-        ]);
-
-      case "chat.thanks":
-        return pick([
-          `${cc.green}You're welcome!${cc.reset} Anything else?`,
-          `${cc.green}Happy to help!${cc.reset} Let me know if you need anything else.`,
-          `${cc.green}Anytime!${cc.reset} 👊`,
-          `${cc.green}No problem!${cc.reset} That's what I'm here for.`,
-          `${cc.cyan}✓${cc.reset} Glad I could help!`,
-        ]);
-
-      case "chat.bye":
-        return pick([
-          `${cc.cyan}See you later!${cc.reset} I'll be here when you need me.`,
-          `${cc.cyan}Peace!${cc.reset} ✌️`,
-          `${cc.cyan}Later!${cc.reset} Stay awesome.`,
-          `${cc.cyan}Bye!${cc.reset} Don't forget — I'm always a command away.`,
-        ]);
-
-      case "chat.about":
-        return `${cc.bold}${cc.cyan}I'm NoToken${cc.reset} — a terminal assistant that understands natural language.\n\n` +
-          `  ${cc.bold}What I do:${cc.reset} Translate what you say into server commands and run them.\n` +
-          `  ${cc.bold}No tokens needed:${cc.reset} I work offline with NLP, no API keys required for core features.\n` +
-          `  ${cc.bold}I know:${cc.reset} 251+ intents — services, Docker, disk, network, security, git, databases, and more.\n` +
-          `  ${cc.bold}I learn:${cc.reset} The more you use me, the better I understand your infrastructure.\n\n` +
-          `  ${cc.dim}Type "status" to see what's running, "help" for commands.${cc.reset}`;
-
-      case "chat.joke": {
-        const jokes = [
-          "Why do programmers prefer dark mode? Because light attracts bugs. 🐛",
-          "There are only 10 types of people — those who understand binary and those who don't.",
-          "A SQL query walks into a bar, sees two tables, and asks... 'Can I JOIN you?'",
-          "Why did the developer go broke? Because he used up all his cache. 💰",
-          "!false — it's funny because it's true.",
-          "A programmer's wife says: 'Go to the store and get a gallon of milk. If they have eggs, get a dozen.' He comes home with 12 gallons of milk.",
-          "Why do Java developers wear glasses? Because they can't C#.",
-          "There's no place like 127.0.0.1 🏠",
-          "To understand recursion, you must first understand recursion.",
-          "sudo make me a sandwich. 🥪",
-        ];
-        return pick(jokes);
+        filled = filled.replace(/\{\{llm\}\}/g, llm ? `LLM: ${llm}.` : "");
       }
-
-      case "chat.empathy": {
-        const frustrated = /frustrat|sucks|broken|doesn'?t work/i.test(intent.rawText);
-        const tired = /tired|bored/i.test(intent.rawText);
-        const confused = /confused|stuck|lost/i.test(intent.rawText);
-
-        if (frustrated) return pick([
-          `${cc.yellow}I hear you.${cc.reset} Let's figure this out. What's broken? I can diagnose it.`,
-          `${cc.yellow}That's frustrating.${cc.reset} Tell me what's not working and I'll take a look.`,
-          `${cc.yellow}Let's fix it.${cc.reset} Describe the problem — "diagnose openclaw", "check logs", "what's using CPU"?`,
-        ]);
-        if (tired) return pick([
-          `${cc.cyan}Take a break if you need to.${cc.reset} I'll still be here. ☕`,
-          `${cc.cyan}That's fair.${cc.reset} Want me to run a status check while you rest? Just say "status".`,
-        ]);
-        if (confused) return pick([
-          `${cc.cyan}No worries — let's break it down.${cc.reset} What are you trying to do? I'll guide you through it.`,
-          `${cc.cyan}I got you.${cc.reset} Type "help" to see what I can do, or just describe what you need in plain English.`,
-        ]);
-        return `${cc.cyan}I'm here to help.${cc.reset} What do you need?`;
+      if (filled.includes("{{loadStatus}}")) {
+        const ld = await runLocalCommand("cat /proc/loadavg 2>/dev/null | awk '{print $1}'").catch(() => "0");
+        filled = filled.replace(/\{\{loadStatus\}\}/g, parseFloat(ld) < 2 ? "System is chill." : "System's a bit busy.");
       }
+      if (filled.includes("{{intentCount}}")) {
+        const { loadIntents } = await import("../utils/config.js");
+        filled = filled.replace(/\{\{intentCount\}\}/g, String(loadIntents().length));
+      }
+      return filled;
+    };
 
-      case "chat.opinion":
-        return pick([
-          `${cc.dim}I'm a CLI tool — I don't have opinions, but I can give you data!${cc.reset} What do you want to compare?`,
-          `${cc.dim}I'll leave opinions to you — but I can show you benchmarks, stats, or docs.${cc.reset} What's the question?`,
-          `${cc.dim}Hmm, I'm more of a "show me the numbers" kind of tool.${cc.reset} What should I look up?`,
-        ]);
+    const chatType = intent.intent.replace("chat.", "");
+    let key = chatType;
+
+    // Empathy subtypes
+    if (chatType === "empathy") {
+      if (/frustrat|sucks|broken|doesn'?t work/i.test(intent.rawText)) key = "empathy_frustrated";
+      else if (/tired|bored/i.test(intent.rawText)) key = "empathy_tired";
+      else if (/confused|stuck|lost/i.test(intent.rawText)) key = "empathy_confused";
+      else key = "empathy_frustrated"; // default
     }
+
+    const pool = responses[key];
+    if (pool && pool.length > 0) {
+      const raw = pick(pool);
+      const filled = await fillTemplate(raw);
+      // Add ANSI coloring
+      const colorized = filled
+        .replace(/^([^.!?\n]+[.!?])/, `${cc.green}$1${cc.reset}`) // First sentence green
+        .replace(/\n/g, `\n  `); // Indent continuation
+      return `\n  ${colorized}`;
+    }
+
+    // Fallback if no JSON responses loaded
+    return `${cc.cyan}I'm NoToken.${cc.reset} Type "help" to see what I can do.`;
   }
 
   // Entity define/list

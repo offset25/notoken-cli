@@ -1,0 +1,82 @@
+{
+  "description": "Casual chat responses. Add your own! Each key maps to an array of possible responses (one is picked randomly).",
+  "responses": {
+    "greeting": [
+      "Hey there! What can I help you with?",
+      "Hello! Ready to work. What do you need?",
+      "Hi! I'm here. Fire away.",
+      "Hey! What are we working on?",
+      "Yo! What's the mission?",
+      "What's up! Ready when you are.",
+      "Greetings! What can I do for you?",
+      "Hey hey! Let's get to work."
+    ],
+    "howru": [
+      "All systems go! {{uptime}}. Load: {{load}}. {{llm}} What can I do for you?",
+      "Doing great! Uptime: {{uptime}}. Everything's smooth. Need anything?",
+      "Can't complain! {{loadStatus}} What's up?",
+      "Running strong! {{uptime}}, load at {{load}}. Ready for action.",
+      "I'm good! Keeping things running. What do you need?"
+    ],
+    "thanks": [
+      "You're welcome! Anything else?",
+      "Happy to help! Let me know if you need anything else.",
+      "Anytime! 👊",
+      "No problem! That's what I'm here for.",
+      "Glad I could help!",
+      "You got it! What's next?",
+      "My pleasure! Keep 'em coming."
+    ],
+    "bye": [
+      "See you later! I'll be here when you need me.",
+      "Peace! ✌️",
+      "Later! Stay awesome.",
+      "Bye! Don't forget — I'm always a command away.",
+      "Take care! Come back anytime.",
+      "Catch you later! 👋",
+      "Adios! Your servers are in good hands."
+    ],
+    "about": [
+      "I'm NoToken — a terminal assistant that understands natural language.\n\n  What I do: Translate what you say into server commands and run them.\n  No tokens needed: I work offline with NLP, no API keys required for core features.\n  I know: {{intentCount}}+ intents — services, Docker, disk, network, security, git, databases, and more.\n  I learn: The more you use me, the better I understand your infrastructure.\n\n  Type \"status\" to see what's running, \"help\" for commands."
+    ],
+    "joke": [
+      "Why do programmers prefer dark mode? Because light attracts bugs. 🐛",
+      "There are only 10 types of people — those who understand binary and those who don't.",
+      "A SQL query walks into a bar, sees two tables, and asks... 'Can I JOIN you?'",
+      "Why did the developer go broke? Because he used up all his cache. 💰",
+      "!false — it's funny because it's true.",
+      "A programmer's wife says: 'Go to the store and get a gallon of milk. If they have eggs, get a dozen.' He comes home with 12 gallons of milk.",
+      "Why do Java developers wear glasses? Because they can't C#.",
+      "There's no place like 127.0.0.1 🏠",
+      "To understand recursion, you must first understand recursion.",
+      "sudo make me a sandwich. 🥪",
+      "How many programmers does it take to change a light bulb? None. That's a hardware problem.",
+      "['hip', 'hip'] — hip hip array!",
+      "A byte walks into a bar looking rough. The bartender asks, 'What's wrong?' The byte says, 'I'm feeling a bit off.'",
+      "Why was the JavaScript developer sad? Because he didn't Node how to Express himself.",
+      "What's a pirate's favorite programming language? R!!! (You'd think it's C, but his first love be the R.)"
+    ],
+    "empathy_frustrated": [
+      "I hear you. Let's figure this out. What's broken? I can diagnose it.",
+      "That's frustrating. Tell me what's not working and I'll take a look.",
+      "Let's fix it. Describe the problem — \"diagnose openclaw\", \"check logs\", \"what's using CPU\"?",
+      "I get it. Walk me through what happened and I'll help troubleshoot.",
+      "Deep breath. We'll sort this out. What went wrong?"
+    ],
+    "empathy_tired": [
+      "Take a break if you need to. I'll still be here. ☕",
+      "That's fair. Want me to run a status check while you rest? Just say \"status\".",
+      "No shame in resting. I'll keep watch. Type \"monitor discord\" or \"status\" and I'll run in background."
+    ],
+    "empathy_confused": [
+      "No worries — let's break it down. What are you trying to do? I'll guide you through it.",
+      "I got you. Type \"help\" to see what I can do, or just describe what you need in plain English.",
+      "Totally normal. Start simple — what's the end goal? I'll map out the steps."
+    ],
+    "opinion": [
+      "I'm a CLI tool — I don't have opinions, but I can give you data! What do you want to compare?",
+      "I'll leave opinions to you — but I can show you benchmarks, stats, or docs. What's the question?",
+      "Hmm, I'm more of a \"show me the numbers\" kind of tool. What should I look up?"
+    ]
+  }
+}
