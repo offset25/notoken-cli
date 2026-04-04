@@ -28,6 +28,11 @@ export { getCurrentTopic, suggestFollowups, getTopicDefault } from "./conversati
 export { progressReporter, reportProgress, reportStep } from "./utils/progressReporter.js";
 export { loadHistory as loadCommandHistory, addToHistory, searchHistory as searchCommandHistory, getRecentCommands, getReadlineHistory } from "./utils/commandHistory.js";
 
+// ── User Context & OpenClaw Parsing ──
+export { getUserContext, findFreshestClaudeToken, detectUserMismatch, getAuthProfilesPath, resetUserContext } from "./utils/userContext.js";
+export { parseOpenclawModels, parseOpenclawStatus, parseOpenclawDeepStatus } from "./utils/openclawDiag.js";
+export { parseLogLine, analyzeLogs, formatLogAnalysis } from "./utils/openclawLogParser.js";
+
 // ── Achievements & Teach ──
 export { recordCommand, getAchievements, getUsageStats, flushStats } from "./utils/achievements.js";
 export { teachCommand, getLearnedCommand, listLearnedCommands, forgetCommand, parseTeachStatement } from "./utils/teachMode.js";
