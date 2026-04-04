@@ -1220,6 +1220,11 @@ expect eof
   }
 
   // Notoken status — comprehensive overview
+  // notoken.jobs — in one-shot mode just say "use interactive mode"
+  if (intent.intent === "notoken.jobs") {
+    return `\x1b[32m✓\x1b[0m No background tasks (one-shot mode).\n\x1b[2m  Run \x1b[1mnotoken\x1b[0m\x1b[2m for interactive mode with background task support.\x1b[0m`;
+  }
+
   if (intent.intent === "notoken.status") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m", magenta: "\x1b[35m" };
     const lines: string[] = [];

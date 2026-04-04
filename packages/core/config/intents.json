@@ -8852,6 +8852,27 @@
         "riddle me this",
         "brain teaser"
       ]
+    },
+    {
+      "name": "notoken.jobs",
+      "description": "Show running background tasks and queued commands",
+      "synonyms": [
+        "what is running",
+        "running tasks",
+        "background tasks",
+        "active tasks",
+        "show jobs"
+      ],
+      "fields": {},
+      "command": "echo 'Use notoken.jobs handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "what's running",
+        "any tasks running",
+        "show jobs"
+      ]
     }
   ]
 }

@@ -148,8 +148,19 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
 
   while (true) {
     if (pendingNotifications.length > 0) {
+      console.log(`\n${c.bold}${c.cyan}── Background Results ──${c.reset}`);
       for (const n of pendingNotifications) console.log(n);
+      console.log();
       pendingNotifications.length = 0;
+    }
+
+    // Show active task count reminder if any are running
+    if (activeTasks.length > 0) {
+      const taskList = activeTasks.map(t => {
+        const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
+        return `${t.intent} (${elapsed}s)`;
+      }).join(", ");
+      console.log(`${c.dim}⏳ Running: ${taskList}${c.reset}`);
     }
 
     // Process queued commands or read new input
@@ -387,6 +398,35 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       // Adaptive rules: run Claude healer in background to learn from this failure
       if (adaptRules && isLLMConfigured()) {
         runAutoHeal(pendingNotifications);
+      }
+      continue;
+    }
+
+    // Natural language task management
+    if (parsed.intent.intent === "notoken.jobs") {
+      if (activeTasks.length === 0 && inputQueue.length === 0 && taskRunner.active === 0) {
+        console.log(`${c.green}✓${c.reset} No tasks running. All clear.`);
+      } else {
+        if (activeTasks.length > 0) {
+          console.log(`\n${c.bold}${c.cyan}Running:${c.reset}`);
+          for (const at of activeTasks) {
+            const elapsed = Math.round((Date.now() - at.startedAt) / 1000);
+            console.log(`  ${c.cyan}#${at.id}${c.reset} ${at.intent} ${c.dim}(${elapsed}s) — say "cancel" to stop${c.reset}`);
+          }
+        }
+        if (inputQueue.length > 0) {
+          console.log(`\n${c.bold}Queued (${inputQueue.length}):${c.reset}`);
+          for (let i = 0; i < inputQueue.length; i++) {
+            console.log(`  ${c.dim}${i + 1}. ${inputQueue[i]}${c.reset}`);
+          }
+        }
+        const bgTasks = taskRunner.list().filter(t => t.status === "running");
+        if (bgTasks.length > 0) {
+          console.log(`\n${c.bold}Background (taskRunner):${c.reset}`);
+          for (const t of bgTasks) {
+            console.log(`  ${c.dim}#${t.id} ${t.rawText}${c.reset}`);
+          }
+        }
       }
       continue;
     }

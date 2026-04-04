@@ -49,6 +49,10 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     { pattern: /^(what('s| is) your favorite|do you have a favorite)/i, intent: "chat.favorite" },
     // Riddles
     { pattern: /^(tell me a riddle|riddle|give me a riddle|riddle me|got a riddle|brain teaser)\s*[!?.]*$/i, intent: "chat.riddle" },
+    // Task management (natural language)
+    { pattern: /^(what'?s running in (the )?background|any(thing)? running in (the )?background|running tasks|background tasks|active tasks|show (my )?tasks|what tasks)\s*[!?.]*$/i, intent: "notoken.jobs" },
+    { pattern: /^(cancel|stop|kill|abort)\s+(it|that|everything|all( tasks)?|the (task|job|scan|download))\s*$/i, intent: "notoken.cancel" },
+    { pattern: /^(cancel|stop|kill) (task|job) #?\d+$/i, intent: "notoken.cancel" },
   ];
   for (const { pattern, intent } of casualPatterns) {
     if (pattern.test(text)) return { intent, confidence: 0.95, rawText, fields: {} };
