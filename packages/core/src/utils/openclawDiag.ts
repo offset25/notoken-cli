@@ -160,8 +160,13 @@ export function refreshOpenclawAuth(): { success: boolean; method: string; messa
     const freshExpires = claude?.claudeAiOauth?.expiresAt;
     if (!freshToken) return { success: false, method: "none", message: "No Claude OAuth token" };
 
-    const node22 = getNode22();
-    const ocBin = getOcBin();
+    // Find Node 22 and openclaw binary
+    let node22 = "node";
+    const nvmPaths = ["/home/ino/.nvm/versions/node/v22.22.2/bin/node", "/home/ino/.nvm/versions/node/v22.22.1/bin/node"];
+    for (const p of nvmPaths) { try { if (require("node:fs").existsSync(p)) { node22 = p; break; } } catch {} }
+    if (node22 === "node") { try { const found = execSync("ls /home/ino/.nvm/versions/node/v22*/bin/node 2>/dev/null | tail -1", { encoding: "utf-8", timeout: 3000, stdio: "pipe" }).trim(); if (found) node22 = found; } catch {} }
+    let ocBin = "openclaw";
+    try { ocBin = execSync("readlink -f $(which openclaw) 2>/dev/null || which openclaw", { encoding: "utf-8", timeout: 3000, stdio: "pipe" }).trim(); } catch {}
 
     // Method 1: Try expect for proper OpenClaw registration
     let expectAvailable = false;
