@@ -27,7 +27,7 @@ describe("ollama model management routing", () => {
     { input: "ollama pull llama3.2", expected: "ollama.pull" },
     { input: "install ollama model", expected: "ollama.pull" },
     { input: "ollama remove llama2", expected: "ollama.remove" },
-    { input: "delete ollama model", expected: "ollama.remove" },
+    { input: "delete ollama model", expected: "ollama.uninstall" },
     { input: "ollama storage", expected: "ollama.storage" },
     { input: "where are ollama models", expected: "ollama.storage" },
     { input: "start ollama", expected: "ollama.start" },
