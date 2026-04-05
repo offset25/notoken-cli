@@ -60,6 +60,10 @@ export type { PlatformInfo } from "./utils/platform.js";
 // ── Paths ──
 export { winToLinux, linuxToWin, normalizePath, getUserDirs, isWSL, isWindows } from "./utils/wslPaths.js";
 
+// ── WSL Health & Crash Detection ──
+export { throttledWslExec, getActiveWslCalls, getWslQueueLength, getWSLStatus, detectWSLCrashes, diagnoseWSL } from "./utils/wslHealth.js";
+export type { WSLStatus, CrashReport, CrashEntry, WSLDiagnosis } from "./utils/wslHealth.js";
+
 // ── Permissions ──
 export { getLocalPermissions, getRemotePermissions, checkAccessForIntent, parsePermissionRequest, formatPermissionsDisplay } from "./utils/permissions.js";
 
