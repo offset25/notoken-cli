@@ -316,3 +316,89 @@ export async function getOllamaStatus(): Promise<OllamaStatus> {
 
   return result;
 }
+
+/* ── Version detection & upgrade check ── */
+
+export interface OllamaVersionInfo {
+  windows: { installed: boolean; version: string | null; path: string | null };
+  wsl: { installed: boolean; version: string | null; path: string | null };
+  latest: string | null;
+  windowsOutdated: boolean;
+  wslOutdated: boolean;
+  upgradeCommands: { windows: string | null; wsl: string | null };
+}
+
+function parseVersion(raw: string | null): string | null {
+  if (!raw) return null;
+  const match = raw.match(/(\d+\.\d+\.\d+)/);
+  return match ? match[1] : null;
+}
+
+function semverCompare(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return 1;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return -1;
+  }
+  return 0;
+}
+
+/**
+ * Check Ollama versions in both Windows and WSL, compare to latest release.
+ * Returns detailed version info + upgrade commands.
+ */
+export async function checkOllamaVersions(): Promise<OllamaVersionInfo> {
+  const result: OllamaVersionInfo = {
+    windows: { installed: false, version: null, path: null },
+    wsl: { installed: false, version: null, path: null },
+    latest: null,
+    windowsOutdated: false,
+    wslOutdated: false,
+    upgradeCommands: { windows: null, wsl: null },
+  };
+
+  // Check Windows Ollama
+  const winVer = await tryExecAsync("ollama --version") ?? await tryExecAsync("ollama.exe --version");
+  if (winVer && !winVer.includes("not recognized")) {
+    result.windows.installed = true;
+    result.windows.version = parseVersion(winVer);
+    const winPath = await tryExecAsync("where ollama") ?? await tryExecAsync("where ollama.exe");
+    if (winPath) result.windows.path = winPath.split("\n")[0].trim();
+  }
+
+  // Check WSL Ollama
+  const wslVer = await tryExecAsync("wsl ollama --version") ?? await tryExecAsync("wsl bash -lc 'ollama --version'");
+  if (wslVer && !wslVer.includes("not found") && !wslVer.includes("command not found")) {
+    result.wsl.installed = true;
+    result.wsl.version = parseVersion(wslVer);
+    const wslPath = await tryExecAsync("wsl bash -lc 'which ollama'");
+    if (wslPath) result.wsl.path = wslPath.trim();
+  }
+
+  // Check latest version from GitHub
+  try {
+    const r = await fetch("https://api.github.com/repos/ollama/ollama/releases/latest", {
+      signal: AbortSignal.timeout(5000),
+      headers: { "User-Agent": "notoken" },
+    });
+    if (r.ok) {
+      const data = await r.json() as { tag_name?: string };
+      result.latest = parseVersion(data.tag_name ?? "");
+    }
+  } catch { /* offline, rate limited, etc */ }
+
+  // Compare versions
+  if (result.latest) {
+    if (result.windows.version && semverCompare(result.windows.version, result.latest) < 0) {
+      result.windowsOutdated = true;
+      result.upgradeCommands.windows = "winget upgrade Ollama.Ollama";
+    }
+    if (result.wsl.version && semverCompare(result.wsl.version, result.latest) < 0) {
+      result.wslOutdated = true;
+      result.upgradeCommands.wsl = "curl -fsSL https://ollama.com/install.sh | sh";
+    }
+  }
+
+  return result;
+}
