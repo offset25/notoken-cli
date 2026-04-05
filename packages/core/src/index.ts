@@ -255,7 +255,7 @@ export type { CliInfo, EnvCheckResult } from "./utils/crossPlatform.js";
 
 // ── Ollama Client ──
 export {
-  findOllamaApi, ollamaApiCall, getOllamaModels, getOllamaStatus, checkOllamaVersions,
+  findOllamaApi, ollamaApiCall, getOllamaModels, getOllamaStatus, checkOllamaVersions, isOllamaInstalled,
 } from "./utils/ollamaClient.js";
 export type { OllamaVersionInfo } from "./utils/ollamaClient.js";
 export type { OllamaMethod, OllamaApiResult, OllamaModelEntry, OllamaStatus } from "./utils/ollamaClient.js";

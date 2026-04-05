@@ -350,12 +350,12 @@ async function tryOllama(
 
 /**
  * Check if Ollama is installed (not just running).
- * Used by doctor and interactive mode to offer installation.
+ * @deprecated Use `isOllamaInstalled()` from `ollamaClient.ts` instead.
+ * Kept for backward compat — delegates to the same sync check.
  */
 export function isOllamaInstalled(): boolean {
   try {
-    const { execSync } = require("node:child_process") as typeof import("node:child_process");
-    execSync("command -v ollama", { stdio: "pipe" });
+    execSync("command -v ollama", { timeout: 1000, stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -363,9 +363,11 @@ export function isOllamaInstalled(): boolean {
 }
 
 /**
- * Check if Ollama has any models pulled.
+ * Get Ollama model names (simple string list).
+ * @deprecated Use `getOllamaModels()` from `ollamaClient.ts` for full metadata.
+ * Kept for backward compat — returns just names.
  */
-export async function getOllamaModels(): Promise<string[]> {
+export async function getOllamaModelNames(): Promise<string[]> {
   try {
     const response = await fetch("http://127.0.0.1:11434/api/tags");
     if (!response.ok) return [];

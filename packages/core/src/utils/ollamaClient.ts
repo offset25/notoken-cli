@@ -317,6 +317,22 @@ export async function getOllamaStatus(): Promise<OllamaStatus> {
   return result;
 }
 
+/* ── Installation check ── */
+
+/**
+ * Synchronous check: is Ollama installed on this system?
+ * Works on Windows, WSL, and Linux.
+ */
+export function isOllamaInstalled(): boolean {
+  try {
+    const { execSync } = require("node:child_process") as typeof import("node:child_process");
+    execSync("command -v ollama 2>/dev/null || where ollama 2>nul", { timeout: 2000, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /* ── Version detection & upgrade check ── */
 
 export interface OllamaVersionInfo {
