@@ -27,8 +27,33 @@ export interface LLMFallbackResult {
     intent?: string;
     command?: string;
   }>;
+  /** Raw shell commands to run if no intent matches */
+  shellCommands?: string[];
+  /** Questions to ask the user for clarification */
   missingInfo?: string[];
+  /** Commands to run first to gather info before answering (multi-turn) */
+  gatherCommands?: Array<{
+    command: string;
+    purpose: string;
+  }>;
+  /** Whether the LLM needs more info from command outputs before it can answer */
+  needsMoreInfo?: boolean;
 }
+
+/** Conversation history for multi-turn LLM disambiguation */
+const _llmConversation: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+/** Add a turn to the LLM conversation for multi-turn context */
+export function addLLMContext(role: "user" | "assistant", content: string): void {
+  _llmConversation.push({ role, content });
+  if (_llmConversation.length > 10) _llmConversation.splice(0, _llmConversation.length - 10);
+}
+
+/** Clear LLM conversation when topic changes */
+export function clearLLMContext(): void { _llmConversation.length = 0; }
+
+/** Get conversation for context in multi-turn */
+export function getLLMContext(): Array<{ role: "user" | "assistant"; content: string }> { return [..._llmConversation]; }
 
 /**
  * Check if any LLM is configured.
@@ -93,6 +118,7 @@ export async function llmFallback(
     recentIntents?: string[];
     knownEntities?: Array<{ entity: string; type: string }>;
     uncertainTokens?: string[];
+    nearMisses?: Array<{ intent: string; score: number; source: string }>;
   }
 ): Promise<LLMFallbackResult | null> {
   if (!isLLMConfigured()) return null;
@@ -280,52 +306,105 @@ export async function getOllamaModels(): Promise<string[]> {
 
 function buildPrompt(rawText: string, context: Record<string, unknown>): string {
   const intents = loadIntents();
-  const intentSummary = intents.map((i) => {
-    const fields = Object.entries(i.fields)
-      .map(([k, v]) => `${k}:${v.type}${v.required ? "*" : ""}`)
-      .join(", ");
-    return `  ${i.name}: ${i.description} [${fields}]`;
-  }).join("\n");
-
   const platform = detectLocalPlatform();
 
-  return `You are a server operations CLI assistant. The user said something I couldn't parse with my rule-based system.
+  // Group intents by domain — much shorter than listing all 298
+  const domains = new Map<string, string[]>();
+  for (const i of intents) {
+    const domain = i.name.split(".")[0];
+    if (!domains.has(domain)) domains.set(domain, []);
+    domains.get(domain)!.push(`${i.name}: ${i.description}`);
+  }
+
+  // Only include top-level summary + relevant domains based on user input
+  const relevantDomains: string[] = [];
+  const inputLower = rawText.toLowerCase();
+  for (const [domain, items] of domains) {
+    // Include domains that might be relevant to the query
+    const domainKeywords: Record<string, string[]> = {
+      service: ["service", "restart", "start", "stop", "status", "running"],
+      server: ["server", "cpu", "memory", "disk", "load", "uptime"],
+      docker: ["docker", "container", "image", "compose"],
+      network: ["network", "ip", "port", "ping", "dns", "curl", "speed"],
+      git: ["git", "commit", "push", "pull", "branch", "merge"],
+      deploy: ["deploy", "release", "rollback"],
+      logs: ["log", "error", "tail", "search"],
+      security: ["security", "attack", "firewall", "scan", "block"],
+      disk: ["disk", "space", "cleanup", "scan", "drive"],
+      db: ["database", "mysql", "postgres", "query", "sql"],
+      openclaw: ["openclaw", "claw", "gateway", "discord"],
+      ollama: ["ollama", "llm", "model"],
+      ai: ["image", "generate", "stable diffusion"],
+      files: ["file", "find", "copy", "move", "delete"],
+      process: ["process", "kill", "pid"],
+      user: ["user", "who", "login"],
+      backup: ["backup", "restore", "snapshot"],
+      notoken: ["notoken", "status", "version", "update", "help"],
+    };
+
+    const keywords = domainKeywords[domain] ?? [domain];
+    if (keywords.some(k => inputLower.includes(k)) || items.length <= 5) {
+      relevantDomains.push(`\n  [${domain}] (${items.length} commands)\n${items.slice(0, 8).map(i => `    ${i}`).join("\n")}`);
+    }
+  }
+
+  // If no relevant domains found, include a general summary
+  if (relevantDomains.length === 0) {
+    for (const [domain, items] of [...domains].slice(0, 10)) {
+      relevantDomains.push(`  [${domain}]: ${items.slice(0, 3).map(i => i.split(":")[0]).join(", ")}...`);
+    }
+  }
+
+  // Recent conversation context
+  const recentIntents = (context.recentIntents as string[]) ?? [];
+  const recentContext = recentIntents.length > 0
+    ? `\nRECENT COMMANDS (what the user has been doing):\n  ${recentIntents.slice(0, 5).join(", ")}\n`
+    : "";
+
+  // Known entities
+  const entities = (context.knownEntities as Array<{ entity: string; type: string }>) ?? [];
+  const entityContext = entities.length > 0
+    ? `\nKNOWN ENTITIES:\n  ${entities.slice(0, 10).map(e => `${e.entity} (${e.type})`).join(", ")}\n`
+    : "";
+
+  return `You are NoToken, a server operations CLI assistant. The user said something my NLP couldn't parse. Help me understand what they want.
 
 ENVIRONMENT:
-  OS: ${platform.distro}${platform.isWSL ? " (WSL)" : ""}
-  Kernel: ${platform.kernel}
-  Arch: ${platform.arch}
-  Shell: ${platform.shell}
-  Package manager: ${platform.packageManager}
-  Init system: ${platform.initSystem}
-
+  OS: ${platform.distro}${platform.isWSL ? " (WSL)" : ""} | Shell: ${platform.shell}
+  Package manager: ${platform.packageManager} | Init: ${platform.initSystem}
+${recentContext}${entityContext}
 USER INPUT: "${rawText}"
 
-CONTEXT:
-${JSON.stringify(context, null, 2)}
+AVAILABLE COMMANDS (grouped by domain — ${intents.length} total):
+${relevantDomains.join("\n")}
 
-AVAILABLE INTENTS (these are the tools I can execute):
-${intentSummary}
+INSTRUCTIONS:
+1. Map the user's request to one or more of my available commands above.
+2. If the request is ambiguous, suggest the most likely interpretation.
+3. If no command fits, suggest what shell commands I should run to address it.
+4. If you need to run commands first to gather information (e.g. check system state before answering), list them in "gatherCommands".
+5. Extract field values (service names, paths, environments) from the input.
+6. If the user is chatting casually (hello, thanks, joke), use chat.* intents.
 
-Respond with ONLY a JSON object:
+Respond with ONLY valid JSON:
 {
-  "understood": true/false,
-  "restatement": "In plain English, what the user wants to do",
+  "understood": true,
+  "restatement": "What the user wants in plain English",
   "suggestedIntents": [
-    {
-      "intent": "intent.name from list above",
-      "fields": { "field": "value" },
-      "confidence": 0.0-1.0,
-      "reasoning": "why this intent"
-    }
+    {"intent": "domain.command", "fields": {"field": "value"}, "confidence": 0.8, "reasoning": "why"}
   ],
-  "todoSteps": [
-    { "step": 1, "description": "what to do first", "intent": "optional intent name" }
-  ],
-  "missingInfo": ["things I'd need to ask the user"]
+  "shellCommands": ["raw shell commands if no intent fits"],
+  "todoSteps": [{"step": 1, "description": "what to do", "intent": "optional", "command": "optional shell cmd"}],
+  "gatherCommands": [{"command": "uptime", "purpose": "check server load"}, {"command": "df -h", "purpose": "check disk"}],
+  "needsMoreInfo": false,
+  "missingInfo": ["questions if unclear"]
 }
 
-Return ONLY JSON.`;
+IMPORTANT:
+- If you can answer with a single intent, just return suggestedIntents.
+- If you need to run commands first to investigate, set needsMoreInfo=true and list gatherCommands.
+- I will run those commands and send you the output so you can make a better decision.
+- Always return valid JSON. No markdown, no explanation outside JSON.`;
 }
 
 function parseResponse(raw: string): LLMFallbackResult | null {

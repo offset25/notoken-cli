@@ -9,7 +9,10 @@ import { loadRules } from "../utils/config.js";
  * Sends the raw text + context to an LLM and asks for structured JSON.
  * Set NOTOKEN_LLM_ENDPOINT and optionally NOTOKEN_LLM_API_KEY in env.
  */
-export async function parseByLLM(rawText: string): Promise<DynamicIntent | null> {
+export async function parseByLLM(
+  rawText: string,
+  nearMisses?: Array<{ intent: string; score: number; source: string }>
+): Promise<DynamicIntent | null> {
   const endpoint = process.env.NOTOKEN_LLM_ENDPOINT;
   if (!endpoint) return null;
 
@@ -17,7 +20,7 @@ export async function parseByLLM(rawText: string): Promise<DynamicIntent | null>
   const rules = loadRules();
   const intents = loadIntents();
 
-  const systemPrompt = buildSystemPrompt(intents, rules);
+  const systemPrompt = buildSystemPrompt(intents, rules, nearMisses);
   const userPrompt = `Parse this command into structured intent JSON:\n\n"${rawText}"`;
 
   try {
@@ -67,38 +70,63 @@ export async function parseByLLM(rawText: string): Promise<DynamicIntent | null>
 
 function buildSystemPrompt(
   intents: ReturnType<typeof loadIntents>,
-  rules: ReturnType<typeof loadRules>
+  rules: ReturnType<typeof loadRules>,
+  nearMisses?: Array<{ intent: string; score: number; source: string }>
 ): string {
-  const intentList = intents
-    .map((i) => {
-      const fields = Object.entries(i.fields)
-        .map(([k, v]) => `${k}(${v.type}${v.required ? ",required" : ""})`)
-        .join(", ");
-      return `- ${i.name}: ${i.description} [${fields}]`;
-    })
-    .join("\n");
+  // Build a concise intent list grouped by domain
+  const domains = new Map<string, string[]>();
+  for (const i of intents) {
+    const domain = i.name.split(".")[0];
+    if (!domains.has(domain)) domains.set(domain, []);
+    const fields = Object.entries(i.fields).map(([k, v]) => `${k}:${v.type}`).join(", ");
+    domains.get(domain)!.push(`${i.name}${fields ? ` [${fields}]` : ""}`);
+  }
+
+  // If we have near-misses, show their full details + related intents
+  let nearMissSection = "";
+  if (nearMisses && nearMisses.length > 0) {
+    const nearMissDetails = nearMisses
+      .filter((v, i, a) => a.findIndex(x => x.intent === v.intent) === i) // dedup
+      .slice(0, 5)
+      .map(nm => {
+        const def = intents.find(i => i.name === nm.intent);
+        const fields = def ? Object.entries(def.fields).map(([k, v]) => `${k}:${v.type}`).join(", ") : "";
+        return `  - ${nm.intent} (${(nm.score * 100).toFixed(0)}% from ${nm.source}): ${def?.description ?? ""}${fields ? ` [${fields}]` : ""}`;
+      }).join("\n");
+
+    // Also include related intents from the same domains
+    const nearDomains = new Set(nearMisses.map(nm => nm.intent.split(".")[0]));
+    const relatedIntents = [...nearDomains].flatMap(d => (domains.get(d) ?? []).slice(0, 5)).join("\n    ");
+
+    nearMissSection = `\nNEAR MATCHES (my classifiers think it might be one of these — pick the best or suggest another):
+${nearMissDetails}
+
+RELATED COMMANDS in those domains:
+    ${relatedIntents}\n`;
+  }
+
+  // Compact domain summary for everything else
+  const domainSummary = [...domains].map(([d, items]) =>
+    `  [${d}]: ${items.slice(0, 4).join(", ")}${items.length > 4 ? ` +${items.length - 4} more` : ""}`
+  ).join("\n");
 
   const envs = Object.keys(rules.environmentAliases).join(", ");
   const services = Object.keys(rules.serviceAliases).join(", ");
 
-  return `You are a command parser for a server operations CLI.
-Parse the user's natural language command into a JSON object.
-
-Supported intents:
-${intentList}
+  return `You are NoToken, a server operations CLI command parser.
+Parse the user's natural language into a structured JSON intent.
+${nearMissSection}
+ALL AVAILABLE COMMANDS (${intents.length} total):
+${domainSummary}
 
 Known environments: ${envs}
 Known services: ${services}
 
-Return ONLY valid JSON with:
-- "intent": one of the intent names above, or "unknown"
-- "confidence": 0.0 to 1.0
-- "fields": object with all relevant fields for that intent
+Return ONLY valid JSON:
+{"intent": "domain.command", "confidence": 0.0-1.0, "fields": {"field": "value"}}
 
-Example: {"intent": "service.restart", "confidence": 0.9, "fields": {"service": "nginx", "environment": "prod"}}
-
-If you cannot determine the intent, return: {"intent": "unknown", "confidence": 0.1, "fields": {"reason": "..."}}
-Return ONLY the JSON object, no markdown.`;
+If unclear, return: {"intent": "unknown", "confidence": 0.1, "fields": {"reason": "...", "clarification": "What did you mean? Did you want to..."}}
+Return ONLY JSON, no markdown.`;
 }
 
 function extractContent(data: Record<string, unknown>): string | null {

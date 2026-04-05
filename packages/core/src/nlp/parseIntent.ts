@@ -168,8 +168,23 @@ export async function parseIntent(rawText: string): Promise<ParsedCommand & { pl
     }
   } catch { /* semantic similarity not available */ }
 
-  // Stage 3: LLM fallback
-  const llmResult = await parseByLLM(rawText);
+  // Stage 3: LLM fallback — pass near-miss candidates as context
+  // Gather partial matches from classifiers for the LLM to consider
+  const nearMisses: Array<{ intent: string; score: number; source: string }> = [];
+  if (multiResult.best) nearMisses.push({ intent: multiResult.best.intent, score: multiResult.best.score, source: "classifier" });
+  // Include runner-up from classifier votes if available
+  const allScores = multiResult.votes.reduce((acc, v) => { acc[v.intent] = Math.max(acc[v.intent] ?? 0, v.confidence); return acc; }, {} as Record<string, number>);
+  const sortedIntents = Object.entries(allScores).sort((a, b) => b[1] - a[1]);
+  if (sortedIntents.length > 1) nearMisses.push({ intent: sortedIntents[1][0], score: sortedIntents[1][1], source: "classifier" });
+  try {
+    const { findSimilarIntents } = await import("./semanticSimilarity.js");
+    for (const s of findSimilarIntents(rawText, 3)) {
+      nearMisses.push({ intent: s.intent, score: s.score, source: "similarity" });
+    }
+  } catch {}
+  if (ruleResult) nearMisses.push({ intent: ruleResult.intent, score: ruleResult.confidence, source: "rules" });
+
+  const llmResult = await parseByLLM(rawText, nearMisses);
   if (llmResult && llmResult.confidence >= 0.5) {
     return disambiguate(llmResult);
   }
