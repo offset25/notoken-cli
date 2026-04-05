@@ -9,7 +9,7 @@
     "test": "npm run test --workspace=packages/core",
     "dev": "npm run dev --workspace=packages/cli"
   },
-  "version": "1.8.0",
+  "version": "1.8.1",
   "dependencies": {
     "playwright": "^1.59.1",
     "ssh2": "^1.16.0"
