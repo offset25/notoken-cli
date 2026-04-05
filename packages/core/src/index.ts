@@ -37,6 +37,12 @@ export { parseLogLine, analyzeLogs, formatLogAnalysis } from "./utils/openclawLo
 export { recordCommand, getAchievements, getUsageStats, flushStats } from "./utils/achievements.js";
 export { teachCommand, getLearnedCommand, listLearnedCommands, forgetCommand, parseTeachStatement } from "./utils/teachMode.js";
 
+// ── SSH Credentials ──
+export { storeCredential, getCredential, listCredentials, removeCredential, removeAllCredentials, hasPassword, getPasswordWarnings, generateKeyPair, copyKeyToServer, listKeys, addConfigEntry, removeConfigEntry, listConfigEntries, setMasterPassphrase, verifyMasterPassphrase, hasMasterPassphrase } from "./utils/sshCredentials.js";
+
+// ── Password Redaction ──
+export { detectSecrets, redactSecrets as redactPasswords, containsSecrets as containsPasswords, redactForHistory, extractAndRedact } from "./utils/passwordRedactor.js";
+
 // ── Execution ──
 export { executeIntent, getRandomTip } from "./handlers/executor.js";
 export { runRemoteCommand, runLocalCommand } from "./execution/ssh.js";

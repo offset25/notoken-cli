@@ -9674,6 +9674,193 @@
         "uninstall ollama",
         "remove ollama completely"
       ]
+    },
+    {
+      "name": "ssh.add_credential",
+      "synonyms": [
+        "add ssh login",
+        "save ssh credentials",
+        "store ssh password",
+        "add ssh credentials",
+        "remember ssh login"
+      ],
+      "description": "Store SSH login credentials for a server",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "add ssh login for prod",
+        "save my ssh credentials"
+      ],
+      "fields": {
+        "host": {
+          "type": "string",
+          "required": true,
+          "description": "server hostname or alias"
+        },
+        "user": {
+          "type": "string",
+          "required": false,
+          "description": "username"
+        }
+      },
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.list_credentials",
+      "synonyms": [
+        "show ssh credentials",
+        "list ssh logins",
+        "my ssh credentials",
+        "ssh passwords",
+        "show ssh hosts"
+      ],
+      "description": "Show stored SSH credentials, keys, and config",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "show my ssh credentials",
+        "list ssh logins"
+      ],
+      "fields": {},
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.remove_credential",
+      "synonyms": [
+        "remove ssh login",
+        "delete ssh credentials",
+        "forget ssh password",
+        "remove ssh password"
+      ],
+      "description": "Remove stored SSH credentials for a server",
+      "riskLevel": "medium",
+      "requiresConfirmation": true,
+      "examples": [
+        "remove ssh login for prod",
+        "delete ssh credentials"
+      ],
+      "fields": {
+        "host": {
+          "type": "string",
+          "required": false,
+          "description": "server hostname or alias"
+        }
+      },
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.generate_key",
+      "synonyms": [
+        "generate ssh key",
+        "create ssh key",
+        "new ssh key",
+        "make ssh key"
+      ],
+      "description": "Generate a new SSH key pair",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "generate ssh key",
+        "create ssh key for prod"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": false,
+          "description": "key name"
+        }
+      },
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.copy_key",
+      "synonyms": [
+        "copy ssh key to",
+        "push ssh key",
+        "add my key to server",
+        "ssh copy id",
+        "send ssh key"
+      ],
+      "description": "Copy SSH public key to a remote server",
+      "riskLevel": "medium",
+      "requiresConfirmation": true,
+      "examples": [
+        "copy my ssh key to prod",
+        "setup key auth for server"
+      ],
+      "fields": {
+        "host": {
+          "type": "string",
+          "required": true,
+          "description": "target server"
+        }
+      },
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.config_add",
+      "synonyms": [
+        "add ssh config",
+        "setup ssh host",
+        "configure ssh host"
+      ],
+      "description": "Add or update an SSH config entry",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "add ssh config for prod",
+        "setup ssh host bastion"
+      ],
+      "fields": {
+        "host": {
+          "type": "string",
+          "required": true,
+          "description": "host alias"
+        }
+      },
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.config_list",
+      "synonyms": [
+        "show ssh config",
+        "ssh config",
+        "list ssh hosts"
+      ],
+      "description": "Show SSH config entries",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "show ssh config",
+        "list ssh hosts"
+      ],
+      "fields": {},
+      "command": "echo 'Use handler'",
+      "execution": "local"
+    },
+    {
+      "name": "ssh.set_passphrase",
+      "synonyms": [
+        "set ssh passphrase",
+        "secure ssh vault",
+        "ssh vault passphrase"
+      ],
+      "description": "Set master passphrase for SSH credential vault",
+      "riskLevel": "low",
+      "requiresConfirmation": false,
+      "examples": [
+        "set ssh passphrase",
+        "secure my ssh vault"
+      ],
+      "fields": {},
+      "command": "echo 'Use handler'",
+      "execution": "local"
     }
   ]
 }

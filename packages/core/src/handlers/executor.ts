@@ -1614,6 +1614,132 @@ expect eof
     return "Ollama not found. Install: curl -fsSL https://ollama.com/install.sh | sh";
   }
 
+  // SSH credential management
+  if (intent.intent.startsWith("ssh.") && ["ssh.add_credential", "ssh.list_credentials", "ssh.remove_credential", "ssh.generate_key", "ssh.copy_key", "ssh.config_add", "ssh.config_list", "ssh.set_passphrase"].includes(intent.intent)) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const ssh = await import("../utils/sshCredentials.js");
+
+    switch (intent.intent) {
+      case "ssh.list_credentials": {
+        const creds = ssh.listCredentials();
+        const configs = ssh.listConfigEntries();
+        const keys = ssh.listKeys();
+        const warnings = ssh.getPasswordWarnings();
+        const lines = [`\n${cc.bold}${cc.cyan}── SSH Credentials ──${cc.reset}\n`];
+
+        if (creds.length > 0) {
+          lines.push(`  ${cc.bold}Stored logins (${creds.length}):${cc.reset}`);
+          for (const c of creds) {
+            const authType = c.hasKey ? `${cc.green}key${cc.reset}` : c.hasPassword ? `${cc.yellow}password${cc.reset}` : `${cc.dim}none${cc.reset}`;
+            lines.push(`    ${cc.cyan}${c.host}${cc.reset} — ${c.user} (${authType})${c.proxyJump ? ` via ${c.proxyJump}` : ""}`);
+          }
+        } else {
+          lines.push(`  ${cc.dim}No stored credentials.${cc.reset}`);
+        }
+
+        if (keys.length > 0) {
+          lines.push(`\n  ${cc.bold}SSH keys (${keys.length}):${cc.reset}`);
+          for (const k of keys) lines.push(`    ${cc.green}🔑${cc.reset} ${k.name} (${k.type})`);
+        }
+
+        if (configs.length > 0) {
+          lines.push(`\n  ${cc.bold}SSH config hosts (${configs.length}):${cc.reset}`);
+          for (const c of configs) lines.push(`    ${cc.dim}${c.host}${cc.reset} → ${c.hostname ?? "?"} (${c.user ?? "?"})`);
+        }
+
+        if (warnings.length > 0) {
+          lines.push(`\n  ${cc.yellow}⚠ Security:${cc.reset}`);
+          for (const w of warnings) lines.push(`    ${cc.yellow}${w}${cc.reset}`);
+        }
+
+        lines.push(`\n  ${cc.dim}Commands: "add ssh login", "generate ssh key", "show ssh config"${cc.reset}`);
+        return lines.join("\n");
+      }
+
+      case "ssh.add_credential": {
+        // Parse: "add ssh login for prod user root password xyz"
+        const { extractAndRedact } = await import("../utils/passwordRedactor.js");
+        const { password: detectedPass, redacted } = extractAndRedact(intent.rawText);
+
+        const hostMatch = intent.rawText.match(/(?:for|host)\s+(\S+)/i);
+        const userMatch = intent.rawText.match(/user\s+(\S+)/i);
+        const host = hostMatch?.[1] ?? (fields.host as string);
+        const user = userMatch?.[1] ?? (fields.user as string) ?? "root";
+
+        if (!host) return `${cc.yellow}Usage:${cc.reset} add ssh login for <host> user <username> password <pass>\n${cc.dim}Example: "add ssh login for prod user root password mypass123"${cc.reset}`;
+
+        const result = ssh.storeCredential({ host, hostname: host, user, password: detectedPass ?? undefined });
+
+        // Overwrite rawText in the intent so conversation history never stores the password
+        intent.rawText = redacted;
+
+        const lines = [`${cc.green}✓${cc.reset} SSH credential saved for ${cc.bold}${host}${cc.reset} (${user})`];
+        if (detectedPass) {
+          lines.push(`  ${cc.green}✓${cc.reset} Password encrypted and stored in vault`);
+          lines.push(`  ${cc.dim}Password redacted from chat history${cc.reset}`);
+        }
+        if (result.warning) lines.push(`  ${cc.yellow}${result.warning}${cc.reset}`);
+        return lines.join("\n");
+      }
+
+      case "ssh.remove_credential": {
+        const hostMatch = intent.rawText.match(/(?:for|from)\s+(\S+)/i);
+        const host = hostMatch?.[1] ?? (fields.host as string);
+        if (!host) {
+          const all = /\b(all|everything|wipe|clear)\b/i.test(intent.rawText);
+          if (all) {
+            const count = ssh.removeAllCredentials();
+            return `${cc.green}✓${cc.reset} Removed ${count} credential(s) and cleared master passphrase.`;
+          }
+          return `${cc.yellow}Usage:${cc.reset} remove ssh login for <host>\n${cc.dim}Or: "remove all ssh credentials"${cc.reset}`;
+        }
+        const removed = ssh.removeCredential(host);
+        return removed ? `${cc.green}✓${cc.reset} Removed SSH credentials for ${cc.bold}${host}${cc.reset}` : `${cc.dim}No credentials found for ${host}.${cc.reset}`;
+      }
+
+      case "ssh.generate_key": {
+        const nameMatch = intent.rawText.match(/(?:for|named?)\s+(\S+)/i);
+        const name = nameMatch?.[1] ?? "default";
+        const { publicKey, privatePath } = ssh.generateKeyPair(name);
+        return `${cc.green}✓${cc.reset} SSH key generated:\n  ${cc.bold}Private:${cc.reset} ${privatePath}\n  ${cc.bold}Public:${cc.reset} ${publicKey.substring(0, 60)}...\n\n  ${cc.dim}Copy to server: "copy ssh key to <host>"${cc.reset}`;
+      }
+
+      case "ssh.copy_key": {
+        const hostMatch = intent.rawText.match(/(?:to|for)\s+(\S+)/i);
+        const host = hostMatch?.[1];
+        if (!host) return `${cc.yellow}Usage:${cc.reset} copy ssh key to <host>`;
+        const cred = ssh.getCredential(host);
+        const user = cred?.user ?? "root";
+        console.log(`${cc.dim}Copying SSH key to ${user}@${host}...${cc.reset}`);
+        const result = ssh.copyKeyToServer(host, user);
+        return result;
+      }
+
+      case "ssh.config_add": {
+        const hostMatch = intent.rawText.match(/(?:for|host)\s+(\S+)/i);
+        const host = hostMatch?.[1];
+        if (!host) return `${cc.yellow}Usage:${cc.reset} add ssh config for <host>`;
+        const cred = ssh.getCredential(host);
+        ssh.addConfigEntry({ host, hostname: cred?.hostname ?? host, user: cred?.user ?? "root", keyPath: cred?.keyPath, proxyJump: cred?.proxyJump });
+        return `${cc.green}✓${cc.reset} Added ${cc.bold}${host}${cc.reset} to ~/.ssh/config\n  ${cc.dim}Now you can: ssh ${host}${cc.reset}`;
+      }
+
+      case "ssh.config_list": {
+        const entries = ssh.listConfigEntries();
+        if (entries.length === 0) return `${cc.dim}No SSH config entries. Add one: "add ssh config for prod"${cc.reset}`;
+        const lines = [`\n${cc.bold}${cc.cyan}── SSH Config ──${cc.reset}\n`];
+        for (const e of entries) {
+          lines.push(`  ${cc.bold}${e.host}${cc.reset} → ${e.hostname ?? "?"} (${e.user ?? "?"}${e.port ? `:${e.port}` : ""}${e.proxyJump ? ` via ${e.proxyJump}` : ""})`);
+        }
+        return lines.join("\n");
+      }
+
+      case "ssh.set_passphrase": {
+        return `${cc.bold}Set a master passphrase to encrypt your SSH vault.${cc.reset}\n\n  ${cc.dim}In interactive mode, you'll be prompted for the passphrase.\n  This encrypts all stored passwords. Keys are not affected.${cc.reset}`;
+      }
+    }
+  }
+
   // Ollama status — quick check if running + version
   if (intent.intent === "ollama.status") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };

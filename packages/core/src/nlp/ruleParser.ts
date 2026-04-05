@@ -277,6 +277,16 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: SSH credential management
+  if (/\b(add|save|store)\s+ssh\s+(login|credentials?|password)\b/i.test(text)) return { intent: "ssh.add_credential", confidence: 0.9, rawText, fields: {} };
+  if (/\b(show|list|my)\s+ssh\s+(credentials?|logins?|passwords?|hosts?)\b/i.test(text)) return { intent: "ssh.list_credentials", confidence: 0.9, rawText, fields: {} };
+  if (/\b(remove|delete|forget)\s+ssh\s+(login|credentials?|password)\b/i.test(text)) return { intent: "ssh.remove_credential", confidence: 0.9, rawText, fields: {} };
+  if (/\b(generate|create|new|make)\s+ssh\s+key\b/i.test(text)) return { intent: "ssh.generate_key", confidence: 0.9, rawText, fields: {} };
+  if (/\b(copy|push|add)\s+(my\s+)?ssh\s+key\s+to\b/i.test(text) || /\bssh.?copy.?id\b/i.test(text)) return { intent: "ssh.copy_key", confidence: 0.9, rawText, fields: {} };
+  if (/\b(add|setup|configure)\s+ssh\s+(config|host)\b/i.test(text)) return { intent: "ssh.config_add", confidence: 0.9, rawText, fields: {} };
+  if (/\bshow\s+ssh\s+config\b/i.test(text) || /\bssh\s+config\s*$/i.test(text)) return { intent: "ssh.config_list", confidence: 0.9, rawText, fields: {} };
+  if (/\bset\s+(ssh\s+)?passphrase\b/i.test(text) || /\bsecure\s+(ssh\s+)?vault\b/i.test(text)) return { intent: "ssh.set_passphrase", confidence: 0.9, rawText, fields: {} };
+
   // Pre-check: "uninstall ollama" → ollama.uninstall (not generic package.uninstall)
   if (/\b(uninstall|remove|delete|get rid of)\s+ollama\b/i.test(text)) {
     return { intent: "ollama.uninstall", confidence: 0.95, rawText, fields: {} };
