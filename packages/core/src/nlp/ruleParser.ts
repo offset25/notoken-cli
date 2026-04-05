@@ -277,6 +277,15 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: file organization
+  if (/\b(organize|sort|tidy|clean ?up|arrange|categorize)\b.*\b(files?|folder|directory|downloads?|this)\b/i.test(text)
+      || /\b(files?|folder|directory|downloads?)\b.*\b(organize|sort|tidy|arrange|categorize)\b/i.test(text)) {
+    return { intent: "files.organize", confidence: 0.9, rawText, fields: {} };
+  }
+  if (/\bwhere\s+(should|do|can)\s+i\s+put\b/i.test(text) || /\bwhere\s+does\s+this\s+(go|belong)\b/i.test(text)) {
+    return { intent: "files.place", confidence: 0.9, rawText, fields: {} };
+  }
+
   // Match intent by synonyms defined in intents.json
   const matched = matchIntent(text, intents);
   if (!matched) return null;

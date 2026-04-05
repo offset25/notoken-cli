@@ -3327,6 +3327,93 @@ expect eof
     return "";
   }
 
+  // File organization — uses LLM to categorize and move files
+  if (intent.intent === "files.organize") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const cwd = process.cwd();
+    const fileList = await runLocalCommand(`ls -1 "${cwd}" 2>/dev/null`).catch(() => "");
+    const fileCount = fileList.trim().split("\n").filter(Boolean).length;
+
+    if (fileCount === 0) return `${cc.yellow}⚠${cc.reset} No files in current directory.`;
+    if (fileCount < 3) return `${cc.dim}Only ${fileCount} files — not much to organize.${cc.reset}`;
+
+    console.log(`${cc.cyan}Analyzing ${fileCount} files in ${cwd}...${cc.reset}`);
+
+    try {
+      const ollamaModel = process.env.NOTOKEN_OLLAMA_MODEL ?? "llama3.2";
+      const prompt = `Files in folder:\n${fileList}\nGive me ONLY shell commands to organize these into directories. No explanation.\nStart with mkdir -p commands, then mv commands. Always include an Uncategorized folder for anything unclear.\nExample:\nmkdir -p photos videos documents Uncategorized\nmv photo.jpg photos/\nmv unknown.dat Uncategorized/\n\nOutput ONLY commands:`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+      const resp = await fetch("http://127.0.0.1:11434/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ model: ollamaModel, prompt, stream: false, options: { temperature: 0.1, num_predict: 4096 } }),
+      });
+      clearTimeout(timeout);
+      const data = await resp.json() as { response?: string };
+
+      const commands = (data.response ?? "").split("\n").map((l: string) => l.trim()).filter((l: string) => l.startsWith("mkdir") || l.startsWith("mv "));
+      const mkdirs = commands.filter((c: string) => c.startsWith("mkdir"));
+      const mvs = commands.filter((c: string) => c.startsWith("mv"));
+
+      if (commands.length === 0) return `${cc.yellow}⚠${cc.reset} LLM couldn't generate organization commands. Try being more specific.`;
+
+      const dirs = mkdirs.join(" ").match(/[\w-]+/g)?.filter((d: string) => d !== "mkdir" && d !== "-p") ?? [];
+      const lines = [`\n${cc.bold}${cc.cyan}── File Organization Plan ──${cc.reset}\n`];
+      lines.push(`  ${cc.bold}${fileCount} files${cc.reset} → ${cc.bold}${dirs.length} directories${cc.reset}\n`);
+      lines.push(`  ${cc.bold}Directories:${cc.reset} ${dirs.map((d: string) => `📁 ${d}`).join("  ")}\n`);
+      lines.push(`  ${cc.bold}Sample moves:${cc.reset}`);
+      for (const mv of mvs.slice(0, 10)) {
+        const parts = mv.match(/mv\s+(\S+)\s+(\S+)/);
+        if (parts) lines.push(`    ${cc.dim}${parts[1]}${cc.reset} → ${cc.cyan}${parts[2]}${cc.reset}`);
+      }
+      if (mvs.length > 10) lines.push(`    ${cc.dim}... and ${mvs.length - 10} more moves${cc.reset}`);
+
+      console.log(lines.join("\n"));
+      suggestAction({ action: `cd "${cwd}" && ${commands.join(" && ")}`, description: `Organize ${fileCount} files into ${dirs.length} folders`, type: "command" });
+      return `\n  ${cc.bold}Execute this plan?${cc.reset} Say "yes" to proceed, or "cancel" to abort.`;
+    } catch (err) {
+      return `${cc.red}✗${cc.reset} LLM error: ${(err as Error).message?.substring(0, 100)}\n${cc.dim}Make sure Ollama is running.${cc.reset}`;
+    }
+  }
+
+  // File placement — suggest where a file should go
+  if (intent.intent === "files.place") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m" };
+    const cwd = process.cwd();
+    const dirStructure = await runLocalCommand(`find "${cwd}" -maxdepth 2 -type d 2>/dev/null | head -30`).catch(() => "");
+    const fileMatch = intent.rawText.match(/(?:put|place|file)\s+(\S+\.\w+)/i) ?? intent.rawText.match(/(\S+\.\w{2,4})$/);
+    const fileName = fileMatch?.[1] ?? "this file";
+
+    try {
+      const ollamaModel = process.env.NOTOKEN_OLLAMA_MODEL ?? "llama3.2";
+      const prompt = `My directory structure:\n${dirStructure}\n\nWhere should I put "${fileName}"?\n\nComplete this JSON:\n\`\`\`json\n{"file": "${fileName}", "destination": "FILL_best_directory", "reason": "FILL_why", "command": "mv ${fileName} FILL/"}\n\`\`\`\nOutput only JSON:`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60_000);
+      const resp = await fetch("http://127.0.0.1:11434/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ model: ollamaModel, prompt, stream: false, options: { temperature: 0.1, num_predict: 200 } }),
+      });
+      clearTimeout(timeout);
+      const data = await resp.json() as { response?: string };
+
+      const jsonMatch = (data.response ?? "").match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as { file: string; destination: string; reason: string; command: string };
+        suggestAction({ action: parsed.command, description: `Move ${fileName} to ${parsed.destination}`, type: "command" });
+        return `\n  ${cc.bold}${parsed.file}${cc.reset} → ${cc.cyan}${parsed.destination}${cc.reset}\n  ${cc.dim}${parsed.reason}${cc.reset}\n\n  ${cc.dim}Say "yes" to move it.${cc.reset}`;
+      }
+      return `${cc.dim}${(data.response ?? "").substring(0, 200)}${cc.reset}`;
+    } catch (err) {
+      return `${cc.dim}Could not determine placement: ${(err as Error).message?.substring(0, 80)}${cc.reset}`;
+    }
+  }
+
   // Casual chat responses — loaded from config/chat-responses.json
   if (intent.intent.startsWith("chat.")) {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", yellow: "\x1b[33m" };
