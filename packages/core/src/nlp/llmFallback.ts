@@ -150,6 +150,72 @@ export async function llmFallback(
   return null;
 }
 
+/**
+ * Multi-turn LLM disambiguation.
+ *
+ * 1. Ask the LLM what to do
+ * 2. If it needs more info → run gatherCommands → feed results back
+ * 3. Repeat up to maxTurns times
+ * 4. Return the final result
+ */
+export async function llmMultiTurn(
+  rawText: string,
+  context: {
+    recentIntents?: string[];
+    knownEntities?: Array<{ entity: string; type: string }>;
+    nearMisses?: Array<{ intent: string; score: number; source: string }>;
+  },
+  options?: { maxTurns?: number; onProgress?: (msg: string) => void }
+): Promise<LLMFallbackResult | null> {
+  const maxTurns = options?.maxTurns ?? 3;
+  const onProgress = options?.onProgress ?? (() => {});
+
+  // Turn 1: initial LLM call
+  onProgress("Asking LLM to interpret...");
+  let result = await llmFallback(rawText, context);
+  if (!result) return null;
+
+  // Multi-turn loop: if LLM needs more info, run commands and ask again
+  for (let turn = 1; turn < maxTurns && result?.needsMoreInfo && result.gatherCommands?.length; turn++) {
+    const commands = result.gatherCommands;
+    onProgress(`Turn ${turn + 1}: Running ${commands.length} command(s) to gather info...`);
+
+    // Run each gather command
+    const commandResults: Array<{ command: string; purpose: string; output: string }> = [];
+    for (const cmd of commands) {
+      onProgress(`  Running: ${cmd.command}`);
+      try {
+        const { execSync } = await import("node:child_process");
+        const output = execSync(cmd.command, {
+          encoding: "utf-8",
+          timeout: 15_000,
+          stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        commandResults.push({ ...cmd, output: output.substring(0, 1000) });
+      } catch (err: unknown) {
+        const e = err as { stdout?: string; stderr?: string; message?: string };
+        commandResults.push({ ...cmd, output: `ERROR: ${e.message?.split("\n")[0] ?? "failed"}` });
+      }
+    }
+
+    // Build follow-up prompt with command outputs
+    const outputSummary = commandResults.map(r =>
+      `Command: ${r.command}\nPurpose: ${r.purpose}\nOutput:\n${r.output}`
+    ).join("\n\n");
+
+    const followUpText = `${rawText}\n\n--- COMMAND OUTPUTS ---\n${outputSummary}\n\nBased on these results, complete this JSON template. Replace FILL with values:\n\`\`\`json\n{"understood": FILL, "restatement": "FILL", "suggestedIntents": [{"intent": "FILL", "fields": {}, "confidence": FILL, "reasoning": "FILL"}], "needsMoreInfo": false}\n\`\`\``;
+
+    onProgress("Analyzing results...");
+    result = await llmFallback(followUpText, context);
+
+    // Track conversation
+    addLLMContext("user", rawText);
+    addLLMContext("assistant", JSON.stringify(commandResults));
+  }
+
+  return result;
+}
+
 async function tryLLMCli(
   rawText: string,
   context: Record<string, unknown>
@@ -253,16 +319,21 @@ async function tryOllama(
   const model = process.env.NOTOKEN_OLLAMA_MODEL ?? "llama3.2";
 
   try {
-    const response = await fetch("http://localhost:11434/api/generate", {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
+    // Use 127.0.0.1 explicitly — Node 18 fetch resolves localhost to IPv6 ::1 which Ollama doesn't listen on
+    const response = await fetch("http://127.0.0.1:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         model,
         prompt,
         stream: false,
-        options: { temperature: 0.1, num_predict: 1024 },
+        options: { temperature: 0.1, num_predict: 512 },
       }),
     });
+    clearTimeout(timeout);
 
     if (!response.ok) return null;
 
@@ -271,7 +342,8 @@ async function tryOllama(
     if (!text) return null;
 
     return parseResponse(text);
-  } catch {
+  } catch (err) {
+    console.error(`\x1b[2m[llm-ollama] ${(err as Error).message?.substring(0, 100)}\x1b[0m`);
     return null;
   }
 }
@@ -295,7 +367,7 @@ export function isOllamaInstalled(): boolean {
  */
 export async function getOllamaModels(): Promise<string[]> {
   try {
-    const response = await fetch("http://localhost:11434/api/tags");
+    const response = await fetch("http://127.0.0.1:11434/api/tags");
     if (!response.ok) return [];
     const data = (await response.json()) as { models?: Array<{ name: string }> };
     return (data.models ?? []).map((m) => m.name);
@@ -378,33 +450,29 @@ USER INPUT: "${rawText}"
 AVAILABLE COMMANDS (grouped by domain — ${intents.length} total):
 ${relevantDomains.join("\n")}
 
-INSTRUCTIONS:
-1. Map the user's request to one or more of my available commands above.
-2. If the request is ambiguous, suggest the most likely interpretation.
-3. If no command fits, suggest what shell commands I should run to address it.
-4. If you need to run commands first to gather information (e.g. check system state before answering), list them in "gatherCommands".
-5. Extract field values (service names, paths, environments) from the input.
-6. If the user is chatting casually (hello, thanks, joke), use chat.* intents.
+Complete this JSON template. Replace every FILL with actual values based on the user's input. Remove fields you don't need. Output ONLY the completed JSON:
 
-Respond with ONLY valid JSON:
+\`\`\`json
 {
-  "understood": true,
-  "restatement": "What the user wants in plain English",
+  "understood": FILL_true_or_false,
+  "restatement": "FILL_what_user_wants_in_plain_english",
   "suggestedIntents": [
-    {"intent": "domain.command", "fields": {"field": "value"}, "confidence": 0.8, "reasoning": "why"}
+    {"intent": "FILL_best_matching_command_from_list_above", "fields": {}, "confidence": FILL_0_to_1, "reasoning": "FILL_why_this_command"}
   ],
-  "shellCommands": ["raw shell commands if no intent fits"],
-  "todoSteps": [{"step": 1, "description": "what to do", "intent": "optional", "command": "optional shell cmd"}],
-  "gatherCommands": [{"command": "uptime", "purpose": "check server load"}, {"command": "df -h", "purpose": "check disk"}],
-  "needsMoreInfo": false,
-  "missingInfo": ["questions if unclear"]
+  "needsMoreInfo": FILL_true_if_you_need_to_run_commands_first,
+  "gatherCommands": [
+    {"command": "FILL_shell_command_to_run", "purpose": "FILL_why_run_this"}
+  ],
+  "shellCommands": ["FILL_raw_shell_command_if_no_intent_fits"],
+  "missingInfo": ["FILL_question_to_ask_user_if_unclear"]
 }
+\`\`\`
 
-IMPORTANT:
-- If you can answer with a single intent, just return suggestedIntents.
-- If you need to run commands first to investigate, set needsMoreInfo=true and list gatherCommands.
-- I will run those commands and send you the output so you can make a better decision.
-- Always return valid JSON. No markdown, no explanation outside JSON.`;
+Rules:
+- If one of my commands fits, use suggestedIntents and set needsMoreInfo=false.
+- If you need to investigate first, set needsMoreInfo=true and list gatherCommands with real shell commands (uptime, df -h, ps aux, curl, etc).
+- I will run those commands and send you the output for a second round.
+- Remove empty arrays. Output ONLY the JSON.`;
 }
 
 function parseResponse(raw: string): LLMFallbackResult | null {

@@ -18,7 +18,7 @@ export { findSimilarIntents, phraseSimilarity, expandWithCooccurrences } from ".
 export { loadKnowledgeGraph, saveKnowledgeGraph, addEntity, addRelation, getEntity, getRelated, resolveReference, resolveCandidates, inferIntent, queryGraph, rebuildGraph, learnFromExecution, flushGraph } from "./nlp/knowledgeGraph.js";
 export { expandQuery, findCluster, suggestIntents, clusterWords } from "./nlp/conceptExpansion.js";
 export { analyzeUncertainty, getUncoveredSpans } from "./nlp/uncertainty.js";
-export { llmFallback, isLLMConfigured, getLLMBackend, formatLLMFallback } from "./nlp/llmFallback.js";
+export { llmFallback, llmMultiTurn, isLLMConfigured, getLLMBackend, formatLLMFallback, addLLMContext, clearLLMContext } from "./nlp/llmFallback.js";
 export { suggestEntityCorrection, correctEntities, resolveDescription, resetEntityVocab } from "./nlp/entitySpellCorrect.js";
 export { recordOutcome, getMultiplier, calibrateVotes, recordCorrection, getCalibrationStats, flushCalibration } from "./nlp/confidenceCalibrator.js";
 export { detectBatch, expandBatch, expandEnvironmentBatch } from "./nlp/batchParser.js";
