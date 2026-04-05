@@ -2826,6 +2826,72 @@
       ]
     },
     {
+      "name": "tool.uninstall",
+      "description": "Uninstall a CLI tool like Claude, Codex, OpenClaw, Ollama, Docker, Convex, Node, or Bun",
+      "synonyms": [
+        "uninstall claude",
+        "uninstall codex",
+        "uninstall openclaw",
+        "uninstall ollama",
+        "uninstall docker",
+        "uninstall convex",
+        "uninstall node",
+        "uninstall bun",
+        "remove claude",
+        "remove codex",
+        "remove openclaw",
+        "remove ollama",
+        "delete claude",
+        "delete codex"
+      ],
+      "fields": {
+        "tool": {
+          "type": "string",
+          "required": true,
+          "description": "tool name to uninstall"
+        }
+      },
+      "command": "echo 'Use tool.uninstall handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "uninstall codex",
+        "remove openclaw",
+        "uninstall ollama"
+      ]
+    },
+    {
+      "name": "tool.reinstall",
+      "description": "Reinstall a CLI tool — uninstall then install fresh",
+      "synonyms": [
+        "reinstall claude",
+        "reinstall codex",
+        "reinstall openclaw",
+        "reinstall ollama",
+        "reinstall node",
+        "reinstall docker",
+        "reinstall bun",
+        "reinstall convex"
+      ],
+      "fields": {
+        "tool": {
+          "type": "string",
+          "required": true,
+          "description": "tool name to reinstall"
+        }
+      },
+      "command": "echo 'Use tool.reinstall handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "reinstall codex",
+        "reinstall openclaw",
+        "reinstall claude"
+      ]
+    },
+    {
       "name": "package.check",
       "description": "Check if a package is installed",
       "synonyms": [

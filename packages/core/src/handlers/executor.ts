@@ -3409,6 +3409,108 @@ expect eof
     return `${cc.cyan}I'm NoToken.${cc.reset} Type "help" to see what I can do.`;
   }
 
+  // ── Tool uninstall ──
+  if (intent.intent === "tool.uninstall") {
+    let toolName = resolveToolName(intent.rawText) || ((fields.tool as string) ?? "").toLowerCase();
+    toolName = TOOL_ALIASES[toolName] ?? toolName;
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    if (!toolName || !INSTALL_INFO[toolName]) {
+      return `${cc.red}✗ Unknown tool: "${toolName || "?"}"\x1b[0m\n\n  ${cc.dim}Available: ${Object.keys(INSTALL_INFO).join(", ")}${cc.reset}`;
+    }
+
+    const info = INSTALL_INFO[toolName];
+
+    // Check if installed
+    const existing = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+    if (!existing) {
+      return `${cc.dim}${info.name} is not installed — nothing to uninstall.${cc.reset}`;
+    }
+
+    console.log(`\n${cc.cyan}Uninstalling ${info.name}...${cc.reset}`);
+
+    // Determine uninstall command
+    let uninstallCmd = "";
+    if (info.install.startsWith("npm ")) {
+      // npm-based tools — npm uninstall -g
+      const pkg = info.install.replace("npm install -g ", "");
+      uninstallCmd = `npm uninstall -g ${pkg}`;
+    } else if (toolName === "ollama") {
+      if (process.platform === "win32") {
+        uninstallCmd = `powershell -Command "Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force" 2>/dev/null; rm -rf "$(cygpath '$LOCALAPPDATA')/Programs/Ollama" 2>/dev/null; rm -rf "$(cygpath '$LOCALAPPDATA')/Ollama" 2>/dev/null`;
+      } else {
+        uninstallCmd = "sudo systemctl stop ollama 2>/dev/null; sudo rm -f /usr/local/bin/ollama; sudo rm -rf /usr/share/ollama";
+      }
+    } else if (toolName === "docker") {
+      uninstallCmd = process.platform === "win32"
+        ? `powershell -Command "echo 'Uninstall Docker Desktop from Settings > Apps'"`
+        : "sudo apt-get remove -y docker-ce docker-ce-cli containerd.io 2>/dev/null || sudo dnf remove -y docker-ce docker-ce-cli containerd.io 2>/dev/null";
+    } else {
+      uninstallCmd = `echo '${info.name} — uninstall manually'`;
+    }
+
+    // For openclaw — also stop the gateway first
+    if (toolName === "openclaw") {
+      if (process.platform === "win32") {
+        await runLocalCommand(`powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | ForEach-Object { \\$_.Terminate() }" 2>/dev/null`).catch(() => "");
+      } else {
+        await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
+      }
+      await runLocalCommand("sleep 2").catch(() => {});
+      console.log(`${cc.dim}Gateway stopped${cc.reset}`);
+    }
+
+    try {
+      result = await withSpinner(`Uninstalling ${info.name}...`, () => runLocalCommand(uninstallCmd + " 2>&1", 120_000));
+
+      // Verify removal
+      const stillExists = await runLocalCommand(info.check + " 2>/dev/null").catch(() => "");
+      if (!stillExists) {
+        return `${cc.green}✓${cc.reset} ${info.name} uninstalled successfully.`;
+      }
+      return `${cc.yellow}⚠${cc.reset} Uninstall ran but ${info.name} may still be present.\n  ${cc.dim}Try manually: ${uninstallCmd}${cc.reset}`;
+    } catch (err: unknown) {
+      return `${cc.red}✗ Uninstall failed:${cc.reset} ${(err as Error).message.split("\n")[0]}\n  ${cc.dim}Try manually: ${uninstallCmd}${cc.reset}`;
+    }
+  }
+
+  // ── Tool reinstall (uninstall + install) ──
+  if (intent.intent === "tool.reinstall") {
+    let toolName = resolveToolName(intent.rawText) || ((fields.tool as string) ?? "").toLowerCase();
+    toolName = TOOL_ALIASES[toolName] ?? toolName;
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    if (!toolName || !INSTALL_INFO[toolName]) {
+      return `${cc.red}✗ Unknown tool: "${toolName || "?"}"\x1b[0m\n\n  ${cc.dim}Available: ${Object.keys(INSTALL_INFO).join(", ")}${cc.reset}`;
+    }
+
+    const info = INSTALL_INFO[toolName];
+    console.log(`\n${cc.cyan}Reinstalling ${info.name}...${cc.reset}\n`);
+
+    // Uninstall first
+    if (info.install.startsWith("npm ")) {
+      const pkg = info.install.replace("npm install -g ", "");
+      console.log(`${cc.dim}Uninstalling...${cc.reset}`);
+
+      // Stop openclaw gateway if reinstalling openclaw
+      if (toolName === "openclaw") {
+        if (process.platform === "win32") {
+          await runLocalCommand(`powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { \\$_.CommandLine -match 'openclaw.*gateway' } | ForEach-Object { \\$_.Terminate() }" 2>/dev/null`).catch(() => "");
+        } else {
+          await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
+        }
+        await runLocalCommand("sleep 2").catch(() => {});
+      }
+
+      await withSpinner(`Uninstalling ${info.name}...`, () => runLocalCommand(`npm uninstall -g ${pkg} 2>&1`, 60_000)).catch(() => "");
+    }
+
+    // Install fresh — reuse the tool.install intent
+    console.log(`${cc.dim}Installing fresh...${cc.reset}`);
+    const fakeIntent = { ...intent, intent: "tool.install" };
+    return executeIntent(fakeIntent);
+  }
+
   // Entity define/list
   if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
   if (intent.intent === "entity.list") return listEntities();
