@@ -1232,6 +1232,18 @@ expect eof
         }
 
         if (action === "start" || action === "restart") {
+          // Conflict detection: check if WSL owns port 18789
+          const portCheck = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+          if (portCheck.includes('"ok"')) {
+            const wslGw = await runLocalCommand("pgrep -f openclaw-gateway 2>/dev/null").catch(() => "");
+            if (wslGw) {
+              console.log(`${winLabel}${cc.yellow}⚠${cc.reset} Port 18789 in use by WSL gateway — stopping it first...`);
+              await runLocalCommand("pkill -f openclaw-gateway 2>/dev/null").catch(() => "");
+              await runLocalCommand("sleep 2");
+              console.log(`${winLabel}${cc.green}✓${cc.reset} WSL gateway stopped.`);
+            }
+          }
+
           // Start OpenClaw on Windows host via PowerShell
           await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Start-Process node -ArgumentList 'C:\\Users\\Dino\\AppData\\Roaming\\npm\\node_modules\\openclaw\\dist\\index.js','gateway','--force','--allow-unconfigured' -WindowStyle Hidden" 2>/dev/null`).catch(() => "");
 
@@ -1276,13 +1288,23 @@ expect eof
       }
 
       if (action === "start" || action === "restart") {
-        // Check if Windows gateway already owns port 18789
-        if (targetEnv === "wsl") {
+        // Conflict detection: check if the OTHER env has a gateway on port 18789
+        if (ocEnv?.inWSL) {
           const portCheck = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
           if (portCheck.includes('"ok"')) {
+            // Port is in use — figure out who owns it
+            const wslGw = await runLocalCommand("pgrep -f openclaw-gateway 2>/dev/null").catch(() => "");
             const hostPs = await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Select -Exp CommandLine" 2>/dev/null`).catch(() => "");
-            if (hostPs.includes("openclaw") && hostPs.includes("gateway")) {
-              return `${cc.yellow}⚠${cc.reset} Port 18789 is in use by Windows host OpenClaw.\n  ${cc.dim}Stop it first: "stop openclaw on windows"\n  Or use the Windows gateway: "tell openclaw hello"${cc.reset}`;
+            const winGw = hostPs.includes("openclaw") && hostPs.includes("gateway");
+
+            if (targetEnv === "wsl" && winGw && !wslGw) {
+              // Want WSL but Windows owns the port — auto-stop Windows
+              console.log(`${cc.yellow}⚠${cc.reset} Port 18789 in use by Windows gateway — stopping it first...`);
+              await runLocalCommand(`/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command "Get-WmiObject Win32_Process -Filter \\"Name='node.exe'\\" | Where { \\$_.CommandLine -match 'openclaw' } | ForEach { \\$_.Terminate() }" 2>/dev/null`).catch(() => "");
+              await runLocalCommand("sleep 2");
+              console.log(`${cc.green}✓${cc.reset} Windows gateway stopped.`);
+            } else if (targetEnv === "wsl" && wslGw) {
+              // WSL already running — will be killed by the restart logic above
             }
           }
         }
