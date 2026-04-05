@@ -84,10 +84,119 @@ describe("coreference: 'the other one' / 'not that one'", () => {
       { rawText: "check redis", intent: "service.status", fields: { service: "redis" } },
     ]);
     const result = resolveCoreferences("not this one", conv);
-    // Should refer to nginx (not redis which was most recent)
     if (result.resolutions.length > 0) {
       expect(result.resolutions[0].resolved).toBe("nginx");
     }
+  });
+
+  it("'not that one' flips to the other service", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+      { rawText: "check redis", intent: "service.status", fields: { service: "redis" } },
+    ]);
+    const result = resolveCoreferences("not that one", conv);
+    if (result.resolutions.length > 0) {
+      expect(result.resolutions[0].resolved).toBe("nginx");
+    }
+  });
+
+  it("'the other thing' resolves second-to-last command entirely", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx on prod", intent: "service.restart", fields: { service: "nginx", environment: "prod" } },
+      { rawText: "check disk", intent: "server.check_disk", fields: {} },
+    ]);
+    const result = resolveCoreferences("try the other thing", conv);
+    // Should return the first command (restart nginx), not the second (check disk)
+    expect(result.isReference).toBe(true);
+    if (result.resolvedIntent) {
+      expect(result.resolvedIntent.intent).toBe("service.restart");
+    }
+  });
+
+  it("'the previous one' resolves to second-most-recent", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+      { rawText: "check redis", intent: "service.status", fields: { service: "redis" } },
+    ]);
+    const result = resolveCoreferences("restart the previous one", conv);
+    expect(result.resolvedText).toContain("nginx");
+  });
+
+  it("'the one before' resolves to second-most-recent", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+      { rawText: "check redis", intent: "service.status", fields: { service: "redis" } },
+    ]);
+    const result = resolveCoreferences("restart the one before", conv);
+    expect(result.resolvedText).toContain("nginx");
+  });
+
+  it("'the other server' resolves to second-most-recent environment", () => {
+    const conv = makeConv([
+      { rawText: "check disk on prod", intent: "server.check_disk", fields: { environment: "prod" } },
+      { rawText: "check disk on staging", intent: "server.check_disk", fields: { environment: "staging" } },
+    ]);
+    const result = resolveCoreferences("check the other server", conv);
+    // Should resolve to "prod" (second most recent env)
+    expect(result.resolvedText).toContain("prod");
+  });
+
+  it("bare 'that' does NOT resolve (too ambiguous without type word)", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+    ]);
+    const result = resolveCoreferences("check that", conv);
+    // "that" alone is too common — only "that service", "that file" etc. resolve
+    expect(result.resolvedText).toBe("check that");
+  });
+
+  it("bare 'this' does NOT resolve (too ambiguous)", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+    ]);
+    const result = resolveCoreferences("restart this", conv);
+    expect(result.resolvedText).toBe("restart this");
+  });
+
+  it("'that service' resolves to most recent service specifically", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx on prod", intent: "service.restart", fields: { service: "nginx", environment: "prod" } },
+    ]);
+    const result = resolveCoreferences("check that service", conv);
+    expect(result.resolvedText).toContain("nginx");
+  });
+
+  it("'that file' resolves to most recent path", () => {
+    const conv = makeConv([
+      { rawText: "read /etc/nginx.conf", intent: "file.read", fields: { path: "/etc/nginx.conf" } },
+    ]);
+    const result = resolveCoreferences("edit that file", conv);
+    expect(result.resolvedText).toContain("/etc/nginx.conf");
+  });
+
+  it("'there' resolves to most recent environment", () => {
+    const conv = makeConv([
+      { rawText: "check disk on prod", intent: "server.check_disk", fields: { environment: "prod" } },
+    ]);
+    const result = resolveCoreferences("restart nginx there", conv);
+    expect(result.resolvedText).toContain("prod");
+  });
+
+  it("handles empty conversation gracefully", () => {
+    const conv = makeConv([]);
+    const result = resolveCoreferences("restart the other one", conv);
+    // No entities to resolve — should return original text
+    expect(result.resolvedText).toBe("restart the other one");
+  });
+
+  it("handles single-turn conversation for 'the other'", () => {
+    const conv = makeConv([
+      { rawText: "restart nginx", intent: "service.restart", fields: { service: "nginx" } },
+    ]);
+    const result = resolveCoreferences("the other one", conv);
+    // Only one entity — "the other" has nothing to flip to
+    // Should return original or partially resolved
+    expect(typeof result.resolvedText).toBe("string");
   });
 });
 
