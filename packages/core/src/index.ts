@@ -225,6 +225,30 @@ export { saveBookmark, listBookmarks, getBookmark, removeBookmark } from "./util
 // ── Snippets ──
 export { saveSnippet, listSnippets, getSnippet, runSnippet } from "./utils/snippets.js";
 
+// ── Async Exec ──
+export { tryExecAsync } from "./utils/asyncExec.js";
+
+// ── Cross-Platform CLI Detection ──
+export {
+  findCliCmd, buildCliExec, checkEnv,
+  isWSL as isWSLEnv, isWindows as isWindowsEnv,
+} from "./utils/crossPlatform.js";
+export type { CliInfo, EnvCheckResult } from "./utils/crossPlatform.js";
+
+// ── Ollama Client ──
+export {
+  findOllamaApi, ollamaApiCall, getOllamaModels, getOllamaStatus,
+} from "./utils/ollamaClient.js";
+export type { OllamaMethod, OllamaApiResult, OllamaModelEntry, OllamaStatus } from "./utils/ollamaClient.js";
+
+// ── System Stats ──
+export { getSystemStats } from "./utils/systemStats.js";
+export type { SystemStats, RamStats, GpuStats } from "./utils/systemStats.js";
+
+// ── LLM Actions ──
+export { getLLMCommand, diagnoseLLM } from "./utils/llmActions.js";
+export type { LLMDiagnosis } from "./utils/llmActions.js";
+
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";
 export type { RulePatch, RulePatchChange, FailureLog, RulesConfig } from "./types/rules.js";
