@@ -6,7 +6,9 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm run test --workspace=packages/core",
+    "test": "npm run test --workspaces",
+    "test:core": "npm run test --workspace=packages/core",
+    "test:cli": "npm run test --workspace=packages/cli",
     "dev": "npm run dev --workspace=packages/cli"
   },
   "version": "1.8.1",

@@ -2,15 +2,18 @@
 
 ## Structure
 - `packages/core/` — notoken-core (shared engine, NLP, execution)
+- `packages/core/tests/` — core tests (unit, fixture, integration, audit)
 - `packages/cli/` — notoken (CLI tool)
-- `tests/` — all test files (unit, fixture, integration, e2e)
+- `packages/cli/tests/` — CLI tests (unit, e2e)
 
 ## Build & Test
 ```bash
 npm run build                          # builds both workspaces
-cd packages/core && npm run build      # build core only
-cd packages/cli && npm run build       # build CLI only
-npx vitest run --root .                # run all tests from monorepo root
+npm test                               # runs tests in ALL packages
+npm run test:core                      # core tests only
+npm run test:cli                       # CLI tests only
+cd packages/core && npx vitest run     # core tests (direct)
+cd packages/cli && npx vitest run      # CLI tests (direct)
 ```
 
 ## Multi-Agent Development
@@ -35,8 +38,13 @@ Multiple Claude agents may work on this project simultaneously. When making chan
 - `packages/cli/src/commands/install.ts` — tool installer (cross-platform)
 
 ## Test Conventions
-- **Unit tests** (`tests/unit/`): pure logic, no network
-- **Fixture tests** (`tests/fixtures/`): test parser against saved phrase sets
-- **Integration tests** (`tests/integration/`): multi-module pipelines
-- **E2E tests** (`tests/e2e/`): spawn CLI, check stdout/exit codes
+- **Core tests** (`packages/core/tests/`): 100 files — NLP, handlers, utils, parsers
+  - `unit/` — pure logic, no network
+  - `fixtures/` — intent parsing against saved phrase sets
+  - `integration/` — multi-module pipelines
+  - `audit/` — gold-standard accuracy checks
+- **CLI tests** (`packages/cli/tests/`): 3 files — CLI-specific + E2E
+  - `unit/` — CLI-specific logic
+  - `e2e/` — spawn CLI binary, check stdout/exit codes
 - All tests use vitest
+- Import paths: tests import from `../../../src/` (relative to package root)
