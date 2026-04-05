@@ -76,6 +76,8 @@ interface SshConfigEntry {
   user?: string;
   port?: string;
   identityFile?: string;
+  proxyJump?: string;
+  proxyCommand?: string;
 }
 
 function parseSshConfig(alias: string): SshConfigEntry | null {
@@ -116,6 +118,8 @@ function parseSshConfig(alias: string): SshConfigEntry | null {
           else if (key === "user") current.user = kv[2];
           else if (key === "port") current.port = kv[2];
           else if (key === "identityfile") current.identityFile = kv[2].replace("~", homedir());
+          else if (key === "proxyjump") current.proxyJump = kv[2];
+          else if (key === "proxycommand") current.proxyCommand = kv[2];
         }
       }
     }
@@ -136,6 +140,8 @@ function resolveHostConfig(entry: HostEntry): {
   passphrase?: string;
   password?: string;
   agent?: string;
+  proxyJump?: string;
+  proxyCommand?: string;
 } {
   // Read credentials file if specified
   const fileCreds = entry.credentialsFile ? readCredentialsFile(entry.credentialsFile) : {};
@@ -178,35 +184,125 @@ function resolveHostConfig(entry: HostEntry): {
     password: password || undefined,
     // Use SSH agent if no key/password
     agent: (!privateKey && !password) ? process.env.SSH_AUTH_SOCK : undefined,
+    proxyJump: sshConfig?.proxyJump,
+    proxyCommand: sshConfig?.proxyCommand,
   };
 }
 
 /**
+ * Connect to a host via ProxyJump (bastion/jump host).
+ * Returns a connected ssh2 Client for the final target.
+ * Supports multi-hop: "bastion1,bastion2" chains through each.
+ */
+function connectViaProxy(proxyJump: string, targetConfig: ReturnType<typeof resolveHostConfig>, timeout: number): Promise<Client> {
+  return new Promise((resolveP, rejectP) => {
+    const hops = proxyJump.split(",").map(h => h.trim());
+    const proxyClients: Client[] = [];
+
+    function connectHop(hopIndex: number, prevStream: any | null): void {
+      const isLast = hopIndex >= hops.length;
+
+      if (isLast) {
+        // Final hop — connect to target through the last proxy's forwarded stream
+        const targetConn = new Client();
+        targetConn.on("ready", () => resolveP(targetConn));
+        targetConn.on("error", (err: Error) => {
+          proxyClients.forEach(c => c.end());
+          rejectP(err);
+        });
+        targetConn.connect({
+          sock: prevStream,
+          host: targetConfig.hostname,
+          port: targetConfig.port,
+          username: targetConfig.username,
+          privateKey: targetConfig.privateKey,
+          password: targetConfig.password,
+          agent: targetConfig.agent,
+          readyTimeout: timeout,
+          authHandler: buildAuthHandler(targetConfig),
+        });
+        return;
+      }
+
+      // Parse hop: user@host:port or just host
+      const hop = hops[hopIndex];
+      const hopMatch = hop.match(/^(?:(\w+)@)?([^:]+)(?::(\d+))?$/);
+      if (!hopMatch) { rejectP(new Error(`Invalid ProxyJump hop: ${hop}`)); return; }
+
+      const hopHost = hopMatch[2];
+      const hopUser = hopMatch[1] ?? "root";
+      const hopPort = hopMatch[3] ? parseInt(hopMatch[3]) : 22;
+
+      // Resolve hop's config from ~/.ssh/config
+      const hopSshConfig = parseSshConfig(hopHost);
+      const hopHostname = hopSshConfig?.hostname ?? hopHost;
+      const hopUsername = hopSshConfig?.user ?? hopUser;
+      const hopKeyPath = hopSshConfig?.identityFile;
+      let hopKey: Buffer | undefined;
+      if (hopKeyPath && existsSync(hopKeyPath)) hopKey = readFileSync(hopKeyPath);
+      if (!hopKey) {
+        for (const k of ["id_ed25519", "id_rsa", "id_ecdsa"]) {
+          const p = resolve(homedir(), ".ssh", k);
+          if (existsSync(p)) { hopKey = readFileSync(p); break; }
+        }
+      }
+
+      const hopConn = new Client();
+      proxyClients.push(hopConn);
+
+      hopConn.on("ready", () => {
+        // Forward TCP connection to next hop or target
+        const nextHost = isLast ? targetConfig.hostname : hops[hopIndex + 1]?.match(/^(?:\w+@)?([^:]+)/)?.[1] ?? targetConfig.hostname;
+        const nextPort = isLast ? targetConfig.port : 22;
+        hopConn.forwardOut("127.0.0.1", 0, isLast ? targetConfig.hostname : nextHost, isLast ? targetConfig.port : nextPort, (err: Error | undefined, stream: any) => {
+          if (err) { hopConn.end(); rejectP(err); return; }
+          connectHop(hopIndex + 1, stream);
+        });
+      });
+
+      hopConn.on("error", (err: Error) => {
+        proxyClients.forEach(c => c.end());
+        rejectP(new Error(`ProxyJump hop ${hop} failed: ${err.message}`));
+      });
+
+      const connectOpts: any = {
+        host: hopHostname,
+        port: hopPort,
+        username: hopUsername,
+        privateKey: hopKey,
+        agent: process.env.SSH_AUTH_SOCK,
+        readyTimeout: timeout,
+      };
+      if (prevStream) connectOpts.sock = prevStream;
+
+      hopConn.connect(connectOpts);
+    }
+
+    connectHop(0, null);
+  });
+}
+
+/**
  * Execute a command on a remote host via ssh2.
+ * Supports ProxyJump for bastion/jump host connections.
  * Returns combined stdout+stderr.
  */
 function execSsh2(entry: HostEntry, command: string, timeout = 30_000): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveCmd, reject) => {
     const config = resolveHostConfig(entry);
-    const conn = new Client();
-    let stdout = "";
-    let stderr = "";
     let timedOut = false;
 
     const timer = setTimeout(() => {
       timedOut = true;
-      conn.end();
       reject(new Error(`SSH command timed out after ${timeout / 1000}s`));
     }, timeout);
 
-    conn.on("ready", () => {
+    function runOnConnection(conn: Client): void {
+      let stdout = "";
+      let stderr = "";
+
       conn.exec(command, (err: Error | undefined, stream: any) => {
-        if (err) {
-          clearTimeout(timer);
-          conn.end();
-          reject(err);
-          return;
-        }
+        if (err) { clearTimeout(timer); conn.end(); reject(err); return; }
 
         stream.on("data", (data: Buffer) => { stdout += data.toString(); });
         stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
@@ -214,20 +310,24 @@ function execSsh2(entry: HostEntry, command: string, timeout = 30_000): Promise<
         stream.on("close", (code: number) => {
           clearTimeout(timer);
           conn.end();
-          if (code !== 0 && !stdout && stderr) {
-            reject(new Error(stderr.trim()));
-          } else {
-            resolve(stderr ? `${stdout}${stderr}` : stdout);
-          }
+          if (code !== 0 && !stdout && stderr) reject(new Error(stderr.trim()));
+          else resolveCmd(stderr ? `${stdout}${stderr}` : stdout);
         });
       });
-    });
+    }
 
-    conn.on("error", (err: Error) => {
-      clearTimeout(timer);
-      if (timedOut) return;
-      reject(enhanceError(err, entry));
-    });
+    // ProxyJump — connect through bastion host(s)
+    if (config.proxyJump) {
+      connectViaProxy(config.proxyJump, config, timeout)
+        .then(conn => { conn.on("error", (err: Error) => { clearTimeout(timer); if (!timedOut) reject(enhanceError(err, entry)); }); runOnConnection(conn); })
+        .catch(err => { clearTimeout(timer); reject(err); });
+      return;
+    }
+
+    // Direct connection
+    const conn = new Client();
+    conn.on("ready", () => runOnConnection(conn));
+    conn.on("error", (err: Error) => { clearTimeout(timer); if (!timedOut) reject(enhanceError(err, entry)); });
 
     conn.connect({
       host: config.hostname,
@@ -237,7 +337,6 @@ function execSsh2(entry: HostEntry, command: string, timeout = 30_000): Promise<
       password: config.password,
       agent: config.agent,
       readyTimeout: 10_000,
-      // Try all auth methods
       authHandler: buildAuthHandler(config),
     });
   });
@@ -442,11 +541,10 @@ export async function sftpTransfer(
   const config = resolveHostConfig(entry);
   const conn = new Client();
 
-  return new Promise((resolve, reject) => {
-    conn.on("ready", () => {
+  return new Promise(async (resolve, reject) => {
+    function runSftp(conn: Client): void {
       conn.sftp(async (err: Error | undefined, sftp: any) => {
         if (err) { conn.end(); reject(err); return; }
-
         try {
           if (direction === "upload") {
             const result = await uploadPath(sftp, localPath, remotePath, onProgress);
@@ -462,8 +560,23 @@ export async function sftpTransfer(
           reject(e);
         }
       });
-    });
+    }
 
+    // ProxyJump — connect through bastion host(s) for SFTP too
+    if (config.proxyJump) {
+      try {
+        const proxyConn = await connectViaProxy(config.proxyJump, config, 30_000);
+        proxyConn.on("error", (err: Error) => reject(enhanceError(err, entry)));
+        runSftp(proxyConn);
+      } catch (err) {
+        reject(err);
+      }
+      return;
+    }
+
+    // Direct connection
+    const conn = new Client();
+    conn.on("ready", () => runSftp(conn));
     conn.on("error", (err: Error) => reject(enhanceError(err, entry)));
 
     conn.connect({

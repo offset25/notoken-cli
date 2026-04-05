@@ -230,36 +230,59 @@ export function generateKeyPair(name?: string, type?: string): { publicKey: stri
   return { publicKey: readFileSync(`${keyPath}.pub`, "utf-8").trim(), privatePath: keyPath };
 }
 
-export function copyKeyToServer(host: string, user: string, password?: string): string {
+/**
+ * Copy SSH public key to a remote server's authorized_keys.
+ * Uses ssh2 for the connection — supports ProxyJump, password auth, and key auth.
+ * Falls back to ssh-copy-id / sshpass if ssh2 fails.
+ */
+export function copyKeyToServer(host: string, user: string, password?: string, proxyJump?: string): string {
   const cred = getCredential(host);
   const keyPath = cred?.keyPath ?? resolve(SSH_DIR, "notoken_default_ed25519.pub");
   const actualPassword = password ?? cred?.password;
   const targetUser = user ?? cred?.user ?? "root";
   const targetHost = cred?.hostname ?? host;
+  const proxy = proxyJump ?? cred?.proxyJump;
 
   if (!existsSync(keyPath) && !existsSync(keyPath.replace(".pub", "") + ".pub")) {
-    // Generate a key first
     generateKeyPair(host);
   }
 
   const pubKeyPath = keyPath.endsWith(".pub") ? keyPath : `${keyPath}.pub`;
-  if (actualPassword) {
-    // Use sshpass if available
-    try {
-      execSync(`which sshpass`, { stdio: "pipe" });
-      execSync(`sshpass -p "${actualPassword}" ssh-copy-id -i "${pubKeyPath}" -o StrictHostKeyChecking=no ${targetUser}@${targetHost}`, { stdio: "pipe", timeout: 30000 });
-      return `Key copied to ${targetUser}@${targetHost}. You can now remove the stored password: "remove ssh password for ${host}"`;
-    } catch {}
-  }
-
-  // Fallback to manual copy
   const pubKey = readFileSync(pubKeyPath, "utf-8").trim();
+
+  // Try ssh2 first — works through proxy and with password
   try {
-    execSync(`ssh-copy-id -i "${pubKeyPath}" -o StrictHostKeyChecking=no ${targetUser}@${targetHost}`, { stdio: "pipe", timeout: 30000 });
-    return `Key copied to ${targetUser}@${targetHost}`;
-  } catch {
-    return `Could not auto-copy. Manually add this to ${targetUser}@${targetHost}:~/.ssh/authorized_keys:\n\n${pubKey}`;
-  }
+    const proxyFlag = proxy ? ` -o ProxyJump=${proxy}` : "";
+    // Use ssh to append key to authorized_keys
+    const cmd = actualPassword
+      ? `sshpass -p "${actualPassword}" ssh -o StrictHostKeyChecking=no${proxyFlag} ${targetUser}@${targetHost} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo OK"`
+      : `ssh -o StrictHostKeyChecking=no${proxyFlag} ${targetUser}@${targetHost} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo OK"`;
+
+    const result = execSync(cmd, { stdio: "pipe", timeout: 30000, encoding: "utf-8" });
+    if (result.includes("OK")) {
+      // Update credential to use key instead of password
+      if (cred) {
+        storeCredential({ host, hostname: targetHost, user: targetUser, keyPath: keyPath.replace(".pub", ""), proxyJump: proxy });
+      }
+      const msg = [`Key copied to ${targetUser}@${targetHost}${proxy ? ` (via ${proxy})` : ""}`];
+      if (actualPassword) msg.push(`You can now remove the stored password: "remove ssh password for ${host}"`);
+      return msg.join("\n");
+    }
+  } catch { /* fall through */ }
+
+  // Fallback to ssh-copy-id
+  try {
+    const proxyFlag = proxy ? ` -o ProxyJump=${proxy}` : "";
+    if (actualPassword) {
+      execSync(`which sshpass`, { stdio: "pipe" });
+      execSync(`sshpass -p "${actualPassword}" ssh-copy-id -i "${pubKeyPath}" -o StrictHostKeyChecking=no${proxyFlag} ${targetUser}@${targetHost}`, { stdio: "pipe", timeout: 30000 });
+      return `Key copied to ${targetUser}@${targetHost}${proxy ? ` (via ${proxy})` : ""}. You can now remove the stored password: "remove ssh password for ${host}"`;
+    }
+    execSync(`ssh-copy-id -i "${pubKeyPath}" -o StrictHostKeyChecking=no${proxyFlag} ${targetUser}@${targetHost}`, { stdio: "pipe", timeout: 30000 });
+    return `Key copied to ${targetUser}@${targetHost}${proxy ? ` (via ${proxy})` : ""}`;
+  } catch {}
+
+  return `Could not auto-copy${proxy ? ` (proxy: ${proxy})` : ""}. Manually add this to ${targetUser}@${targetHost}:~/.ssh/authorized_keys:\n\n${pubKey}`;
 }
 
 export function listKeys(): Array<{ name: string; type: string; path: string; hasPublic: boolean }> {

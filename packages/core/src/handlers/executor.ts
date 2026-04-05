@@ -1707,21 +1707,27 @@ expect eof
       case "ssh.copy_key": {
         const hostMatch = intent.rawText.match(/(?:to|for)\s+(\S+)/i);
         const host = hostMatch?.[1];
-        if (!host) return `${cc.yellow}Usage:${cc.reset} copy ssh key to <host>`;
+        if (!host) return `${cc.yellow}Usage:${cc.reset} copy ssh key to <host>\n${cc.dim}Also works through proxy: "copy ssh key to prod via bastion"${cc.reset}`;
+        const proxyMatch = intent.rawText.match(/(?:via|through|proxy|jump)\s+(\S+)/i);
+        const proxy = proxyMatch?.[1];
         const cred = ssh.getCredential(host);
         const user = cred?.user ?? "root";
-        console.log(`${cc.dim}Copying SSH key to ${user}@${host}...${cc.reset}`);
-        const result = ssh.copyKeyToServer(host, user);
+        const effectiveProxy = proxy ?? cred?.proxyJump;
+        console.log(`${cc.dim}Copying SSH key to ${user}@${host}${effectiveProxy ? ` via ${effectiveProxy}` : ""}...${cc.reset}`);
+        const result = ssh.copyKeyToServer(host, user, undefined, effectiveProxy);
         return result;
       }
 
       case "ssh.config_add": {
         const hostMatch = intent.rawText.match(/(?:for|host)\s+(\S+)/i);
         const host = hostMatch?.[1];
-        if (!host) return `${cc.yellow}Usage:${cc.reset} add ssh config for <host>`;
+        if (!host) return `${cc.yellow}Usage:${cc.reset} add ssh config for <host>\n${cc.dim}With proxy: "add ssh config for prod via bastion"${cc.reset}`;
+        const proxyMatch = intent.rawText.match(/(?:via|through|proxy|jump)\s+(\S+)/i);
+        const proxy = proxyMatch?.[1];
         const cred = ssh.getCredential(host);
-        ssh.addConfigEntry({ host, hostname: cred?.hostname ?? host, user: cred?.user ?? "root", keyPath: cred?.keyPath, proxyJump: cred?.proxyJump });
-        return `${cc.green}✓${cc.reset} Added ${cc.bold}${host}${cc.reset} to ~/.ssh/config\n  ${cc.dim}Now you can: ssh ${host}${cc.reset}`;
+        ssh.addConfigEntry({ host, hostname: cred?.hostname ?? host, user: cred?.user ?? "root", keyPath: cred?.keyPath, proxyJump: proxy ?? cred?.proxyJump });
+        const effectiveProxy = proxy ?? cred?.proxyJump;
+        return `${cc.green}✓${cc.reset} Added ${cc.bold}${host}${cc.reset} to ~/.ssh/config${effectiveProxy ? `\n  ProxyJump: ${effectiveProxy}` : ""}\n  ${cc.dim}Now you can: ssh ${host}${cc.reset}`;
       }
 
       case "ssh.config_list": {

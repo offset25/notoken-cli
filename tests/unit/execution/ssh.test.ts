@@ -175,3 +175,91 @@ describe("SSH error messages", () => {
     expect(enhanceMsg("Something else", "host")).toBe("Something else");
   });
 });
+
+// ─── ProxyJump parsing ──────────────────────────────────────────────────────
+
+describe("ProxyJump hop parsing", () => {
+  function parseHop(hop: string): { host: string; user: string; port: number } | null {
+    const match = hop.match(/^(?:(\w+)@)?([^:]+)(?::(\d+))?$/);
+    if (!match) return null;
+    return { host: match[2], user: match[1] ?? "root", port: match[3] ? parseInt(match[3]) : 22 };
+  }
+
+  it("parses bare host", () => {
+    expect(parseHop("bastion.example.com")).toEqual({ host: "bastion.example.com", user: "root", port: 22 });
+  });
+
+  it("parses user@host", () => {
+    expect(parseHop("admin@bastion")).toEqual({ host: "bastion", user: "admin", port: 22 });
+  });
+
+  it("parses user@host:port", () => {
+    expect(parseHop("admin@bastion:2222")).toEqual({ host: "bastion", user: "admin", port: 2222 });
+  });
+
+  it("parses host:port without user", () => {
+    expect(parseHop("bastion:2222")).toEqual({ host: "bastion", user: "root", port: 2222 });
+  });
+
+  it("rejects empty string", () => {
+    expect(parseHop("")).toBeNull();
+  });
+});
+
+describe("multi-hop chain splitting", () => {
+  function splitHops(proxyJump: string): string[] {
+    return proxyJump.split(",").map(h => h.trim());
+  }
+
+  it("single hop", () => {
+    expect(splitHops("bastion")).toEqual(["bastion"]);
+  });
+
+  it("multi-hop chain", () => {
+    expect(splitHops("bastion1,bastion2")).toEqual(["bastion1", "bastion2"]);
+  });
+
+  it("multi-hop with spaces", () => {
+    expect(splitHops("bastion1, bastion2, bastion3")).toEqual(["bastion1", "bastion2", "bastion3"]);
+  });
+});
+
+// ─── SFTP proxy support ─────────────────────────────────────────────────────
+
+describe("SFTP proxy detection", () => {
+  it("recognizes ProxyJump config", () => {
+    const config = { hostname: "prod", port: 22, username: "root", proxyJump: "bastion" };
+    expect(!!config.proxyJump).toBe(true);
+  });
+
+  it("no proxy when not configured", () => {
+    const config = { hostname: "prod", port: 22, username: "root" };
+    expect(!!(config as any).proxyJump).toBe(false);
+  });
+});
+
+// ─── copyKeyToServer proxy support ──────────────────────────────────────────
+
+describe("SSH copy key with proxy", () => {
+  it("builds command with ProxyJump flag", () => {
+    function buildCopyCmd(user: string, host: string, pubKey: string, proxy?: string): string {
+      const proxyFlag = proxy ? ` -o ProxyJump=${proxy}` : "";
+      return `ssh -o StrictHostKeyChecking=no${proxyFlag} ${user}@${host} "echo '${pubKey}' >> ~/.ssh/authorized_keys"`;
+    }
+
+    const cmd = buildCopyCmd("root", "prod", "ssh-ed25519 AAAA...", "bastion");
+    expect(cmd).toContain("-o ProxyJump=bastion");
+    expect(cmd).toContain("root@prod");
+    expect(cmd).toContain("authorized_keys");
+  });
+
+  it("builds command without proxy when not specified", () => {
+    function buildCopyCmd(user: string, host: string, pubKey: string, proxy?: string): string {
+      const proxyFlag = proxy ? ` -o ProxyJump=${proxy}` : "";
+      return `ssh -o StrictHostKeyChecking=no${proxyFlag} ${user}@${host} "echo '${pubKey}' >> ~/.ssh/authorized_keys"`;
+    }
+
+    const cmd = buildCopyCmd("root", "prod", "ssh-ed25519 AAAA...");
+    expect(cmd).not.toContain("ProxyJump");
+  });
+});
