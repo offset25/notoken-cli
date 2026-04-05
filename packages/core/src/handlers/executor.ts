@@ -4161,6 +4161,43 @@ expect eof
     return executeIntent(fakeIntent);
   }
 
+  // ── LLM message — talk to Claude/ChatGPT/Ollama directly via CLI ──
+  if (intent.intent === "llm.message") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const rawLower = intent.rawText.toLowerCase();
+
+    let llm = "claude";
+    if (/chatgpt|openai|gpt/i.test(rawLower)) llm = "codex";
+    else if (/ollama/i.test(rawLower)) llm = "ollama";
+
+    const msgMatch = intent.rawText.match(/(?:tell|ask|message|talk\s+to|say\s+to)\s+(?:claude|chatgpt|gpt|ollama|ai)\s+(.*)/i);
+    const message = msgMatch?.[1]?.trim() || (fields.message as string) || intent.rawText;
+
+    if (llm === "claude") {
+      const claudeCheck = await runLocalCommand("claude --version 2>/dev/null").catch(() => "");
+      if (!claudeCheck) return `${cc.red}✗ Claude Code CLI not installed.${cc.reset}\n  ${cc.dim}Say: "install claude"${cc.reset}`;
+      console.log(`${cc.dim}Asking Claude: "${message}"${cc.reset}`);
+      try {
+        const response = await runLocalCommand(`echo ${JSON.stringify(message)} | claude -p 2>&1`, 120_000);
+        return `\n${cc.bold}${cc.cyan}Claude:${cc.reset} ${response.trim()}`;
+      } catch (err: unknown) { return `${cc.red}✗ ${(err as Error).message.split("\n")[0]}${cc.reset}`; }
+    } else if (llm === "codex") {
+      const codexCheck = await runLocalCommand("codex --version 2>/dev/null").catch(() => "");
+      if (!codexCheck) return `${cc.red}✗ Codex CLI not installed.${cc.reset}\n  ${cc.dim}Say: "install codex"${cc.reset}`;
+      console.log(`${cc.dim}Asking Codex: "${message}"${cc.reset}`);
+      try {
+        const response = await runLocalCommand(`codex exec ${JSON.stringify(message)} 2>&1`, 120_000);
+        return `\n${cc.bold}${cc.cyan}Codex:${cc.reset} ${response.trim()}`;
+      } catch (err: unknown) { return `${cc.red}✗ ${(err as Error).message.split("\n")[0]}${cc.reset}`; }
+    } else if (llm === "ollama") {
+      console.log(`${cc.dim}Asking Ollama: "${message}"${cc.reset}`);
+      try {
+        const response = await runLocalCommand(`ollama run llama3.2 ${JSON.stringify(message)} 2>&1`, 120_000);
+        return `\n${cc.bold}${cc.cyan}Ollama:${cc.reset} ${response.trim()}`;
+      } catch (err: unknown) { return `${cc.red}✗ ${(err as Error).message.split("\n")[0]}${cc.reset}`; }
+    }
+  }
+
   // Entity define/list
   if (intent.intent === "entity.define") return learnEntity(intent.rawText) ?? "Could not understand. Try: 'metroplex is 66.94.115.165'";
   if (intent.intent === "entity.list") return listEntities();
