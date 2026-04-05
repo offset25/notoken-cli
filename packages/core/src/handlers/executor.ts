@@ -1614,6 +1614,47 @@ expect eof
     return "Ollama not found. Install: curl -fsSL https://ollama.com/install.sh | sh";
   }
 
+  // Ollama status — quick check if running + version
+  if (intent.intent === "ollama.status") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Ollama ──${cc.reset}\n`);
+
+    // Check if installed
+    const version = await runLocalCommand("ollama --version 2>/dev/null").catch(() => "");
+    if (!version) {
+      lines.push(`  ${cc.red}✗${cc.reset} Ollama not installed`);
+      lines.push(`  ${cc.dim}Install: curl -fsSL https://ollama.com/install.sh | sh${cc.reset}`);
+      return lines.join("\n");
+    }
+    lines.push(`  ${cc.green}✓${cc.reset} Installed: ${version.trim()}`);
+
+    // Check if running
+    const tags = await runLocalCommand("curl -sf http://127.0.0.1:11434/api/tags 2>/dev/null").catch(() => "");
+    if (tags.includes("models")) {
+      const models = JSON.parse(tags).models ?? [];
+      lines.push(`  ${cc.green}✓${cc.reset} Running on port 11434`);
+      lines.push(`  ${cc.bold}Models:${cc.reset} ${models.length} installed`);
+      for (const m of models.slice(0, 5)) {
+        const size = (m.size / 1024 / 1024 / 1024).toFixed(1);
+        lines.push(`    ${cc.green}•${cc.reset} ${m.name} (${size}GB)`);
+      }
+    } else {
+      lines.push(`  ${cc.yellow}○${cc.reset} Not running`);
+      lines.push(`  ${cc.dim}Start: "start ollama"${cc.reset}`);
+    }
+
+    // GPU
+    const gpu = await runLocalCommand("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null").catch(() => "");
+    if (gpu.trim()) {
+      const [name, mem] = gpu.trim().split(",").map(s => s.trim());
+      lines.push(`  ${cc.bold}GPU:${cc.reset} ${name} (${mem}MB VRAM)`);
+    }
+
+    lines.push(`\n  ${cc.dim}Say: "ollama models" for details, "ollama pull llama3.2" to download${cc.reset}`);
+    return lines.join("\n");
+  }
+
   // Ollama model management
   if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };

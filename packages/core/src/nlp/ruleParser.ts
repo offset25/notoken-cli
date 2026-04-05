@@ -277,6 +277,16 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: "do we have X" / "is X installed" → tool.info or specific status
+  const haveMatch = text.match(/\b(do we have|is|are)\s+(ollama|docker|nginx|node|python|git)\s+(installed|running|available|there|set ?up)\b/i)
+    ?? text.match(/\b(do we have|do i have)\s+(ollama|docker|nginx|node|python|git)\b/i);
+  if (haveMatch) {
+    const tool = haveMatch[2].toLowerCase();
+    if (tool === "ollama") return { intent: "ollama.status", confidence: 0.9, rawText, fields: {} };
+    if (tool === "docker") return { intent: "docker.list", confidence: 0.9, rawText, fields: {} };
+    return { intent: "tool.info", confidence: 0.9, rawText, fields: { tool } };
+  }
+
   // Pre-check: file organization
   if (/\b(organize|sort|tidy|clean ?up|arrange|categorize)\b.*\b(files?|folder|directory|downloads?|this)\b/i.test(text)
       || /\b(files?|folder|directory|downloads?)\b.*\b(organize|sort|tidy|arrange|categorize)\b/i.test(text)) {
