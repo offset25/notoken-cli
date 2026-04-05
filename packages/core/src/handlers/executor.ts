@@ -1557,6 +1557,68 @@ expect eof
     }
   }
 
+  // ── Ollama environment detection — WSL vs Windows host ──
+  // Detects where Ollama is installed and routes commands to the right side.
+  // User can say "on windows" or "on wsl" to override.
+  /**
+   * Run an Ollama command on the right environment.
+   * Detects: WSL local, Windows host, Docker container.
+   * User can override with "on windows" / "on wsl" / "in docker".
+   */
+  async function runOllama(cmd: string): Promise<string> {
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+    const raw = intent.rawText.toLowerCase();
+
+    // Explicit target from user
+    const forceWindows = /\b(on\s+)?windows\b|\bhost\b/i.test(raw);
+    const forceWSL = /\b(on\s+|in\s+)?wsl\b|\blinux\b/i.test(raw);
+    const forceDocker = /\b(in\s+)?docker\b|\bcontainer\b/i.test(raw);
+
+    // Detect available installations
+    const wslOllama = await runLocalCommand("which ollama 2>/dev/null").catch(() => "");
+    const winOllama = isWSL ? await runLocalCommand("cmd.exe /c 'where ollama' 2>/dev/null").catch(() => "") : "";
+    const dockerOllama = await runLocalCommand("docker ps --format '{{.Names}}' 2>/dev/null | grep -i ollama").catch(() => "");
+
+    const hasWSL = !!wslOllama;
+    const hasWin = winOllama.includes("ollama");
+    const hasDocker = !!dockerOllama.trim();
+
+    // Docker target
+    if (forceDocker || (!forceWindows && !forceWSL && hasDocker && !hasWSL && !hasWin)) {
+      const container = dockerOllama.trim().split("\n")[0];
+      console.log(`\x1b[2m[Ollama in Docker: ${container}]\x1b[0m`);
+      return runLocalCommand(`docker exec ${container} ollama ${cmd} 2>&1`, 300_000).catch(e => {
+        const err = e as { stdout?: string; stderr?: string };
+        return err.stdout ?? err.stderr ?? (e as Error).message;
+      });
+    }
+
+    // Windows target
+    if (forceWindows || (!forceWSL && !hasWSL && hasWin)) {
+      console.log(`\x1b[2m[Ollama on Windows host]\x1b[0m`);
+      return runLocalCommand(`cmd.exe /c 'ollama ${cmd}' 2>&1`, 300_000).catch(e => {
+        const err = e as { stdout?: string; stderr?: string };
+        return err.stdout ?? err.stderr ?? (e as Error).message;
+      });
+    }
+
+    // WSL / native Linux (default)
+    if (hasWSL || !isWSL) {
+      return runLocalCommand(`ollama ${cmd} 2>&1`, 300_000).catch(e => {
+        const err = e as { stdout?: string; stderr?: string };
+        return err.stdout ?? err.stderr ?? (e as Error).message;
+      });
+    }
+
+    // Show what's available
+    const available: string[] = [];
+    if (hasWSL) available.push("WSL");
+    if (hasWin) available.push("Windows");
+    if (hasDocker) available.push(`Docker (${dockerOllama.trim()})`);
+    if (available.length > 0) return `Ollama found on: ${available.join(", ")}. Specify: "on windows" or "in docker"`;
+    return "Ollama not found. Install: curl -fsSL https://ollama.com/install.sh | sh";
+  }
+
   // Ollama model management
   if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
@@ -1567,8 +1629,8 @@ expect eof
     const freeRamOut = await runLocalCommand("free -b | grep Mem | awk '{print $7}'").catch(() => "0");
     const freeRAMGB = Math.round(parseInt(freeRamOut) / 1073741824);
 
-    // Get installed models
-    const installed = await runLocalCommand("ollama list 2>&1").catch(() => "Ollama not running");
+    // Get installed models — checks both WSL and Windows
+    const installed = await runOllama("list").catch(() => "Ollama not running");
     const lines: string[] = [];
     lines.push(`\n${cc.bold}${cc.cyan}── Ollama Models ──${cc.reset}\n`);
     lines.push(`  ${cc.bold}System:${cc.reset} ${totalRAMGB}GB RAM (${freeRAMGB}GB available)\n`);
@@ -1685,7 +1747,7 @@ expect eof
 
     console.log(lines.join("\n"));
     console.log(`\n\x1b[2mPulling ${model}... this may take a few minutes.\x1b[0m`);
-    result = await withSpinner(`Pulling ${model}...`, () => runLocalCommand(`ollama pull ${model} 2>&1`, 300_000));
+    result = await withSpinner(`Pulling ${model}...`, () => runOllama(`pull ${model}`));
     return result;
   }
 
@@ -1926,7 +1988,7 @@ expect eof
   if (intent.intent === "ollama.remove") {
     const model = (fields.model as string) ?? intent.rawText.match(/(?:remove|delete|rm)\s+(?:ollama\s+(?:model\s+)?)?(\S+)/i)?.[1];
     if (!model) return `\x1b[33mUsage: ollama remove <model>\x1b[0m\n\x1b[2m  Example: "ollama remove llama3.2"\x1b[0m`;
-    result = await withSpinner(`Removing ${model}...`, () => runLocalCommand(`ollama rm ${model} 2>&1`, 30_000));
+    result = await withSpinner(`Removing ${model}...`, () => runOllama(`rm ${model}`));
     return result.includes("deleted") ? `\x1b[32m✓\x1b[0m Model ${model} removed.` : result;
   }
 
