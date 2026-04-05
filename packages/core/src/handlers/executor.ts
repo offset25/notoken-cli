@@ -1574,48 +1574,43 @@ expect eof
     const forceWSL = /\b(on\s+|in\s+)?wsl\b|\blinux\b/i.test(raw);
     const forceDocker = /\b(in\s+)?docker\b|\bcontainer\b/i.test(raw);
 
-    // Detect available installations
-    const wslOllama = await runLocalCommand("which ollama 2>/dev/null").catch(() => "");
-    const winOllama = isWSL ? await runLocalCommand("cmd.exe /c 'where ollama' 2>/dev/null").catch(() => "") : "";
-    const dockerOllama = await runLocalCommand("docker ps --format '{{.Names}}' 2>/dev/null | grep -i ollama").catch(() => "");
+    // Default: run on current environment (where notoken is running)
+    // Only check other environments if user explicitly asks or local fails
+    const catchErr = (e: unknown) => { const err = e as { stdout?: string; stderr?: string; message?: string }; return err.stdout ?? err.stderr ?? err.message ?? "failed"; };
 
-    const hasWSL = !!wslOllama;
-    const hasWin = winOllama.includes("ollama");
-    const hasDocker = !!dockerOllama.trim();
-
-    // Docker target
-    if (forceDocker || (!forceWindows && !forceWSL && hasDocker && !hasWSL && !hasWin)) {
-      const container = dockerOllama.trim().split("\n")[0];
-      console.log(`\x1b[2m[Ollama in Docker: ${container}]\x1b[0m`);
-      return runLocalCommand(`docker exec ${container} ollama ${cmd} 2>&1`, 300_000).catch(e => {
-        const err = e as { stdout?: string; stderr?: string };
-        return err.stdout ?? err.stderr ?? (e as Error).message;
-      });
+    // Explicit overrides first
+    if (forceDocker) {
+      const container = (await runLocalCommand("docker ps --format '{{.Names}}' 2>/dev/null | grep -i ollama").catch(() => "")).trim().split("\n")[0];
+      if (container) {
+        console.log(`\x1b[2m[Ollama in Docker: ${container}]\x1b[0m`);
+        return runLocalCommand(`docker exec ${container} ollama ${cmd} 2>&1`, 300_000).catch(catchErr);
+      }
+      return "No Ollama Docker container found. Start one: docker run -d --name ollama ollama/ollama";
     }
 
-    // Windows target
-    if (forceWindows || (!forceWSL && !hasWSL && hasWin)) {
+    if (forceWindows && isWSL) {
       console.log(`\x1b[2m[Ollama on Windows host]\x1b[0m`);
-      return runLocalCommand(`cmd.exe /c 'ollama ${cmd}' 2>&1`, 300_000).catch(e => {
-        const err = e as { stdout?: string; stderr?: string };
-        return err.stdout ?? err.stderr ?? (e as Error).message;
-      });
+      return runLocalCommand(`cmd.exe /c 'ollama ${cmd}' 2>&1`, 300_000).catch(catchErr);
     }
 
-    // WSL / native Linux (default)
-    if (hasWSL || !isWSL) {
-      return runLocalCommand(`ollama ${cmd} 2>&1`, 300_000).catch(e => {
-        const err = e as { stdout?: string; stderr?: string };
-        return err.stdout ?? err.stderr ?? (e as Error).message;
-      });
+    if (forceWSL || !isWSL) {
+      // Current env is WSL or native Linux — run directly
+      return runLocalCommand(`ollama ${cmd} 2>&1`, 300_000).catch(catchErr);
     }
 
-    // Show what's available
-    const available: string[] = [];
-    if (hasWSL) available.push("WSL");
-    if (hasWin) available.push("Windows");
-    if (hasDocker) available.push(`Docker (${dockerOllama.trim()})`);
-    if (available.length > 0) return `Ollama found on: ${available.join(", ")}. Specify: "on windows" or "in docker"`;
+    // Default for WSL: try local first, then Windows host
+    const localResult = await runLocalCommand(`ollama ${cmd} 2>&1`, 300_000).catch(() => "");
+    if (localResult && !localResult.includes("not found") && !localResult.includes("command not found")) {
+      return localResult;
+    }
+
+    // Local failed — try Windows host silently
+    const winResult = await runLocalCommand(`cmd.exe /c 'ollama ${cmd}' 2>&1`, 300_000).catch(() => "");
+    if (winResult && !winResult.includes("not recognized")) {
+      console.log(`\x1b[2m[Using Windows host Ollama]\x1b[0m`);
+      return winResult;
+    }
+
     return "Ollama not found. Install: curl -fsSL https://ollama.com/install.sh | sh";
   }
 
