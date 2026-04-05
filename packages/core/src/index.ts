@@ -64,6 +64,14 @@ export { winToLinux, linuxToWin, normalizePath, getUserDirs, isWSL, isWindows } 
 export { throttledWslExec, getActiveWslCalls, getWslQueueLength, getWSLStatus, detectWSLCrashes, diagnoseWSL } from "./utils/wslHealth.js";
 export type { WSLStatus, CrashReport, CrashEntry, WSLDiagnosis } from "./utils/wslHealth.js";
 
+// ── Windows Health ──
+export { getWindowsUptime, getWindowsUpdates, getDiskHealth, getMemoryPressure, getWindowsHealth } from "./utils/windowsHealth.js";
+export type { WindowsUptime, WindowsUpdates, DiskInfo, MemoryPressure, WindowsHealth } from "./utils/windowsHealth.js";
+
+// ── Combined System Health ──
+export { getFullSystemHealth } from "./utils/systemHealth.js";
+export type { FullSystemHealth } from "./utils/systemHealth.js";
+
 // ── Permissions ──
 export { getLocalPermissions, getRemotePermissions, checkAccessForIntent, parsePermissionRequest, formatPermissionsDisplay } from "./utils/permissions.js";
 
