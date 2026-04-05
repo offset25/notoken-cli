@@ -391,15 +391,39 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     const lines: string[] = [];
     lines.push(`\n${cc.bold}${cc.cyan}── OpenClaw ──${cc.reset}\n`);
 
-    // Gateway running?
+    // Gateway running? Check both local and Windows host
     const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
     const gwUp = health.includes('"ok"');
-    lines.push(`  ${gwUp ? cc.green + "✓" : cc.red + "✗"}${cc.reset} Gateway: ${gwUp ? "running" : "not running"}`);
 
-    // Environment
+    // Environment + Windows host detection
     const { getUserContext } = await import("../utils/userContext.js");
     const ctx = getUserContext();
-    lines.push(`  ${cc.bold}Env:${cc.reset} ${ctx.isWSL ? "WSL" : ctx.isWindows ? "Windows" : "Linux"} (${ctx.effectiveUser})`);
+    const inWSL = ctx.isWSL;
+
+    let winGwRunning = false;
+    let winInstalled = false;
+    if (inWSL && !gwUp) {
+      // Gateway not responding locally — check if it's on Windows host
+      const hostPs = await runLocalCommand("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-WmiObject Win32_Process -Filter \\\"Name='node.exe'\\\" | Select -Exp CommandLine\" 2>/dev/null").catch(() => "");
+      winGwRunning = hostPs.includes("openclaw") && hostPs.includes("gateway");
+      if (!winGwRunning) {
+        const hostCheck = await runLocalCommand("cmd.exe /c 'where openclaw' 2>/dev/null").catch(() => "");
+        winInstalled = hostCheck.includes("openclaw");
+      }
+    }
+
+    if (gwUp) {
+      lines.push(`  ${cc.green}✓${cc.reset} Gateway: running`);
+    } else if (winGwRunning) {
+      lines.push(`  ${cc.green}✓${cc.reset} Gateway: running on ${cc.bold}Windows host${cc.reset}`);
+    } else {
+      lines.push(`  ${cc.red}✗${cc.reset} Gateway: not running`);
+      if (inWSL && winInstalled) {
+        lines.push(`  ${cc.dim}  OpenClaw installed on Windows host but gateway not started${cc.reset}`);
+      }
+    }
+
+    lines.push(`  ${cc.bold}Env:${cc.reset} ${inWSL ? "WSL" : ctx.isWindows ? "Windows" : "Linux"} (${ctx.effectiveUser})`);
 
     // Current model
     const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || cat ~/.openclaw/openclaw.json 2>/dev/null").catch(() => "");
