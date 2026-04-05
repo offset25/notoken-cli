@@ -1655,6 +1655,101 @@ expect eof
     return lines.join("\n");
   }
 
+  // Ollama uninstall — platform-aware removal
+  if (intent.intent === "ollama.uninstall") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+    const isWin = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+    const removeModels = /\b(completely|everything|and models|all data)\b/i.test(intent.rawText);
+
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Uninstall Ollama ──${cc.reset}\n`);
+
+    // Check what's installed
+    const version = await runLocalCommand("ollama --version 2>/dev/null").catch(() => "");
+    const models = await runLocalCommand("curl -sf http://127.0.0.1:11434/api/tags 2>/dev/null").catch(() => "");
+    let modelCount = 0;
+    let modelSize = "unknown";
+    try {
+      const parsed = JSON.parse(models);
+      modelCount = parsed.models?.length ?? 0;
+      const totalBytes = parsed.models?.reduce((sum: number, m: any) => sum + (m.size ?? 0), 0) ?? 0;
+      modelSize = (totalBytes / 1024 / 1024 / 1024).toFixed(1) + "GB";
+    } catch {}
+
+    if (!version) {
+      return `${cc.dim}Ollama doesn't appear to be installed.${cc.reset}`;
+    }
+
+    lines.push(`  ${cc.bold}Installed:${cc.reset} ${version.trim()}`);
+    if (modelCount > 0) lines.push(`  ${cc.bold}Models:${cc.reset} ${modelCount} installed (${modelSize})`);
+
+    // Stop the service first
+    lines.push(`\n  ${cc.dim}Stopping Ollama service...${cc.reset}`);
+    await runLocalCommand("systemctl stop ollama 2>/dev/null").catch(() => "");
+    await runLocalCommand("pkill -f ollama 2>/dev/null").catch(() => "");
+
+    if (isWSL || (!isWin && !isMac)) {
+      // Linux / WSL
+      lines.push(`  ${cc.bold}Platform:${cc.reset} ${isWSL ? "WSL" : "Linux"}`);
+
+      // Remove binary
+      await runLocalCommand("sudo rm -f /usr/local/bin/ollama 2>/dev/null").catch(() => "");
+      lines.push(`  ${cc.green}✓${cc.reset} Removed /usr/local/bin/ollama`);
+
+      // Remove systemd service
+      await runLocalCommand("sudo systemctl disable ollama 2>/dev/null").catch(() => "");
+      await runLocalCommand("sudo rm -f /etc/systemd/system/ollama.service 2>/dev/null").catch(() => "");
+      await runLocalCommand("sudo systemctl daemon-reload 2>/dev/null").catch(() => "");
+      lines.push(`  ${cc.green}✓${cc.reset} Removed systemd service`);
+
+      // Remove user
+      await runLocalCommand("sudo userdel -r ollama 2>/dev/null").catch(() => "");
+      await runLocalCommand("sudo groupdel ollama 2>/dev/null").catch(() => "");
+      lines.push(`  ${cc.green}✓${cc.reset} Removed ollama user/group`);
+
+      // Remove models if requested
+      if (removeModels) {
+        const modelDirs = ["/usr/share/ollama", `${process.env.HOME}/.ollama`, process.env.OLLAMA_MODELS].filter(Boolean);
+        for (const dir of modelDirs) {
+          if (dir) {
+            await runLocalCommand(`sudo rm -rf "${dir}" 2>/dev/null`).catch(() => "");
+            lines.push(`  ${cc.green}✓${cc.reset} Removed ${dir}`);
+          }
+        }
+      } else {
+        lines.push(`\n  ${cc.yellow}⚠${cc.reset} Models kept. To remove: "uninstall ollama completely"`);
+        const modelDir = process.env.OLLAMA_MODELS ?? "/usr/share/ollama/.ollama/models";
+        lines.push(`  ${cc.dim}Model directory: ${modelDir}${cc.reset}`);
+      }
+
+      // Check Windows side too if in WSL
+      if (isWSL) {
+        const winOllama = await runLocalCommand("cmd.exe /c 'where ollama' 2>/dev/null").catch(() => "");
+        if (winOllama.includes("ollama")) {
+          lines.push(`\n  ${cc.yellow}⚠${cc.reset} Ollama also installed on Windows host.`);
+          lines.push(`  ${cc.dim}To remove from Windows: Settings → Apps → Ollama → Uninstall${cc.reset}`);
+        }
+      }
+    } else if (isMac) {
+      lines.push(`  ${cc.bold}Platform:${cc.reset} macOS`);
+      await runLocalCommand("brew uninstall ollama 2>/dev/null || rm -f /usr/local/bin/ollama").catch(() => "");
+      lines.push(`  ${cc.green}✓${cc.reset} Removed Ollama`);
+      if (removeModels) {
+        await runLocalCommand(`rm -rf ${process.env.HOME}/.ollama 2>/dev/null`).catch(() => "");
+        lines.push(`  ${cc.green}✓${cc.reset} Removed ~/.ollama`);
+      }
+    } else if (isWin) {
+      lines.push(`  ${cc.bold}Platform:${cc.reset} Windows`);
+      lines.push(`  ${cc.dim}Use Settings → Apps → Ollama → Uninstall${cc.reset}`);
+      lines.push(`  ${cc.dim}Or: winget uninstall ollama${cc.reset}`);
+    }
+
+    lines.push(`\n  ${cc.green}✓${cc.reset} ${cc.bold}Ollama uninstalled.${cc.reset}`);
+    return lines.join("\n");
+  }
+
   // Ollama model management
   if (intent.intent === "ollama.models" || intent.intent === "ollama.list") {
     const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };

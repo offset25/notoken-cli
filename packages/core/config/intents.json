@@ -9655,6 +9655,25 @@
       "execution": "local",
       "requiresConfirmation": true,
       "riskLevel": "medium"
+    },
+    {
+      "name": "ollama.uninstall",
+      "description": "Uninstall Ollama and optionally remove models",
+      "synonyms": [
+        "uninstall ollama",
+        "remove ollama",
+        "delete ollama",
+        "get rid of ollama"
+      ],
+      "fields": {},
+      "command": "echo 'Use handler'",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "high",
+      "examples": [
+        "uninstall ollama",
+        "remove ollama completely"
+      ]
     }
   ]
 }

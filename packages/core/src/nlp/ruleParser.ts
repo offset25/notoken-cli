@@ -277,6 +277,11 @@ export function parseByRules(rawText: string): DynamicIntent | null {
     return { intent: intentName, confidence: 0.9, rawText, fields: {} };
   }
 
+  // Pre-check: "uninstall ollama" → ollama.uninstall (not generic package.uninstall)
+  if (/\b(uninstall|remove|delete|get rid of)\s+ollama\b/i.test(text)) {
+    return { intent: "ollama.uninstall", confidence: 0.95, rawText, fields: {} };
+  }
+
   // Pre-check: "do we have X" / "is X installed" → tool.info or specific status
   const haveMatch = text.match(/\b(do we have|is|are)\s+(ollama|docker|nginx|node|python|git)\s+(installed|running|available|there|set ?up)\b/i)
     ?? text.match(/\b(do we have|do i have)\s+(ollama|docker|nginx|node|python|git)\b/i);
