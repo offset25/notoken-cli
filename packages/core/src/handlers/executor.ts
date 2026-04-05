@@ -1346,6 +1346,61 @@ expect eof
     return "";
   }
 
+  // LLM Shell — launch Claude/Codex/Ollama interactively, return to notoken on exit
+  // Also handles llm.claude_cli when no prompt is given (interactive mode)
+  if (intent.intent === "llm.shell" || (intent.intent === "llm.claude_cli" && !(fields.prompt as string)?.trim())) {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+
+    // Detect which tool to launch
+    let tool = "";
+    if (intent.intent === "llm.claude_cli") {
+      tool = "claude";
+    } else {
+      const toolMatch = intent.rawText.match(/(?:run|open|launch|switch to|enter|go to)\s+(\S+)/i);
+      tool = (toolMatch?.[1] ?? (fields.tool as string) ?? "").toLowerCase();
+    }
+    const toolAliases: Record<string, string> = { "claude-code": "claude", "anthropic": "claude", "openai": "codex", "gpt": "codex" };
+    tool = toolAliases[tool] ?? tool;
+
+    // Map tool to binary + check command
+    const tools: Record<string, { bin: string; check: string; name: string; args?: string[] }> = {
+      claude: { bin: "claude", check: "claude --version", name: "Claude Code", args: [] },
+      codex: { bin: "codex", check: "codex --version", name: "Codex CLI", args: [] },
+      ollama: { bin: "ollama", check: "ollama --version", name: "Ollama", args: ["run", "llama3.2"] },
+    };
+
+    const toolInfo = tools[tool];
+    if (!toolInfo) {
+      const available = Object.keys(tools).join(", ");
+      return `${cc.yellow}Usage:${cc.reset} run <tool>\n  Available: ${available}\n  ${cc.dim}Example: "run claude" or "open codex"${cc.reset}`;
+    }
+
+    // Check if installed
+    try {
+      await runLocalCommand(toolInfo.check + " 2>/dev/null");
+    } catch {
+      return `${cc.red}✗ ${toolInfo.name} not installed.${cc.reset}\n  ${cc.dim}Install: "install ${tool}"${cc.reset}`;
+    }
+
+    console.log(`\n${cc.bold}${cc.cyan}Launching ${toolInfo.name}...${cc.reset}`);
+    console.log(`${cc.dim}When you exit ${toolInfo.name}, you'll return to notoken.${cc.reset}\n`);
+
+    // Spawn interactively with inherited stdio — hands over the terminal
+    const { spawnSync } = await import("node:child_process");
+    const result = spawnSync(toolInfo.bin, toolInfo.args ?? [], {
+      stdio: "inherit",
+      shell: true,
+      env: { ...process.env },
+    });
+
+    console.log(`\n${cc.bold}${cc.cyan}Welcome back to notoken.${cc.reset}`);
+    if (result.status !== 0 && result.status !== null) {
+      console.log(`${cc.dim}${toolInfo.name} exited with code ${result.status}${cc.reset}`);
+    }
+
+    return "";
+  }
+
   // Notoken model — check or switch LLM backend
   if (intent.intent === "notoken.model") {
     const { getLLMBackend } = await import("../nlp/llmFallback.js");

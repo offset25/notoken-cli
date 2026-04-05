@@ -4476,6 +4476,45 @@
       ]
     },
     {
+      "name": "llm.shell",
+      "description": "Launch an LLM CLI tool interactively — hands over the terminal and returns to notoken on exit",
+      "synonyms": [
+        "run claude",
+        "open claude",
+        "launch claude",
+        "switch to claude",
+        "claude shell",
+        "run codex",
+        "open codex",
+        "launch codex",
+        "codex shell",
+        "run ollama",
+        "open ollama",
+        "launch ollama",
+        "enter claude",
+        "enter codex",
+        "go to claude",
+        "go to codex"
+      ],
+      "fields": {
+        "tool": {
+          "type": "string",
+          "required": false,
+          "description": "LLM tool to launch (claude, codex, ollama)"
+        }
+      },
+      "command": "echo 'Use llm.shell handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "run claude",
+        "open codex",
+        "switch to claude",
+        "launch ollama"
+      ]
+    },
+    {
       "name": "llm.convex",
       "description": "Run Convex CLI commands",
       "synonyms": [
