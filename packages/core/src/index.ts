@@ -252,3 +252,7 @@ export type { LLMDiagnosis } from "./utils/llmActions.js";
 // ── Types ──
 export type { DynamicIntent, ParsedCommand, IntentDef, FieldDef, EnvironmentName } from "./types/intent.js";
 export type { RulePatch, RulePatchChange, FailureLog, RulesConfig } from "./types/rules.js";
+
+// ── GPU Safety ──
+export { checkGpuSafety, isGpuSafe, getGpuInfo, resetGpuCache } from "./utils/gpuSafety.js";
+export type { GpuSafetyResult } from "./utils/gpuSafety.js";
