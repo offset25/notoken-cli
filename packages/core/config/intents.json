@@ -8294,6 +8294,49 @@
       "commandWindows": "powershell -Command \"$v = claude --version 2>&1; if($LASTEXITCODE -eq 0) { Write-Host 'Claude:' $v } else { $wsl = wsl claude --version 2>&1; if($LASTEXITCODE -eq 0) { Write-Host 'Claude (WSL):' $wsl } else { Write-Host 'Claude Code not installed' } }\""
     },
     {
+      "name": "claude.auth",
+      "description": "Check Claude Code authentication status or re-authenticate",
+      "synonyms": [
+        "claude auth",
+        "claude login",
+        "authenticate claude",
+        "claude oauth",
+        "is claude logged in",
+        "claude credentials",
+        "login to claude",
+        "claude auth status"
+      ],
+      "fields": {},
+      "command": "echo 'Use claude.auth handler'",
+      "execution": "local",
+      "requiresConfirmation": false,
+      "riskLevel": "low",
+      "examples": [
+        "claude auth",
+        "is claude logged in",
+        "authenticate claude"
+      ]
+    },
+    {
+      "name": "claude.install",
+      "description": "Install Claude Code CLI",
+      "synonyms": [
+        "install claude code",
+        "get claude code",
+        "setup claude code",
+        "download claude code"
+      ],
+      "fields": {},
+      "command": "npm install -g @anthropic-ai/claude-code",
+      "execution": "local",
+      "requiresConfirmation": true,
+      "riskLevel": "medium",
+      "examples": [
+        "install claude code",
+        "setup claude code"
+      ]
+    },
+    {
       "name": "openclaw.status",
       "description": "Check if OpenClaw is installed and its version",
       "synonyms": [

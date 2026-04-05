@@ -1346,6 +1346,118 @@ expect eof
     return "";
   }
 
+  // Claude auth — check status, re-authenticate, show token info
+  if (intent.intent === "claude.auth") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── Claude Code Auth ──${cc.reset}\n`);
+
+    // Check if installed
+    const ver = await runLocalCommand("claude --version 2>/dev/null").catch(() => "");
+    if (!ver) {
+      lines.push(`  ${cc.red}✗${cc.reset} Claude Code not installed.`);
+      lines.push(`  ${cc.dim}Install: "install claude" or npm install -g @anthropic-ai/claude-code${cc.reset}`);
+      return lines.join("\n");
+    }
+    lines.push(`  ${cc.green}✓${cc.reset} Claude Code: ${cc.bold}${ver.trim()}${cc.reset}`);
+
+    // Check credentials file
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const credsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+      if (existsSync(credsPath)) {
+        const creds = JSON.parse(readFileSync(credsPath, "utf-8"));
+        const oauth = creds?.claudeAiOauth;
+        if (oauth?.accessToken) {
+          const expiresAt = oauth.expiresAt ?? 0;
+          const hoursLeft = Math.round((expiresAt - Date.now()) / 3600000);
+          const daysLeft = Math.round(hoursLeft / 24);
+
+          if (hoursLeft > 0) {
+            lines.push(`  ${cc.green}✓${cc.reset} OAuth token: ${cc.bold}valid${cc.reset}`);
+            lines.push(`  ${cc.dim}  Expires in: ${daysLeft > 1 ? `${daysLeft} days` : `${hoursLeft} hours`}${cc.reset}`);
+          } else {
+            lines.push(`  ${cc.red}✗${cc.reset} OAuth token: ${cc.bold}expired${cc.reset}`);
+            lines.push(`  ${cc.dim}  Re-authenticate: "login to claude" or run: claude${cc.reset}`);
+          }
+          lines.push(`  ${cc.dim}  Credentials: ${credsPath}${cc.reset}`);
+        } else {
+          lines.push(`  ${cc.yellow}○${cc.reset} No OAuth token — need to authenticate`);
+        }
+      } else {
+        lines.push(`  ${cc.yellow}○${cc.reset} Not authenticated — no credentials file`);
+      }
+    } catch {
+      lines.push(`  ${cc.yellow}○${cc.reset} Could not read credentials`);
+    }
+
+    // If not authenticated or expired, offer to launch claude for OAuth
+    const isLoginRequest = /\b(login|authenticate|re.?auth)\b/i.test(intent.rawText) && !/\b(status|check|is.*logged)\b/i.test(intent.rawText);
+    if (isLoginRequest) {
+      lines.push(`\n  ${cc.bold}Launching Claude for authentication...${cc.reset}`);
+      lines.push(`  ${cc.dim}A browser will open for Anthropic OAuth login.${cc.reset}`);
+      lines.push(`  ${cc.dim}If browser doesn't open, check the terminal for a URL to copy.${cc.reset}\n`);
+
+      // In WSL, help with browser opening
+      const isWSL = (await runLocalCommand("grep -qi microsoft /proc/version 2>/dev/null && echo wsl || echo native").catch(() => "native")).trim() === "wsl";
+      if (isWSL) {
+        lines.push(`  ${cc.yellow}WSL detected:${cc.reset} Browser should open on Windows automatically.`);
+        lines.push(`  ${cc.dim}If not, copy the URL and paste in your Windows browser.${cc.reset}\n`);
+      }
+
+      console.log(lines.join("\n"));
+
+      // Spawn claude interactively for OAuth
+      const { spawnSync } = await import("node:child_process");
+      spawnSync("claude", [], { stdio: "inherit", shell: true, env: { ...process.env } });
+
+      // Check if auth succeeded
+      try {
+        const { readFileSync } = await import("node:fs");
+        const credsPath = `${process.env.HOME ?? "/root"}/.claude/.credentials.json`;
+        const creds = JSON.parse(readFileSync(credsPath, "utf-8"));
+        if (creds?.claudeAiOauth?.accessToken) {
+          return `\n${cc.green}✓${cc.reset} Claude authenticated successfully.\n${cc.dim}Welcome back to notoken.${cc.reset}`;
+        }
+      } catch {}
+      return `\n${cc.dim}Welcome back to notoken.${cc.reset}`;
+    }
+
+    // Check if OpenClaw can use Claude's token
+    const ocCredsPath = `${process.env.HOME ?? "/root"}/.openclaw/agents/main/agent/auth-profiles.json`;
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      if (existsSync(ocCredsPath)) {
+        const ocAuth = JSON.parse(readFileSync(ocCredsPath, "utf-8"));
+        const anthropicProfile = Object.values(ocAuth.profiles ?? {}).find((p: any) => p.provider === "anthropic");
+        if (anthropicProfile) {
+          lines.push(`\n  ${cc.green}✓${cc.reset} OpenClaw: Claude token synced`);
+        } else {
+          lines.push(`\n  ${cc.yellow}○${cc.reset} OpenClaw: Claude token not synced`);
+          lines.push(`  ${cc.dim}  Auto-sync happens on "is openclaw running"${cc.reset}`);
+        }
+      }
+    } catch {}
+
+    lines.push(`\n  ${cc.dim}Re-authenticate: "login to claude"${cc.reset}`);
+    return lines.join("\n");
+  }
+
+  // Claude install — handled by tool.install, but catch claude.install too
+  if (intent.intent === "claude.install") {
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m" };
+    const ver = await runLocalCommand("claude --version 2>/dev/null").catch(() => "");
+    if (ver) return `${cc.green}✓${cc.reset} Claude Code already installed: ${cc.bold}${ver.trim()}${cc.reset}`;
+
+    console.log(`${cc.cyan}Installing Claude Code CLI...${cc.reset}`);
+    result = await withSpinner("Installing...", () => runLocalCommand("npm install -g @anthropic-ai/claude-code 2>&1", 120_000));
+    const newVer = await runLocalCommand("claude --version 2>/dev/null").catch(() => "");
+    if (newVer) {
+      return `${cc.green}✓${cc.reset} Claude Code installed: ${cc.bold}${newVer.trim()}${cc.reset}\n\n  ${cc.bold}Next:${cc.reset} Run "run claude" or "login to claude" to authenticate via OAuth.\n  ${cc.dim}A browser will open for Anthropic login.${cc.reset}`;
+    }
+    return `${cc.yellow}⚠${cc.reset} Install completed but could not verify.\n${cc.dim}${result.substring(0, 300)}${cc.reset}`;
+  }
+
   // LLM Shell — launch Claude/Codex/Ollama interactively, return to notoken on exit
   // Also handles llm.claude_cli when no prompt is given (interactive mode)
   if (intent.intent === "llm.shell" || (intent.intent === "llm.claude_cli" && !(fields.prompt as string)?.trim())) {
