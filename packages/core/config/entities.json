@@ -61,7 +61,7 @@
       "path": "/usr/local/bin/openclaw",
       "version": "2026.4.2",
       "port": 18789,
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai-codex/gpt-5.4",
       "status": "running",
       "aliases": [
         "wsl openclaw",
@@ -70,7 +70,7 @@
         "linux openclaw",
         "openclaw #1"
       ],
-      "lastSeen": "2026-04-04T22:50:20.142Z"
+      "lastSeen": "2026-04-05T00:20:30.071Z"
     },
     "openclaw-windows": {
       "service": "openclaw",
@@ -87,7 +87,7 @@
         "the other openclaw",
         "openclaw #2"
       ],
-      "lastSeen": "2026-04-04T22:50:20.142Z"
+      "lastSeen": "2026-04-05T00:20:30.071Z"
     }
   }
 }

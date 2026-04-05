@@ -376,10 +376,86 @@ export async function executeIntent(intent: DynamicIntent): Promise<string> {
     }
   }
 
-  // OpenClaw status
+  // OpenClaw status — quick summary or detailed
   if (intent.intent === "openclaw.status") {
+    const isDetailed = /\b(details?|detailed|verbose|full|deep|all|everything)\b/i.test(intent.rawText);
     const diagRemote = environment !== "local" && environment !== "localhost" && hasRealHost(environment);
-    return diagRemote ? await quickConnectivityCheck((cmd: string) => runRemoteCommand(environment, cmd)) : await quickConnectivityCheck();
+
+    if (isDetailed) {
+      // Full detailed check (existing behavior)
+      return diagRemote ? await quickConnectivityCheck((cmd: string) => runRemoteCommand(environment, cmd)) : await quickConnectivityCheck();
+    }
+
+    // Quick summary — fast, one-line-per-item
+    const cc = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", cyan: "\x1b[36m" };
+    const lines: string[] = [];
+    lines.push(`\n${cc.bold}${cc.cyan}── OpenClaw ──${cc.reset}\n`);
+
+    // Gateway running?
+    const health = await runLocalCommand("curl -sf http://127.0.0.1:18789/health 2>/dev/null").catch(() => "");
+    const gwUp = health.includes('"ok"');
+    lines.push(`  ${gwUp ? cc.green + "✓" : cc.red + "✗"}${cc.reset} Gateway: ${gwUp ? "running" : "not running"}`);
+
+    // Environment
+    const { getUserContext } = await import("../utils/userContext.js");
+    const ctx = getUserContext();
+    lines.push(`  ${cc.bold}Env:${cc.reset} ${ctx.isWSL ? "WSL" : ctx.isWindows ? "Windows" : "Linux"} (${ctx.effectiveUser})`);
+
+    // Current model
+    const ocConfig = await runLocalCommand("cat /root/.openclaw/openclaw.json 2>/dev/null || cat ~/.openclaw/openclaw.json 2>/dev/null").catch(() => "");
+    const modelMatch = ocConfig.match(/"primary"\s*:\s*"([^"]+)"/);
+    if (modelMatch) lines.push(`  ${cc.bold}Model:${cc.reset} ${modelMatch[1]}`);
+
+    // LLM providers — quick check auth profiles
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { getAuthProfilesPath } = await import("../utils/userContext.js");
+      const authPath = getAuthProfilesPath();
+      if (existsSync(authPath)) {
+        const auth = JSON.parse(readFileSync(authPath, "utf-8"));
+        const providers: string[] = [];
+        for (const [name, profile] of Object.entries(auth.profiles ?? {}) as [string, any][]) {
+          const expires = profile.expires ?? 0;
+          const hoursLeft = (expires - Date.now()) / 3600000;
+          const pName = name.split(":")[0];
+          if (hoursLeft > 0) {
+            providers.push(`${cc.green}✓${cc.reset} ${pName} (${Math.round(hoursLeft)}h)`);
+          } else if (profile.type === "token" || profile.type === "api_key") {
+            providers.push(`${cc.green}✓${cc.reset} ${pName} (static)`);
+          } else if (expires > 0) {
+            providers.push(`${cc.red}✗${cc.reset} ${pName} (expired)`);
+          }
+        }
+        if (providers.length > 0) {
+          lines.push(`  ${cc.bold}LLMs:${cc.reset} ${providers.join("  ")}`);
+        }
+      }
+    } catch {}
+
+    // Channels — check Discord
+    const discordToken = ocConfig.includes('"discord"') && ocConfig.includes('"token"');
+    if (discordToken) {
+      // Quick check if Discord is connected via logs
+      const recentLog = await runLocalCommand("tail -20 /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null").catch(() => "");
+      const discordOk = recentLog.includes("logged in to discord") || recentLog.includes("discord client ready");
+      const discordAwaiting = recentLog.includes("awaiting gateway readiness");
+      if (discordOk) {
+        lines.push(`  ${cc.green}✓${cc.reset} Discord: connected`);
+      } else if (discordAwaiting) {
+        lines.push(`  ${cc.yellow}⏳${cc.reset} Discord: connecting...`);
+      } else {
+        lines.push(`  ${cc.yellow}○${cc.reset} Discord: configured`);
+      }
+    }
+
+    // Ollama
+    const ollamaUp = await runLocalCommand("curl -sf http://localhost:11434/api/tags 2>/dev/null | head -1").catch(() => "");
+    if (ollamaUp.includes("models")) {
+      lines.push(`  ${cc.green}✓${cc.reset} Ollama: running`);
+    }
+
+    lines.push(`\n  ${cc.dim}Say "openclaw status details" for full diagnostics${cc.reset}`);
+    return lines.join("\n");
   }
 
   // OpenClaw diagnose
