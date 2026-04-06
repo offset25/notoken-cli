@@ -82,6 +82,8 @@ function detectCodex(): boolean {
   if (codexChecked) return codexAvailable;
   codexChecked = true;
   try {
+    // Codex needs OPENAI_API_KEY to function — don't auto-detect without it
+    if (!process.env.OPENAI_API_KEY) { codexAvailable = false; return false; }
     execSync("command -v codex", { timeout: 1000, stdio: "pipe" });
     codexAvailable = true;
   } catch {
