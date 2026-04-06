@@ -1373,12 +1373,16 @@ expect eof
           const hoursLeft = Math.round((expiresAt - Date.now()) / 3600000);
           const daysLeft = Math.round(hoursLeft / 24);
 
+          const hasRefresh = !!oauth.refreshToken;
           if (hoursLeft > 0) {
             lines.push(`  ${cc.green}✓${cc.reset} OAuth token: ${cc.bold}valid${cc.reset}`);
-            lines.push(`  ${cc.dim}  Expires in: ${daysLeft > 1 ? `${daysLeft} days` : `${hoursLeft} hours`}${cc.reset}`);
+            lines.push(`  ${cc.dim}  Expires in: ${daysLeft > 1 ? `${daysLeft} days` : `${hoursLeft} hours`} (auto-refreshes)${cc.reset}`);
+          } else if (hasRefresh) {
+            lines.push(`  ${cc.yellow}○${cc.reset} OAuth token: ${cc.bold}expired${cc.reset} — will auto-refresh on next use`);
+            lines.push(`  ${cc.dim}  Refresh token present. Just run any Claude command.${cc.reset}`);
           } else {
-            lines.push(`  ${cc.red}✗${cc.reset} OAuth token: ${cc.bold}expired${cc.reset}`);
-            lines.push(`  ${cc.dim}  Re-authenticate: "login to claude" or run: claude${cc.reset}`);
+            lines.push(`  ${cc.red}✗${cc.reset} OAuth token: ${cc.bold}expired, no refresh token${cc.reset}`);
+            lines.push(`  ${cc.dim}  Re-authenticate: "login to claude"${cc.reset}`);
           }
           lines.push(`  ${cc.dim}  Credentials: ${credsPath}${cc.reset}`);
         } else {
