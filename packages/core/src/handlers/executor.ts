@@ -36,7 +36,8 @@ import { searchWikidata, formatWikiEntity, formatWikiSuggestions } from "../nlp/
 import { suggestAction } from "../conversation/pendingActions.js";
 import { resolve as pathResolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync as _existsSync, readFileSync as _readFileSync } from "node:fs";
+import { existsSync as _existsSync, readFileSync as _readFileSync, writeFileSync as _writeFileSync } from "node:fs";
+import { release as _osRelease, tmpdir as _tmpdir } from "node:os";
 
 /** Resolve a config file path — works from any cwd, any OS, including global npm install. */
 const _configDir = pathResolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "config");
@@ -5257,20 +5258,17 @@ function interpolateCommand(
   fields: Record<string, unknown>
 ): string {
   const isWindows = process.platform === "win32";
-  const isWSL = !isWindows && require("os").release().toLowerCase().includes("microsoft");
+  const isWSL = !isWindows && _osRelease().toLowerCase().includes("microsoft");
   // On Windows or WSL, prefer commandWindows if available
   let cmd = ((isWindows || isWSL) && def.commandWindows) ? def.commandWindows : def.command;
   // In WSL, write PowerShell to a temp .ps1 file to avoid bash $variable stripping
   if (isWSL && cmd.startsWith("powershell ")) {
-    const fs = require("fs");
-    const os = require("os");
-    const path = require("path");
     // Extract the -Command "..." content
     const match = cmd.match(/powershell\s+-Command\s+"(.+)"$/s);
     if (match) {
       const psScript = match[1];
-      const tmpFile = path.join(os.tmpdir(), `notoken-ps-${Date.now()}.ps1`);
-      fs.writeFileSync(tmpFile, psScript);
+      const tmpFile = pathResolve(_tmpdir(), `notoken-ps-${Date.now()}.ps1`);
+      _writeFileSync(tmpFile, psScript);
       const winPath = tmpFile.replace(/^\/mnt\/([a-z])\//, (_m: string, d: string) => `${d.toUpperCase()}:\\\\`).replace(/\//g, "\\\\");
       cmd = `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy Bypass -File "${winPath}"`;
     }
