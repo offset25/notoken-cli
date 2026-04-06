@@ -258,12 +258,8 @@ export async function runInteractive(options: { adaptRules?: boolean } = {}): Pr
       commandText = resolved;
     }
 
-    // ── Greetings ──
-    if (isGreeting(commandText)) {
-      console.log(`\n${c.yellow}⚠ You need to authenticate before you can use Codex.${c.reset}`);
-      console.log(`  Run ${c.bold}notoken login${c.reset} to authenticate.\n`);
-      continue;
-    }
+    // ── Greetings — let the NLP pipeline handle chat.greeting naturally ──
+    // (no special case needed — parseIntent + executeIntent handles it)
 
     // ── Secret redaction — never store passwords in conversation ──
     const redaction = redactSecrets(commandText);
