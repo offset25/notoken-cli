@@ -80,10 +80,9 @@ export async function runCli(
     addUserTurn(conv, rawText, parsed.intent.intent, parsed.intent.confidence, parsed.intent.fields as Record<string, unknown>);
   } catch { /* conversation store not available */ }
 
-  // If unknown and LLM configured, try LLM fallback
+  // If unknown and LLM configured, silently try LLM fallback
   if (parsed.intent.intent === "unknown" && isLLMConfigured()) {
-    console.error("\x1b[2mAsking LLM for help...\x1b[0m");
-    const fallbackResult = await llmFallback(rawText, {});
+    const fallbackResult = await llmFallback(rawText, {}).catch(() => null);
 
     if (fallbackResult?.understood && fallbackResult.suggestedIntents.length > 0) {
       console.log(formatLLMFallback(fallbackResult));
