@@ -5,13 +5,13 @@
 
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, release as osRelease } from "node:os";
 import { tryExecAsync } from "./asyncExec.js";
 
 function runPS1(script: string, timeout = 10000): Promise<string | null> {
   const tmp = join(tmpdir(), `notoken-winhealth-${Date.now()}.ps1`);
   writeFileSync(tmp, script);
-  const isInWSL = require("os").release().toLowerCase().includes("microsoft");
+  const isInWSL = osRelease().toLowerCase().includes("microsoft");
   const psExe = isInWSL
     ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
     : "powershell";

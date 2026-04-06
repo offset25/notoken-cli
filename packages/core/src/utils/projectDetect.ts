@@ -5,6 +5,7 @@
  * install/update/build commands for that project's ecosystem.
  */
 
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { detectLocalPlatform } from "./platform.js";
@@ -119,7 +120,6 @@ export function detectProjects(dir: string = process.cwd()): DetectedProject[] {
   // ── .NET ──
   const csproj = ["*.csproj", "*.fsproj"].some(() => {
     try {
-      const { execSync } = require("node:child_process");
       return execSync(`ls ${dir}/*.csproj ${dir}/*.fsproj 2>/dev/null`, { encoding: "utf-8" }).trim().length > 0;
     } catch { return false; }
   });

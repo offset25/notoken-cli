@@ -6,6 +6,7 @@
  * subsequent calls skip the probe.
  */
 
+import { execSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -325,7 +326,6 @@ export async function getOllamaStatus(): Promise<OllamaStatus> {
  */
 export function isOllamaInstalled(): boolean {
   try {
-    const { execSync } = require("node:child_process") as typeof import("node:child_process");
     execSync("command -v ollama 2>/dev/null || where ollama 2>nul", { timeout: 2000, stdio: "pipe" });
     return true;
   } catch {

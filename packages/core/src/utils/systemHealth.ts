@@ -2,7 +2,7 @@
  * Combined system health — Windows + WSL + stats + crashes in one diagnosis.
  */
 
-import { platform } from "node:os";
+import { platform, release as osRelease } from "node:os";
 import { diagnoseWSL, type WSLDiagnosis, type CrashReport, detectWSLCrashes } from "./wslHealth.js";
 import { getWindowsHealth, type WindowsHealth } from "./windowsHealth.js";
 import { getSystemStats } from "./systemStats.js";
@@ -27,7 +27,7 @@ export interface FullSystemHealth {
 
 export async function getFullSystemHealth(): Promise<FullSystemHealth> {
   const plat = platform();
-  const isWSL = require("os").release().toLowerCase().includes("microsoft");
+  const isWSL = osRelease().toLowerCase().includes("microsoft");
   const platformName: FullSystemHealth["platform"] = plat === "win32" ? "windows" : isWSL ? "wsl" : plat === "darwin" ? "macos" : "linux";
 
   const issues: string[] = [];

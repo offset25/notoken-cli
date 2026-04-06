@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { USER_HOME } from "./paths.js";
 
@@ -152,7 +152,6 @@ export function listFullBackups(): BackupInfo[] {
   if (!existsSync(BACKUP_DIR)) return [];
 
   try {
-    const { readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
     return readdirSync(BACKUP_DIR)
       .filter((f: string) => f.startsWith("notoken-backup-") && f.endsWith(".tar.gz"))
       .map((f: string) => {

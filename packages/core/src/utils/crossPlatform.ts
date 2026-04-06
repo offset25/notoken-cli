@@ -5,7 +5,7 @@
  * same logic can drive both the Electron app and the CLI.
  */
 
-import { platform as osPlatform } from "node:os";
+import { platform as osPlatform, release as osRelease } from "node:os";
 import { tryExecAsync } from "./asyncExec.js";
 
 /* ── tiny platform helpers ── */
@@ -18,7 +18,7 @@ export function isWSL(): boolean {
     process.env.WSLENV !== undefined ||
     (() => {
       try {
-        return require("os").release().toLowerCase().includes("microsoft");
+        return osRelease().toLowerCase().includes("microsoft");
       } catch {
         return false;
       }

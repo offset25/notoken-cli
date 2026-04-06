@@ -8,11 +8,23 @@ import { lookupUnknownNouns } from "./wikidata.js";
 import { routeByConcepts } from "./conceptRouter.js";
 import { parseMultiIntent, type MultiIntentPlan } from "./multiIntent.js";
 import { isAffirmation, consumePendingAction, isRedirectingPendingAction } from "../conversation/pendingActions.js";
+import { detectGibberish } from "./gibberishDetector.js";
 
 /** Result from parseIntent — may contain a multi-step plan */
 export type { MultiIntentPlan };
 
 export async function parseIntent(rawText: string): Promise<ParsedCommand & { plan?: MultiIntentPlan }> {
+  // Stage -3: Gibberish detection — catch keyboard mashing early
+  const gibCheck = detectGibberish(rawText);
+  if (gibCheck.isGibberish && gibCheck.confidence >= 0.8) {
+    return disambiguate({
+      intent: "unknown",
+      confidence: 0,
+      rawText,
+      fields: { reason: `Input looks like gibberish (${gibCheck.reason})` },
+    });
+  }
+
   // Stage -2: Knowledge graph reference resolution
   // Only resolve if coreference hasn't already handled it (avoid double resolution).
   // Coreference runs in interactive mode (interactive.ts), knowledge graph here covers one-shot mode.

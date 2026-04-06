@@ -9,13 +9,13 @@
  */
 
 import { execSync } from "node:child_process";
-import { platform as osPlatform } from "node:os";
+import { platform as osPlatform, release as osRelease } from "node:os";
 import { resolve } from "node:path";
 
 const isWSL = osPlatform() === "linux" && (
   process.env.WSL_DISTRO_NAME !== undefined ||
   process.env.WSLENV !== undefined ||
-  (() => { try { return require("os").release().toLowerCase().includes("microsoft"); } catch { return false; } })()
+  (() => { try { return osRelease().toLowerCase().includes("microsoft"); } catch { return false; } })()
 );
 
 const isWindows = osPlatform() === "win32";

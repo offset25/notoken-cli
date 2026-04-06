@@ -1,4 +1,4 @@
-import { fork, type ChildProcess } from "node:child_process";
+import { exec, fork, type ChildProcess } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
@@ -113,7 +113,6 @@ export class AgentSpawner extends EventEmitter {
     description: string,
     command: string,
   ): AgentHandle {
-    const { exec } = require("node:child_process") as typeof import("node:child_process");
 
     const agent: AgentHandle = {
       id: this.nextId++,

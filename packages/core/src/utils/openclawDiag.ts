@@ -12,6 +12,7 @@
  */
 
 import { exec, execSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { discoverInstallations } from "./entityResolver.js";
@@ -151,13 +152,11 @@ interface TokenSyncResult {
  */
 export function refreshOpenclawAuth(): { success: boolean; method: string; message: string } {
   try {
-    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
-
     // Get fresh token from Claude
     const claudePath = getClaudeCredsPath();
-    if (!ef(claudePath)) return { success: false, method: "none", message: "Claude CLI not found" };
+    if (!existsSync(claudePath)) return { success: false, method: "none", message: "Claude CLI not found" };
 
-    const claude = JSON.parse(rf(claudePath, "utf-8"));
+    const claude = JSON.parse(readFileSync(claudePath, "utf-8"));
     const freshToken = claude?.claudeAiOauth?.accessToken;
     const freshExpires = claude?.claudeAiOauth?.expiresAt;
     if (!freshToken) return { success: false, method: "none", message: "No Claude OAuth token" };
@@ -165,7 +164,7 @@ export function refreshOpenclawAuth(): { success: boolean; method: string; messa
     // Find Node 22 and openclaw binary
     let node22 = "node";
     const nvmPaths = ["/home/ino/.nvm/versions/node/v22.22.2/bin/node", "/home/ino/.nvm/versions/node/v22.22.1/bin/node"];
-    for (const p of nvmPaths) { try { if (require("node:fs").existsSync(p)) { node22 = p; break; } } catch {} }
+    for (const p of nvmPaths) { try { if (existsSync(p)) { node22 = p; break; } } catch {} }
     if (node22 === "node") { try { const found = execSync("ls /home/ino/.nvm/versions/node/v22*/bin/node 2>/dev/null | tail -1", { encoding: "utf-8", timeout: 3000, stdio: "pipe" }).trim(); if (found) node22 = found; } catch {} }
     let ocBin = "openclaw";
     try { ocBin = execSync("readlink -f $(which openclaw) 2>/dev/null || which openclaw", { encoding: "utf-8", timeout: 3000, stdio: "pipe" }).trim(); } catch {}
@@ -194,9 +193,9 @@ expect eof
 
     // Method 2: Direct write to auth-profiles.json
     const authPath = `${getOpenclawHome()}/agents/main/agent/auth-profiles.json`;
-    if (!ef(authPath)) return { success: false, method: "none", message: "OpenClaw auth file not found" };
+    if (!existsSync(authPath)) return { success: false, method: "none", message: "OpenClaw auth file not found" };
 
-    const auth = JSON.parse(rf(authPath, "utf-8"));
+    const auth = JSON.parse(readFileSync(authPath, "utf-8"));
     if (!auth.profiles) auth.profiles = {};
 
     auth.profiles["anthropic:claude-oauth"] = {
@@ -208,7 +207,7 @@ expect eof
     if (!auth.lastGood) auth.lastGood = {};
     auth.lastGood.anthropic = "anthropic:claude-oauth";
 
-    wf(authPath, JSON.stringify(auth, null, 2));
+    writeFileSync(authPath, JSON.stringify(auth, null, 2));
     return { success: true, method: "direct", message: "Token written directly to auth profiles" };
   } catch (err) {
     return { success: false, method: "error", message: (err as Error).message };
@@ -394,27 +393,26 @@ export function parseOpenclawStatus(output: string): {
 function syncCodexToken(): TokenSyncResult {
   try {
     const ctx = getUserContext();
-    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
     const codexPath = resolve(ctx.loginHomeDir, ".codex", "auth.json");
     const authPath = getAuthProfilesPath();
 
-    if (!ef(codexPath)) {
+    if (!existsSync(codexPath)) {
       let codexInstalled = "";
       try { codexInstalled = execSync("which codex 2>/dev/null || where codex 2>nul", { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim(); } catch {}
       if (!codexInstalled) return { status: "no_claude", message: "Codex CLI not installed. Install: npm install -g @openai/codex" };
       return { status: "no_claude_token", message: "Codex CLI installed but no auth file. Run: codex" };
     }
 
-    const codex = JSON.parse(rf(codexPath, "utf-8"));
+    const codex = JSON.parse(readFileSync(codexPath, "utf-8"));
     const freshToken = codex?.tokens?.access_token;
     const refreshToken = codex?.tokens?.refresh_token;
     const freshExpires = (codex?.tokens?.expires_at ?? 0) * 1000; // Codex uses seconds, we use ms
     const accountId = codex?.tokens?.account_id;
     if (!freshToken && !refreshToken) return { status: "no_claude_token", message: "Codex has no tokens. Run: codex (to authenticate)" };
 
-    if (!ef(authPath)) return { status: "no_openclaw_auth", message: "OpenClaw auth file not found" };
+    if (!existsSync(authPath)) return { status: "no_openclaw_auth", message: "OpenClaw auth file not found" };
 
-    const auth = JSON.parse(rf(authPath, "utf-8"));
+    const auth = JSON.parse(readFileSync(authPath, "utf-8"));
     const ocProfile = auth?.profiles?.["openai-codex:default"];
     if (!ocProfile) {
       // Create profile
@@ -422,7 +420,7 @@ function syncCodexToken(): TokenSyncResult {
       auth.profiles["openai-codex:default"] = { type: "oauth", provider: "openai-codex", access: freshToken, refresh: refreshToken, expires: freshExpires, accountId };
       if (!auth.lastGood) auth.lastGood = {};
       auth.lastGood["openai-codex"] = "openai-codex:default";
-      wf(authPath, JSON.stringify(auth, null, 2));
+      writeFileSync(authPath, JSON.stringify(auth, null, 2));
       return { status: "synced", message: "Created OpenClaw Codex auth profile from Codex CLI" };
     }
 
@@ -438,7 +436,7 @@ function syncCodexToken(): TokenSyncResult {
     if (refreshToken) ocProfile.refresh = refreshToken;
     ocProfile.expires = freshExpires;
     if (accountId) ocProfile.accountId = accountId;
-    wf(authPath, JSON.stringify(auth, null, 2));
+    writeFileSync(authPath, JSON.stringify(auth, null, 2));
     return { status: "synced", message: "Codex token synced from ~/.codex/auth.json" };
   } catch (err) {
     return { status: "error", message: `Codex sync error: ${(err as Error).message}` };
@@ -448,8 +446,6 @@ function syncCodexToken(): TokenSyncResult {
 function syncClaudeToken(): TokenSyncResult {
   try {
     const ctx = getUserContext();
-    const { existsSync: ef, readFileSync: rf, writeFileSync: wf } = require("node:fs") as typeof import("node:fs");
-
     // 1. Find freshest Claude token across all users (root, ino, etc.)
     const freshest = findFreshestClaudeToken();
     if (!freshest) {
@@ -471,11 +467,11 @@ function syncClaudeToken(): TokenSyncResult {
 
     // 3. Check OpenClaw's auth file — use user-aware path
     const authPath = getAuthProfilesPath();
-    if (!ef(authPath)) {
+    if (!existsSync(authPath)) {
       return { status: "no_openclaw_auth", message: "OpenClaw auth not configured. Run: diagnose openclaw", claudeExpires: freshExpires };
     }
 
-    const auth = JSON.parse(rf(authPath, "utf-8"));
+    const auth = JSON.parse(readFileSync(authPath, "utf-8"));
     // Check both profile names — openclaw uses "anthropic:claude-oauth" or "anthropic:manual"
     const ocProfile = auth?.profiles?.["anthropic:claude-oauth"] ?? auth?.profiles?.["anthropic:manual"];
     if (!ocProfile) {
@@ -484,7 +480,7 @@ function syncClaudeToken(): TokenSyncResult {
       auth.profiles["anthropic:claude-oauth"] = { type: "oauth", provider: "anthropic", access: freshToken, expires: freshExpires };
       if (!auth.lastGood) auth.lastGood = {};
       auth.lastGood.anthropic = "anthropic:claude-oauth";
-      wf(authPath, JSON.stringify(auth, null, 2));
+      writeFileSync(authPath, JSON.stringify(auth, null, 2));
       return { status: "synced", message: `Created OpenClaw auth profile with Claude token (${claudeHoursLeft.toFixed(1)}h remaining)`, claudeExpires: freshExpires };
     }
 
@@ -499,7 +495,7 @@ function syncClaudeToken(): TokenSyncResult {
     // 5. Sync fresh token
     ocProfile.access = freshToken;
     ocProfile.expires = freshExpires;
-    wf(authPath, JSON.stringify(auth, null, 2));
+    writeFileSync(authPath, JSON.stringify(auth, null, 2));
     return {
       status: "synced",
       message: `Token refreshed — was ${ocHoursLeft > 0 ? `expiring in ${ocHoursLeft.toFixed(1)}h` : `expired ${Math.abs(ocHoursLeft).toFixed(1)}h ago`}, now good for ${claudeHoursLeft.toFixed(1)}h`,
@@ -919,9 +915,8 @@ async function auditOpenclawComponents(
     // Check OAuth token
     const claudeCredsPath = getClaudeCredsPath();
     try {
-      const { existsSync: ef, readFileSync: rf } = await import("node:fs");
-      if (ef(claudeCredsPath)) {
-        const creds = JSON.parse(rf(claudeCredsPath, "utf-8"));
+      if (existsSync(claudeCredsPath)) {
+        const creds = JSON.parse(readFileSync(claudeCredsPath, "utf-8"));
         if (creds?.claudeAiOauth?.accessToken) {
           lines.push(`    ${c.green}✓${c.reset} OAuth token present`);
           hasLLM = true;

@@ -3,6 +3,7 @@
  * Persists to ~/.notoken/knowledge-graph.json.
  * Auto-populates from entities.json, rules.json, and running system state.
  */
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -287,8 +288,6 @@ function populateFromRules(g: KnowledgeGraph, serviceAliases: Record<string, str
 }
 
 function populateFromSystem(g: KnowledgeGraph): void {
-  let execSync: typeof import("node:child_process").execSync;
-  try { execSync = require("node:child_process").execSync; } catch { return; }
   const tryExec = (cmd: string): string => { try { return execSync(cmd, { timeout: 5_000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim(); } catch { return ""; } };
 
   // Docker containers

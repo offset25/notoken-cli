@@ -7,6 +7,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { release as osRelease } from "node:os";
 import { tryExecAsync } from "./asyncExec.js";
 
 const execAsync = promisify(exec);
@@ -67,7 +68,7 @@ export async function getWSLStatus(): Promise<WSLStatus> {
   };
 
   // Check if WSL is running — different check depending on where we are
-  const isInWSL = require("os").release().toLowerCase().includes("microsoft");
+  const isInWSL = osRelease().toLowerCase().includes("microsoft");
   if (isInWSL) {
     // We're inside WSL already
     status.running = true;

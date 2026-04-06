@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
 
@@ -360,7 +360,7 @@ export function loadContextFile(conv: Conversation, filePath: string): string {
     return `File not found: ${absPath}`;
   }
 
-  const stat = require("node:fs").statSync(absPath);
+  const stat = statSync(absPath);
   if (stat.size > 50 * 1024) {
     return `File too large (${(stat.size / 1024).toFixed(0)} KB). Max 50 KB for context files. Use file.read for large files.`;
   }

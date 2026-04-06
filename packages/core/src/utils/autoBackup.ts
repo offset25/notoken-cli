@@ -8,7 +8,7 @@
  * Also supports manual rollback.
  */
 
-import { existsSync, mkdirSync, copyFileSync, readdirSync, unlinkSync, statSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readdirSync, unlinkSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 
@@ -172,6 +172,5 @@ function loadIndex(): BackupRecord[] {
 
 function saveIndex(records: BackupRecord[]): void {
   ensureBackupDir();
-  const { writeFileSync } = require("node:fs") as typeof import("node:fs");
   writeFileSync(INDEX_FILE, JSON.stringify(records, null, 2));
 }
