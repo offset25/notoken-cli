@@ -3653,6 +3653,18 @@ expect eof
         const installCmd = mgr === "apt" ? `DEBIAN_FRONTEND=noninteractive apt-get install -y ${tool.pkg}` : `${mgr} install -y ${tool.pkg}`;
         console.log(`    ${cc.dim}Installing ${tool.name}...${cc.reset}`);
         try {
+          // Check for dpkg lock before trying
+          const lockCheck = await runLocalCommand("fuser /var/lib/dpkg/lock-frontend 2>/dev/null").catch(() => "");
+          if (lockCheck.trim()) {
+            console.log(`    ${cc.yellow}⏳${cc.reset} Package manager locked by another process — waiting...`);
+            // Wait up to 60s for lock to release
+            for (let w = 0; w < 12; w++) {
+              await runLocalCommand("sleep 5");
+              const still = await runLocalCommand("fuser /var/lib/dpkg/lock-frontend 2>/dev/null").catch(() => "");
+              if (!still.trim()) break;
+            }
+          }
+
           await runLocalCommand(`${installCmd} 2>&1`, 120_000);
           const verify = await runLocalCommand(`${tool.check} 2>/dev/null`).catch(() => "");
           if (verify.trim()) {
@@ -3666,10 +3678,18 @@ expect eof
               await runLocalCommand("freshclam --quiet 2>/dev/null", 120_000).catch(() => "");
             }
           } else {
-            console.log(`    ${cc.yellow}⚠${cc.reset} ${tool.name} install may have failed`);
+            console.log(`    ${cc.yellow}⚠${cc.reset} ${tool.name} install may have failed — verify: ${tool.check}`);
           }
-        } catch {
-          console.log(`    ${cc.yellow}⚠${cc.reset} Could not install ${tool.name}`);
+        } catch (installErr: unknown) {
+          const errMsg = (installErr as Error).message ?? "";
+          if (errMsg.includes("lock") || errMsg.includes("dpkg")) {
+            console.log(`    ${cc.yellow}���${cc.reset} Could not install ${tool.name} — package manager locked by another process`);
+            console.log(`    ${cc.dim}  Try again in a minute, or run: sudo ${installCmd}${cc.reset}`);
+          } else if (errMsg.includes("Unable to locate") || errMsg.includes("No package")) {
+            console.log(`    ${cc.yellow}⚠${cc.reset} Package ${tool.pkg} not found — try: sudo apt update && sudo ${installCmd}`);
+          } else {
+            console.log(`    ${cc.yellow}⚠${cc.reset} Could not install ${tool.name}: ${errMsg.split("\n")[0].substring(0, 80)}`);
+          }
         }
       }
     }
